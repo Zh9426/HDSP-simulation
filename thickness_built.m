@@ -14,9 +14,9 @@ density_board = 1100;
 lambda_water = c_water / f0;
 dx = Lx / Nx; 
 dy = dx; 
-dz = dx; 
-Nz = 384;      
-Lz = Nz * dz;
+Nz = 512;      
+Lz = 35e-3;
+dz = Lz/Nz; 
 x = (-Nx/2 : Nx/2-1) * dx;
 fprintf('网格尺寸: %d x %d x %d, dx=%.4f mm\n', Nx, Ny, Nz, dx*1e3);
 
@@ -111,59 +111,46 @@ figure(1);
 subplot(1,2,1); imagesc(x*1e3, x*1e3, imag_target); axis image; colormap gray; title('目标');
 subplot(1,2,2); imagesc(x*1e3, x*1e3, holo_phase); axis image; colormap jet; title('IASA 相位 (Pad优化)');
 
-%% === 优化后的：相位转厚度与体素化逻辑 ===
+%% === [修改部分 Start] 相位转厚度与体素化优化 ===
 fprintf('进行物理厚度构建与体素化优化...\n');
 
 % 1. 严格的 0 到 2*pi 相位映射
-% 将 [-pi, pi] 映射到 [0, 2*pi)，确保没有负厚度
 phase_wrapped = mod(holo_phase, 2*pi); 
 
-% 2. 计算物理厚度
+% 2. 计算理想物理厚度
 k_board_val = 2 * pi * f0 / c_board;
 k_water_val = 2 * pi * f0 / c_water;
 k_diff = abs(k_water_val - k_board_val); 
-
 thickness_ideal = phase_wrapped / k_diff;
 
-% [移除 BUG] 坚决去掉直接的 imgaussfilt 平滑，保留菲涅尔透镜的尖锐跳变边界！
-% 仅添加维持物理强度的最小基底厚度
-min_base = 2 * dz; % 给 2 个网格的基底支撑
-thickness_map = thickness_ideal + min_base;
+% 3. [关键优化] 亚波长平滑 (Anti-aliasing)
+% 适度平滑有助于减弱 FDTD 阶梯网格带来的非物理高频散射
+% 必须在转化为厚度且 Wrapped 后进行，保留宏观跳变但软化微观锯齿
+thickness_map = imgaussfilt(thickness_ideal, 0.5); 
+min_base = 2 * dz; % 基底支撑
+thickness_map = thickness_map + min_base;
 
-% 3. 严格体素化 (Voxelization)
-% 使用 round 会产生最大 0.5*dz 的误差
+% 4. 严格体素化
 net_num_board = round(thickness_map / dz);
 actual_thickness = net_num_board * dz;
 
-% 4. [新增诊断] 反算体素化后的实际物理相位
-% 看看我们放进 k-Wave 的透镜，到底和 IASA 算出来的相位差了多少
+% 5. [修正] 反算并对齐相位误差 (消除假警报)
 actual_phase_imparted = mod(actual_thickness * k_diff, 2*pi);
+complex_diff = exp(1i * actual_phase_imparted) ./ exp(1i * phase_wrapped);
+global_offset = angle(mean(complex_diff(:))); % 剔除基底造成的常数相位偏移
+phase_aligned = angle(exp(1i * (actual_phase_imparted - global_offset)));
 
-% 计算相位量化误差 (Phase Quantization Error)
-% 注意处理 0 和 2*pi 边界的误差计算
-phase_error = abs(actual_phase_imparted - phase_wrapped);
-phase_error(phase_error > pi) = 2*pi - phase_error(phase_error > pi); % 折叠误差
+% 计算真正的量化误差
+phase_error = abs(angle(exp(1i * (phase_aligned - phase_wrapped))));
 mean_phase_error = mean(phase_error(:));
 
-fprintf(' -> 平均相位量化误差: %.4f Rad (%.1f 度)\n', mean_phase_error, mean_phase_error*180/pi);
-if mean_phase_error > 0.5
-    warning('体素化误差过大！建议减小 dz (提高网格分辨率)！');
-end
+fprintf(' -> 真实的平均相位量化误差: %.4f Rad (%.1f 度)\n', mean_phase_error, mean_phase_error*180/pi);
 
-% 5. 3D 可视化检查
 figure(11); clf;
 set(gcf, 'Position', [100, 100, 1200, 400]);
-subplot(1,3,1); 
-imagesc(x*1e3, x*1e3, phase_wrapped); axis image; colormap hsv; colorbar;
-title('理想 Wrapped 相位 (0-2\pi)');
-
-subplot(1,3,2); 
-imagesc(x*1e3, x*1e3, actual_phase_imparted); axis image; colormap hsv; colorbar;
-title('体素化后实际相位');
-
-subplot(1,3,3);
-surf(x*1e3, x*1e3, actual_thickness*1e3); shading flat; colormap parula;
-title('构建的 3D 透镜厚度 (mm)'); view(2); colorbar;
+subplot(1,3,1); imagesc(x*1e3, x*1e3, phase_wrapped); axis image; colormap hsv; colorbar; title('理想 Wrapped 相位');
+subplot(1,3,2); imagesc(x*1e3, x*1e3, phase_aligned); axis image; colormap hsv; colorbar; title('体素化后实际相位');
+subplot(1,3,3); surf(x*1e3, x*1e3, actual_thickness*1e3); shading flat; colormap parula; title('构建的 3D 透镜厚度'); view(2); colorbar;
 
 %% k-Wave 介质建模 (包含透镜构建)
 fprintf('仿真环境与实体介质构建\n');
@@ -171,13 +158,12 @@ kgrid = kWaveGrid(Nx, dx, Ny, dy, Nz, dz);
 
 medium.sound_speed = c_water * ones(Nx, Ny, Nz);
 medium.density = density_water * ones(Nx, Ny, Nz);
-% 加入水的背景衰减
 medium.alpha_coeff = 0.002 * ones(Nx, Ny, Nz); 
 medium.alpha_power = 1.5;
 
 pml_size = 10;
 source_z_idx = pml_size + 5;
-z_board_stat_idx = source_z_idx + 2; % 给源留出2格距离防止边界粘连
+z_board_stat_idx = source_z_idx + 2;
 
 fprintf('将透镜写入 3D 网格...\n');
 for i = 1:Nx
@@ -188,15 +174,20 @@ for i = 1:Nx
             z_end = z_board_stat_idx + n_layers - 1;
             
             medium.sound_speed(i, j, z_start:z_end) = c_board;
-            medium.density(i, j, z_start:z_end) = density_board;
             
-            % [关键物理约束] 必须加入树脂的声学衰减！
-            % 3D打印光敏树脂的衰减通常在 1.0 ~ 3.0 dB/(MHz^y cm) 之间
-            medium.alpha_coeff(i, j, z_start:z_end) = 1.5; 
+            % [物理排错开关] 
+            % 如果你想测试画质下降是否是由材料反射造成的，
+            % 可以注释掉第一行，打开第二行（强行匹配水和树脂的声学阻抗）
+            medium.density(i, j, z_start:z_end) = density_board; 
+            % medium.density(i, j, z_start:z_end) = (c_water * density_water) / c_board; 
+            
+            % 树脂的声学衰减
+            medium.alpha_coeff(i, j, z_start:z_end) = 1.0; 
         end
     end
 end
 thickest = max(net_num_board(:)) * dz;
+% === [修改部分 End] ===
 %% 时间 (保持原样)
 fprintf('时间设置\n');
 cfl = 0.3;
@@ -349,6 +340,10 @@ fprintf('目标平面位置 Z Index: %d\n', target_plane_idx);
 fprintf('\n');
 
 fprintf('========================================\n');
+fprintf(' -> 平均相位量化误差: %.4f Rad (%.1f 度)\n', mean_phase_error, mean_phase_error*180/pi);
+if mean_phase_error > 0.5
+    warning('体素化误差过大！建议减小 dz (提高网格分辨率)！');
+end
 fprintf('图像重建质量评估 (实体透镜仿真):\n');
 fprintf('Correlation (接近1越好): %.4f\n', val_corr);
 fprintf('NMSE        (越低越好) : %.4f\n', val_nmse);
