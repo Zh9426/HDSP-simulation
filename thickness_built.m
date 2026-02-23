@@ -123,12 +123,10 @@ k_water_val = 2 * pi * f0 / c_water;
 k_diff = abs(k_water_val - k_board_val); 
 thickness_ideal = phase_wrapped / k_diff;
 
-% 3. [关键优化] 亚波长平滑 (Anti-aliasing)
-% 适度平滑有助于减弱 FDTD 阶梯网格带来的非物理高频散射
-% 必须在转化为厚度且 Wrapped 后进行，保留宏观跳变但软化微观锯齿
-thickness_map = imgaussfilt(thickness_ideal, 0.5); 
+% 3. [修复BUG] 坚决移除厚度平滑！保留菲涅尔透镜的锐利断崖！
+% thickness_map = imgaussfilt(thickness_ideal, 0.5); 
 min_base = 2 * dz; % 基底支撑
-thickness_map = thickness_map + min_base;
+thickness_map = thickness_ideal + min_base;
 
 % 4. 严格体素化
 net_num_board = round(thickness_map / dz);
@@ -143,7 +141,6 @@ phase_aligned = angle(exp(1i * (actual_phase_imparted - global_offset)));
 % 计算真正的量化误差
 phase_error = abs(angle(exp(1i * (phase_aligned - phase_wrapped))));
 mean_phase_error = mean(phase_error(:));
-
 fprintf(' -> 真实的平均相位量化误差: %.4f Rad (%.1f 度)\n', mean_phase_error, mean_phase_error*180/pi);
 
 figure(11); clf;
@@ -216,7 +213,7 @@ fprintf('sensor设置\n');
 sensor.mask = zeros(Nx, Ny, Nz);
 
 % 1. 记录出口平面 (用于校验透镜转换质量)
-z_board_exit_idx = z_board_stat_idx + round(thickest/dz) + 1;
+z_board_exit_idx = z_board_stat_idx + round(thickest/dz) + 4;
 sensor.mask(:, :, z_board_exit_idx) = 1;
 
 % 2. 记录目标平面 (用于量化评估)
