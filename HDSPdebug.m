@@ -238,12 +238,21 @@ sensor.mask = zeros(Nx, Ny, Nz);
 
 % 2. 记录目标平面 (用于量化评估)
 target_plane_idx = z_board_exit_idx + round(z_target_dist / dz);
-sensor.mask(:, :, target_plane_idx) = 1;
+scan_range_idx = round(3e-3 / dz); 
+z_scan_start = target_plane_idx - scan_range_idx;
+z_scan_end = target_plane_idx + scan_range_idx;
+
+% 安全检查防止越界
+if z_scan_end > Nz - pml_size
+    z_scan_end = Nz - pml_size;
+end
+sensor.mask(:, :, z_scan_start:z_scan_end) = 1;
 
 sensor.record = {'p'}; 
 sensor.record_start_index = kgrid.Nt - round(3/f0/kgrid.dt);
 % fprintf('  - 出口校验面 Z Index: %d\n', z_board_exit_idx);
-fprintf('  - 目标平面 Z Index: %d (距离源 %.2f mm)\n', target_plane_idx, target_plane_idx*dz*1e3);
+fprintf('  - 扫描范围 Z Index: %d 到 %d (寻找物理最佳焦面)\n', z_scan_start, z_scan_end);
+% fprintf('  - 目标平面 Z Index: %d (距离源 %.2f mm)\n', target_plane_idx, target_plane_idx*dz*1e3);
 % === [修改部分 End] ===
 
 %% 8. 仿真 (保持原样)
@@ -263,7 +272,7 @@ catch
     sensor_data = kspaceFirstOrder3D(kgrid, medium, source, sensor, input_args{:});
 end
 
-%% 9. 数据处理与量化评估
+%% 9. 数据处理与量化评估 (新增自动 Z-Scan 寻优逻辑)
 if isfield(sensor_data, 'p')
     p_raw = gather(sensor_data.p); 
     [~, Nt_rec] = size(p_raw);
@@ -274,52 +283,70 @@ if isfield(sensor_data, 'p')
     p_field_3d = zeros(Nx, Ny, Nz);
     mask_indices = find(sensor.mask);
     p_field_3d(mask_indices) = p_complex;
+    
+    % 提取扫描体积的声压幅值
+    scan_vol = abs(p_field_3d(:, :, z_scan_start:z_scan_end));
+    num_slices = size(scan_vol, 3);
+    
+    % --- 准备目标图像进行评估 ---
+    R = double(imag_target);                 
+    R = (R - min(R(:))) / (max(R(:)) - min(R(:)));
+    R_mean = mean(R(:));
+    
+    best_corr = -1;
+    best_slice_idx = 1;
+    best_img_recon = [];
+    best_nmse = inf;
+    best_psnr = 0;
+    
+    fprintf('开始 Z-Scan 寻优...\n');
+    % 逐层计算相关系数，寻找真正聚焦最完美的平面
+    for k = 1:num_slices
+        A = scan_vol(:, :, k);
+        A = (A - min(A(:))) / (max(A(:)) - min(A(:))); % 归一化
+        A_mean = mean(A(:));
+        
+        % 计算 Correlation
+        numerator = sum(sum((R - R_mean) .* (A - A_mean)));
+        denominator = sqrt(sum(sum((R - R_mean).^2)) * sum(sum((A - A_mean).^2)));
+        val_corr = numerator / denominator;
+        
+        if val_corr > best_corr
+            best_corr = val_corr;
+            best_slice_idx = k;
+            best_img_recon = A;
+            
+            % 同步记录最高 Corr 时的其他指标
+            best_nmse = sum(sum((R - A).^2)) / sum(sum(R.^2));
+            mse = mean((R(:) - A(:)).^2);
+            if mse == 0, best_psnr = Inf; else, best_psnr = 20 * log10(1 / sqrt(mse)); end
+        end
+    end
+    
+    % 计算实际的最佳物理聚焦距离
+    actual_z_dist_idx = z_scan_start + best_slice_idx - 1 - z_board_exit_idx;
+    actual_z_dist_mm = actual_z_dist_idx * dz * 1e3;
+    
+    fprintf('>>> 自动寻优完成！最佳焦面发生偏移: 理论 20.00mm -> 实际 %.2f mm\n', actual_z_dist_mm);
 
-    % 提取目标平面图像并归一化
-    img_recon = abs(p_field_3d(:, :, target_plane_idx));
-    img_recon = img_recon / max(img_recon(:)); 
-
-    % 可视化
+    % 可视化最佳平面
     figure(6); clf; set(gcf, 'Position', [100, 100, 1000, 400], 'Color', 'w');
     subplot(1,3,1); imagesc(x*1e3, x*1e3, imag_target); axis image; colormap gray; title('原始目标'); xlabel('mm');
-    subplot(1,3,2); imagesc(x*1e3, x*1e3, img_recon); axis image; colormap jet; title('k-Wave 实体透镜最终成像'); xlabel('mm');
+    subplot(1,3,2); imagesc(x*1e3, x*1e3, best_img_recon); axis image; colormap jet; 
+    title(sprintf('物理最佳焦面重建 (Z=%.2f mm)', actual_z_dist_mm)); xlabel('mm');
     subplot(1,3,3);
     center_row = round(Nx/2);
     plot(x*1e3, imag_target(center_row, :), 'k--', 'LineWidth', 1.5); hold on;
-    plot(x*1e3, img_recon(center_row, :), 'r-', 'LineWidth', 1.5);
-    legend('Target', 'Simulated'); title('中心剖面线'); grid on; xlabel('mm');
+    plot(x*1e3, best_img_recon(center_row, :), 'r-', 'LineWidth', 1.5);
+    legend('Target', 'Simulated'); title('最佳焦面剖面线'); grid on; xlabel('mm');
 
-    % 量化评估
-    fprintf('计算量化指标...\n');
-    R = double(imag_target);                 
-    A = double(img_recon);                   
-    R = (R - min(R(:))) / (max(R(:)) - min(R(:)));
-    A = (A - min(A(:))) / (max(A(:)) - min(A(:)));
-    
-    R_mean = mean(R(:));
-    A_mean = mean(A(:));
-    numerator = sum(sum((R - R_mean) .* (A - A_mean)));
-    denominator = sqrt(sum(sum((R - R_mean).^2)) * sum(sum((A - A_mean).^2)));
-    val_corr = numerator / denominator;
-    
-    val_nmse = sum(sum((R - A).^2)) / sum(sum(R.^2));
-    
-    mse = mean((R(:) - A(:)).^2);
-    A_max = max(A(:)); 
-    if mse == 0
-        val_psnr = Inf;
-    else
-        val_psnr = 20 * log10(A_max / sqrt(mse));
-    end
-    
     try
-        val_ssim = ssim(A, R);
+        best_ssim = ssim(best_img_recon, R);
     catch
-        val_ssim = NaN; 
-        warning('SSIM 计算需要 Image Processing Toolbox');
+        best_ssim = NaN; 
     end
     
-end
+
     fprintf('========================================\n');
     fprintf('IASA参数:\n');
     fprintf('迭代数: %d\n', epoch);
@@ -338,8 +365,11 @@ end
     if mean_phase_error > 0.5
         warning('体素化误差过大！建议减小 dz (提高网格分辨率)！');
     end
-    fprintf('图像重建质量评估 (实体透镜仿真):\n');
-    fprintf('Correlation (接近1越好): %.4f\n', val_corr);
-    fprintf('NMSE        (越低越好) : %.4f\n', val_nmse);
-    fprintf('PSNR        (越高越好) : %.2f dB\n', val_psnr);
-    fprintf('SSIM        (接近1越好): %.4f\n', val_ssim);
+    fprintf('\n========================================\n');
+    fprintf('终极图像重建质量评估 (Z-Scan 最佳焦面):\n');
+    fprintf('Correlation : %.4f \n', best_corr);
+    fprintf('NMSE        : %.4f \n', best_nmse);
+    fprintf('PSNR        : %.2f dB \n', best_psnr);
+    fprintf('SSIM        : %.4f \n', best_ssim);
+    fprintf('========================================\n');
+end
