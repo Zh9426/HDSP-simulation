@@ -14,8 +14,8 @@ density_board = 1100;
 lambda_water = c_water / f0;
 dx = Lx / Nx; 
 dy = dx; 
-Nz = 512;      
-Lz = 35e-3;
+Nz = 128;      
+Lz = 10e-3;
 dz = Lz/Nz; 
 x = (-Nx/2 : Nx/2-1) * dx;
 fprintf('网格尺寸: %d x %d x %d, dx=%.4f mm\n', Nx, Ny, Nz, dx*1e3);
@@ -212,7 +212,7 @@ source.p_mode = 'dirichlet';
 
 %% 7. Sensor 放置
 % === [修改部分 Start] 同时放置出口平面与目标平面的Sensor ===
-fprintf('sensor设置 (双平面记录)\n');
+fprintf('sensor设置\n');
 sensor.mask = zeros(Nx, Ny, Nz);
 
 % 1. 记录出口平面 (用于校验透镜转换质量)
@@ -220,13 +220,12 @@ z_board_exit_idx = z_board_stat_idx + round(thickest/dz) + 1;
 sensor.mask(:, :, z_board_exit_idx) = 1;
 
 % 2. 记录目标平面 (用于量化评估)
-target_plane_idx = z_board_exit_idx + round(z_target_dist / dz);
-sensor.mask(:, :, target_plane_idx) = 1;
+% target_plane_idx = z_board_exit_idx + round(z_target_dist / dz);
+% sensor.mask(:, :, target_plane_idx) = 1;
 
 sensor.record = {'p'}; 
 sensor.record_start_index = kgrid.Nt - round(3/f0/kgrid.dt);
 fprintf('  - 出口校验面 Z Index: %d\n', z_board_exit_idx);
-fprintf('  - 目标聚焦面 Z Index: %d\n', target_plane_idx);
 % === [修改部分 End] ===
 
 %% 8. 仿真 (保持原样)
@@ -272,59 +271,63 @@ if isfield(sensor_data, 'p')
     global_phase_offset = angle(mean(complex_diff(:)));
     sim_exit_phase_aligned = angle(exp(1i * (sim_exit_phase_raw - global_phase_offset)));
 
+    phase_error_sim = angle(exp(1i * (sim_exit_phase_aligned - holo_phase)));
+    mean_error_sim_rad = mean(abs(phase_error_sim(:)));
+
     figure(5); clf;
     set(gcf, 'Position', [100, 100, 1000, 400]);
     subplot(1,3,1); imagesc(x*1e3, x*1e3, holo_phase); axis image; colormap hsv; clim([-pi, pi]); title('1. 设计相位 (IASA)');
     subplot(1,3,2); imagesc(x*1e3, x*1e3, sim_exit_phase_aligned); axis image; colormap hsv; clim([-pi, pi]); title('2. 物理透镜出口相位');
     phase_error = angle(exp(1i * (sim_exit_phase_aligned - holo_phase)));
     subplot(1,3,3); imagesc(x*1e3, x*1e3, abs(phase_error)); axis image; colormap gray; clim([0, 1]); colorbar; title('3. 差异残差 (黑=完美)');
+    title(sprintf('3. 差异残差 (平均: %.2f Rad)', mean_error_sim_rad));
     sgtitle('物理厚度构建质量校验');
 
     % ----- 2. 目标平面提取与作图 -----
-    img_recon = abs(p_field_3d(:, :, target_plane_idx));
-    img_recon = img_recon / max(img_recon(:)); % 归一化
-    
-    figure(6); clf;
-    set(gcf, 'Position', [100, 100, 1000, 400]);
-    subplot(1,3,1); imagesc(x*1e3, x*1e3, imag_target); axis image; colormap gray; title('原始目标'); xlabel('mm');
-    subplot(1,3,2); imagesc(x*1e3, x*1e3, img_recon); axis image; colormap jet; title('k-Wave 实体透镜聚焦重建'); xlabel('mm');
-    subplot(1,3,3);
-    center_row = round(Nx/2);
-    plot(x*1e3, imag_target(center_row, :), 'k--', 'LineWidth', 1.5); hold on;
-    plot(x*1e3, img_recon(center_row, :), 'r-', 'LineWidth', 1.5);
-    legend('Target', 'Simulated'); title('中心剖面线'); grid on; xlabel('mm');
+    % img_recon = abs(p_field_3d(:, :, target_plane_idx));
+    % img_recon = img_recon / max(img_recon(:)); % 归一化
+    % 
+    % figure(6); clf;
+    % set(gcf, 'Position', [100, 100, 1000, 400]);
+    % subplot(1,3,1); imagesc(x*1e3, x*1e3, imag_target); axis image; colormap gray; title('原始目标'); xlabel('mm');
+    % subplot(1,3,2); imagesc(x*1e3, x*1e3, img_recon); axis image; colormap jet; title('k-Wave 实体透镜聚焦重建'); xlabel('mm');
+    % subplot(1,3,3);
+    % center_row = round(Nx/2);
+    % plot(x*1e3, imag_target(center_row, :), 'k--', 'LineWidth', 1.5); hold on;
+    % plot(x*1e3, img_recon(center_row, :), 'r-', 'LineWidth', 1.5);
+    % legend('Target', 'Simulated'); title('中心剖面线'); grid on; xlabel('mm');
 end
 % === [修改部分 End] ===
 
 %% 10. 量化评估 (保持原逻辑，仅微调打印格式防报错)
-fprintf('计算量化指标...\n');
-R = double(imag_target);                 
-A = double(img_recon);                   
-R = (R - min(R(:))) / (max(R(:)) - min(R(:)));
-A = (A - min(A(:))) / (max(A(:)) - min(A(:)));
-
-R_mean = mean(R(:));
-A_mean = mean(A(:));
-numerator = sum(sum((R - R_mean) .* (A - A_mean)));
-denominator = sqrt(sum(sum((R - R_mean).^2)) * sum(sum((A - A_mean).^2)));
-val_corr = numerator / denominator;
-
-val_nmse = sum(sum((R - A).^2)) / sum(sum(R.^2));
-
-mse = mean((R(:) - A(:)).^2);
-A_max = max(A(:)); 
-if mse == 0
-    val_psnr = Inf;
-else
-    val_psnr = 20 * log10(A_max / sqrt(mse));
-end
-
-try
-    val_ssim = ssim(A, R);
-catch
-    val_ssim = NaN; 
-    warning('SSIM 计算需要 Image Processing Toolbox');
-end
+% fprintf('计算量化指标...\n');
+% R = double(imag_target);                 
+% A = double(img_recon);                   
+% R = (R - min(R(:))) / (max(R(:)) - min(R(:)));
+% A = (A - min(A(:))) / (max(A(:)) - min(A(:)));
+% 
+% R_mean = mean(R(:));
+% A_mean = mean(A(:));
+% numerator = sum(sum((R - R_mean) .* (A - A_mean)));
+% denominator = sqrt(sum(sum((R - R_mean).^2)) * sum(sum((A - A_mean).^2)));
+% val_corr = numerator / denominator;
+% 
+% val_nmse = sum(sum((R - A).^2)) / sum(sum(R.^2));
+% 
+% mse = mean((R(:) - A(:)).^2);
+% A_max = max(A(:)); 
+% if mse == 0
+%     val_psnr = Inf;
+% else
+%     val_psnr = 20 * log10(A_max / sqrt(mse));
+% end
+% 
+% try
+%     val_ssim = ssim(A, R);
+% catch
+%     val_ssim = NaN; 
+%     warning('SSIM 计算需要 Image Processing Toolbox');
+% end
 
 fprintf('========================================\n');
 fprintf('IASA参数:\n');
@@ -336,7 +339,7 @@ fprintf('仿真参数:\n');
 fprintf('目标平面距离: %.4f\n', z_target_dist);
 fprintf('完美匹配层大小: %d 格\n', pml_size); % 修改了这里的单位防报错
 fprintf('source位置 Z Index: %d\n', source_z_idx); % 修改了格式防报错
-fprintf('目标平面位置 Z Index: %d\n', target_plane_idx);
+% fprintf('目标平面位置 Z Index: %d\n', target_plane_idx);
 fprintf('\n');
 
 fprintf('========================================\n');
@@ -344,8 +347,8 @@ fprintf(' -> 平均相位量化误差: %.4f Rad (%.1f 度)\n', mean_phase_error,
 if mean_phase_error > 0.5
     warning('体素化误差过大！建议减小 dz (提高网格分辨率)！');
 end
-fprintf('图像重建质量评估 (实体透镜仿真):\n');
-fprintf('Correlation (接近1越好): %.4f\n', val_corr);
-fprintf('NMSE        (越低越好) : %.4f\n', val_nmse);
-fprintf('PSNR        (越高越好) : %.2f dB\n', val_psnr);
-fprintf('SSIM        (接近1越好): %.4f\n', val_ssim);
+% fprintf('图像重建质量评估 (实体透镜仿真):\n');
+% fprintf('Correlation (接近1越好): %.4f\n', val_corr);
+% fprintf('NMSE        (越低越好) : %.4f\n', val_nmse);
+% fprintf('PSNR        (越高越好) : %.2f dB\n', val_psnr);
+% fprintf('SSIM        (接近1越好): %.4f\n', val_ssim);
