@@ -112,48 +112,50 @@ subplot(1,2,1); imagesc(x*1e3, x*1e3, imag_target); axis image; colormap gray; t
 subplot(1,2,2); imagesc(x*1e3, x*1e3, holo_phase); axis image; colormap jet; title('IASA 相位 (Pad优化)');
 
 %% === [修改部分 Start] 相位转厚度与体素化优化 ===
-fprintf('进行物理厚度构建与体素化优化...\n');
-
-% 1. 严格的 0 到 2*pi 相位映射
 phase_wrapped = mod(holo_phase, 2*pi); 
 
-% 2. 计算理想物理厚度
 k_board_val = 2 * pi * f0 / c_board;
 k_water_val = 2 * pi * f0 / c_water;
 k_diff = abs(k_water_val - k_board_val); 
+
 thickness_ideal = phase_wrapped / k_diff;
 
-% 3. [修复BUG] 坚决移除厚度平滑！保留菲涅尔透镜的锐利断崖！
-% thickness_map = imgaussfilt(thickness_ideal, 0.5); 
-min_base = 2 * dz; % 基底支撑
-thickness_map = thickness_ideal + min_base;
+% [微平滑]：sigma 设为非常小的值，仅消除孤立的像素点突变
+thickness_map = imgaussfilt(thickness_ideal, 0.2); 
+min_base = 2 * dz; 
+thickness_map = thickness_map + min_base;
 
-% 4. 严格体素化
+% 严格体素化
 net_num_board = round(thickness_map / dz);
 actual_thickness = net_num_board * dz;
 
-% 5. [修正] 反算并对齐相位误差 (消除假警报)
+% 反算理论相位
 actual_phase_imparted = mod(actual_thickness * k_diff, 2*pi);
-complex_diff = exp(1i * actual_phase_imparted) ./ exp(1i * phase_wrapped);
-global_offset = angle(mean(complex_diff(:))); % 剔除基底造成的常数相位偏移
-phase_aligned = angle(exp(1i * (actual_phase_imparted - global_offset)));
+complex_diff_voxel = exp(1i * actual_phase_imparted) ./ exp(1i * phase_wrapped);
+global_offset_voxel = angle(mean(complex_diff_voxel(:))); 
+phase_aligned_voxel = angle(exp(1i * (actual_phase_imparted - global_offset_voxel)));
 
-% 计算真正的量化误差
-phase_error = abs(angle(exp(1i * (phase_aligned - phase_wrapped))));
-mean_phase_error = mean(phase_error(:));
-fprintf(' -> 真实的平均相位量化误差: %.4f Rad (%.1f 度)\n', mean_phase_error, mean_phase_error*180/pi);
+% 计算理论量化误差
+phase_error_voxel = abs(angle(exp(1i * (phase_aligned_voxel - phase_wrapped))));
+mean_phase_error = mean(phase_error_voxel(:));
+fprintf(' -> 理论体素化平均相位误差: %.4f Rad (%.1f 度)\n', mean_phase_error, mean_phase_error*180/pi);
 
 figure(11); clf;
-set(gcf, 'Position', [100, 100, 1200, 400]);
+set(gcf, 'Position', [100, 100, 1200, 400], 'Color', 'w');
 subplot(1,3,1); imagesc(x*1e3, x*1e3, phase_wrapped); axis image; colormap hsv; colorbar; title('理想 Wrapped 相位');
-subplot(1,3,2); imagesc(x*1e3, x*1e3, phase_aligned); axis image; colormap hsv; colorbar; title('体素化后实际相位');
+subplot(1,3,2); imagesc(x*1e3, x*1e3, phase_aligned_voxel); axis image; colormap hsv; colorbar; title('微平滑体素化实际相位');
 subplot(1,3,3); surf(x*1e3, x*1e3, actual_thickness*1e3); shading flat; colormap parula; title('构建的 3D 透镜厚度'); view(2); colorbar;
 
-%% k-Wave 介质建模 (包含透镜构建)
+%% k-Wave 介质建模
 fprintf('仿真环境与实体介质构建\n');
 kgrid = kWaveGrid(Nx, dx, Ny, dy, Nz, dz);
-
 medium.sound_speed = c_water * ones(Nx, Ny, Nz);
+
+% [关键物理隔离]：为了证明是网格散射惹的祸，而不是材料反射
+% 我们强行关闭材料的阻抗失配！即：保持声速不同以产生相位差，但让密度补偿以匹配水的声阻抗。
+% 声阻抗 Z = rho * c。我们希望 Z_board = Z_water
+rho_match = (c_water * density_water) / c_board;
+
 medium.density = density_water * ones(Nx, Ny, Nz);
 medium.alpha_coeff = 0.002 * ones(Nx, Ny, Nz); 
 medium.alpha_power = 1.5;
@@ -172,14 +174,11 @@ for i = 1:Nx
             
             medium.sound_speed(i, j, z_start:z_end) = c_board;
             
-            % [物理排错开关] 
-            % 如果你想测试画质下降是否是由材料反射造成的，
-            % 可以注释掉第一行，打开第二行（强行匹配水和树脂的声学阻抗）
-            medium.density(i, j, z_start:z_end) = density_board; 
-            % medium.density(i, j, z_start:z_end) = (c_water * density_water) / c_board; 
+            % 使用阻抗匹配的密度，消除内部反射
+            medium.density(i, j, z_start:z_end) = rho_match; 
             
-            % 树脂的声学衰减
-            medium.alpha_coeff(i, j, z_start:z_end) = 1.0; 
+            % 为了看清纯粹的相位作用，暂时关闭树脂的额外衰减
+            % medium.alpha_coeff(i, j, z_start:z_end) = 1.0; 
         end
     end
 end
