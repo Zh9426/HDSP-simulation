@@ -6,7 +6,7 @@ clear; close all; clc;
 Use_Amplitude_Compensation = false; % [方案1] 振幅补偿 (补偿厚度吸收导致的不均匀)
 Use_Apodization            = true; % [方案2] 切趾滤波 (加 Tukey 窗消除硬边缘同心圆)
 Use_Phase_Unwrapping       = false; % [方案3] 相位解卷 (生成平滑厚透镜，消除断崖散射)
-Use_Impedance_Matching     = false; % [方案4] 阻抗匹配 (消除透镜内外声波反射)
+Use_Impedance_Matching     = true; % [方案4] 阻抗匹配 (消除透镜内外声波反射)
 % ==================================================
 
 %% 1. 网格及参数设定 (动态 Z 轴优化与各项同性网格)
