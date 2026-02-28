@@ -375,14 +375,12 @@ if isfield(sensor_data, 'p')
 end
 
 
-<<<<<<< Updated upstream
-=======
-%% 12. 纯手写原生 3D 傅里叶热传导 FDTD 仿真 (终极严谨版，完美避开黑盒Bug)
+%% 12. 纯手写原生 3D 傅里叶热传导 FDTD 仿真 (极速后台计算 + 分镜记录版)
 fprintf('\n========================================\n');
-fprintf('启动原生 3D 热扩散 FDTD 求解器 (完全透明物理计算)...\n');
+fprintf('启动原生 3D 热扩散 FDTD 求解器 (后台极速推演)...\n');
 
 % --- 1. 物理场真实功率注入与 3D 热源构建 ---
-target_focal_pressure = 2.0e6; % 2.0 MPa
+target_focal_pressure = 2.5e6; % 2.5 MPa
 p_3d_scaled = (p_field_3d / max(p_field_3d(:))) * target_focal_pressure;
 
 rho_resin = 1100;  c_resin = 2500;  Cp_resin = 1500;  k_resin = 0.2; 
@@ -393,7 +391,6 @@ alpha_np_water = 0.02;
 
 resin_z_start = z_board_exit_idx + 1;
 
-% 为极致提速和省内存，使用 single 单精度矩阵
 Q_heat_3d = zeros(Nx, Ny, Nz, 'single');
 I_3d_resin = single((p_3d_scaled(:, :, resin_z_start:end).^2) ./ (2 * rho_resin * c_resin));
 Q_heat_3d(:, :, resin_z_start:end) = 2 * alpha_np_resin * I_3d_resin;
@@ -414,48 +411,74 @@ rho_Cp_3d = zeros(Nx, Ny, Nz, 'single');
 rho_Cp_3d(:, :, resin_z_start:end) = rho_resin * Cp_resin;
 rho_Cp_3d(:, :, 1:resin_z_start-1) = rho_water * Cp_water;
 
-dT_source_3d = Q_heat_3d ./ rho_Cp_3d; % 产热率转换：每秒温升 (℃/s)
+dT_source_3d = Q_heat_3d ./ rho_Cp_3d;
 
-% --- 3. 严谨的 3D FDTD 时间步长计算 (满足 CFL 稳定性条件) ---
-% 3D 显式欧拉法的绝对稳定条件: dt <= dx^2 / (6 * alpha)
+% --- 3. 严谨的 3D FDTD 时间步长计算 ---
 dt_th_max = (dx^2) / (6 * max_diffusivity);
-dt_th = dt_th_max * 0.9; % 取 90% 作为绝对安全的迭代步长
+dt_th = dt_th_max * 0.9; 
 
-exposure_time = 1.5; % 真实照射时间: 1.5 秒
+exposure_time = 3.0; % 照射时间: 3.0 秒
 Nt_th = round(exposure_time / dt_th);
 
-fprintf('  热学最大扩散率: %.2e m^2/s\n', max_diffusivity);
 fprintf('  严谨 FDTD 步长: %.4f s, 总演化步数: %d 步\n', dt_th, Nt_th);
 
-% --- 4. 执行 FDTD 核心演化循环 ---
+% --- 4. 极速后台演化与数据记录 (去除绘图卡顿) ---
 T_3d = 20 * ones(Nx, Ny, Nz, 'single'); % 初始环境温度 20°C
 
-% 开启动画窗口
-figure(88); clf; set(gcf, 'Position', [200, 200, 500, 400], 'Color', 'w');
-fprintf('  开始执行原生 3D 热传导演化 (请观看弹出窗口)...\n');
+% 定义记录点：我们均匀记录 5 个时刻的二维温度场快照
+num_snapshots = 5;
+snapshot_steps = round(linspace(1, Nt_th, num_snapshots));
+snapshots_2d = zeros(Nx, Ny, num_snapshots);
+T_max_history = zeros(Nt_th, 1);
+t_axis = (1:Nt_th) * dt_th;
 
+fprintf('  后台推演中，预计数秒内完成...\n');
 for step = 1:Nt_th
-    % 计算 3D 拉普拉斯算子 ∇²T
-    % (MATLAB 内置的高度优化 del2 算子在 3D 下返回的是 (1/6)*∇²T*dx²，因此需乘以 6/dx²)
+    % FDTD 核心更新
     laplacian_T = 6 * del2(T_3d, dx);
-    
-    % 偏微分方程显式更新: T(t+dt) = T(t) + dt * (alpha * ∇²T + Q/(rho*Cp))
     T_3d = T_3d + dt_th * (diffusivity_3d .* laplacian_T + dT_source_3d);
     
-    % 每 15 步刷新一次动画，减少卡顿
-    if mod(step, 15) == 0 || step == Nt_th
-        imagesc(x*1e3, y*1e3, double(T_3d(:, :, best_idx)));
-        axis image; colormap hot; colorbar;
-        caxis([20, max(21, max(max(T_3d(:, :, best_idx))))]);
-        title(sprintf('原生 FDTD 热演化: %.2f s / %.1f s (Max: %.1f °C)', step*dt_th, exposure_time, max(max(T_3d(:, :, best_idx)))));
-        drawnow;
+    % 记录每一帧的最高温度
+    T_max_history(step) = max(max(T_3d(:, :, best_idx)));
+    
+    % 记录分镜快照
+    snap_idx = find(snapshot_steps == step);
+    if ~isempty(snap_idx)
+        snapshots_2d(:, :, snap_idx) = double(T_3d(:, :, best_idx));
+        fprintf('  [进度] 演化至 %.1f s / %.1f s (最高温度: %.1f °C)\n', step*dt_th, exposure_time, T_max_history(step));
     end
 end
 
-% 提取焦平面稳态温度场
 T_focal_2d = double(T_3d(:, :, best_idx));
-T_max_real = max(T_focal_2d(:));
-fprintf('  >>> 演化完成！焦点最高温度: %.1f °C\n', T_max_real);
+T_max_real = T_max_history(end);
+
+% --- 5. 绘制顶刊级别的热演化分镜图 (Figure 88) ---
+figure(88); clf; set(gcf, 'Position', [100, 100, 1400, 500], 'Color', 'w');
+sgtitle('声致发热与热扩散动态演化过程 (Target: 2.5MPa, 3.0s)', 'FontSize', 16, 'FontWeight', 'bold');
+
+% 画 5 张时间快照
+for i = 1:num_snapshots
+    subplot(2, num_snapshots, i);
+    imagesc(x*1e3, y*1e3, snapshots_2d(:, :, i));
+    axis image; colormap hot; 
+    caxis([20, max(80, T_max_real)]); % 统一色标，确保直观对比
+    if i == num_snapshots, colorbar; end
+    title(sprintf('t = %.1f s\nMax T: %.1f °C', snapshot_steps(i)*dt_th, max(max(snapshots_2d(:,:,i)))));
+    xlabel('mm'); ylabel('mm');
+end
+
+% 画动态升温曲线 (显示吸热与散热的物理博弈)
+subplot(2, 1, 2);
+plot(t_axis, T_max_history, 'r-', 'LineWidth', 2);
+hold on;
+yline(65, 'k--', 'LineWidth', 1.5, 'Label', '树脂固化阈值 (65°C)');
+grid on;
+xlabel('照射时间 (s)', 'FontSize', 12);
+ylabel('焦点最高温度 (°C)', 'FontSize', 12);
+title('焦点极限温度上升曲线 (体现热扩散饱和效应)', 'FontSize', 12);
+ylim([20, max(T_max_history)+10]);
+
+fprintf('  >>> 演化完成！报告与分镜图已生成。\n');
 
 %% 13. 基于真实热力学的形貌预测
 Thermal_Curing_Threshold = 65; % 真实树脂热交联阈值
@@ -557,4 +580,3 @@ fprintf('  热传导演化最高温度: %.1f°C\n', T_max_real);
 fprintf('  热交联阈值(>%d°C) 目标覆盖率: %.1f%%\n', Thermal_Curing_Threshold, cured_coverage);
 fprintf('  最终热固化形貌交并比 (IoU): %.4f\n', IoU);
 fprintf('========================================\n');
->>>>>>> Stashed changes
