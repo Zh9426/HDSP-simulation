@@ -375,3 +375,186 @@ if isfield(sensor_data, 'p')
 end
 
 
+<<<<<<< Updated upstream
+=======
+%% 12. 纯手写原生 3D 傅里叶热传导 FDTD 仿真 (终极严谨版，完美避开黑盒Bug)
+fprintf('\n========================================\n');
+fprintf('启动原生 3D 热扩散 FDTD 求解器 (完全透明物理计算)...\n');
+
+% --- 1. 物理场真实功率注入与 3D 热源构建 ---
+target_focal_pressure = 2.0e6; % 2.0 MPa
+p_3d_scaled = (p_field_3d / max(p_field_3d(:))) * target_focal_pressure;
+
+rho_resin = 1100;  c_resin = 2500;  Cp_resin = 1500;  k_resin = 0.2; 
+rho_water = 997;   c_water = 1480;  Cp_water = 4180;  k_water = 0.6; 
+
+alpha_np_resin = (1.5 / 8.686) * 100 * (f0/1e6)^1.5; 
+alpha_np_water = 0.02; 
+
+resin_z_start = z_board_exit_idx + 1;
+
+% 为极致提速和省内存，使用 single 单精度矩阵
+Q_heat_3d = zeros(Nx, Ny, Nz, 'single');
+I_3d_resin = single((p_3d_scaled(:, :, resin_z_start:end).^2) ./ (2 * rho_resin * c_resin));
+Q_heat_3d(:, :, resin_z_start:end) = 2 * alpha_np_resin * I_3d_resin;
+
+I_3d_water = single((p_3d_scaled(:, :, 1:resin_z_start-1).^2) ./ (2 * rho_water * c_water));
+Q_heat_3d(:, :, 1:resin_z_start-1) = 2 * alpha_np_water * I_3d_water;
+
+% --- 2. 预计算 3D 异质介质参数 ---
+diffusivity_resin = k_resin / (rho_resin * Cp_resin);
+diffusivity_water = k_water / (rho_water * Cp_water);
+max_diffusivity = max(diffusivity_resin, diffusivity_water);
+
+diffusivity_3d = zeros(Nx, Ny, Nz, 'single');
+diffusivity_3d(:, :, resin_z_start:end) = diffusivity_resin;
+diffusivity_3d(:, :, 1:resin_z_start-1) = diffusivity_water;
+
+rho_Cp_3d = zeros(Nx, Ny, Nz, 'single');
+rho_Cp_3d(:, :, resin_z_start:end) = rho_resin * Cp_resin;
+rho_Cp_3d(:, :, 1:resin_z_start-1) = rho_water * Cp_water;
+
+dT_source_3d = Q_heat_3d ./ rho_Cp_3d; % 产热率转换：每秒温升 (℃/s)
+
+% --- 3. 严谨的 3D FDTD 时间步长计算 (满足 CFL 稳定性条件) ---
+% 3D 显式欧拉法的绝对稳定条件: dt <= dx^2 / (6 * alpha)
+dt_th_max = (dx^2) / (6 * max_diffusivity);
+dt_th = dt_th_max * 0.9; % 取 90% 作为绝对安全的迭代步长
+
+exposure_time = 1.5; % 真实照射时间: 1.5 秒
+Nt_th = round(exposure_time / dt_th);
+
+fprintf('  热学最大扩散率: %.2e m^2/s\n', max_diffusivity);
+fprintf('  严谨 FDTD 步长: %.4f s, 总演化步数: %d 步\n', dt_th, Nt_th);
+
+% --- 4. 执行 FDTD 核心演化循环 ---
+T_3d = 20 * ones(Nx, Ny, Nz, 'single'); % 初始环境温度 20°C
+
+% 开启动画窗口
+figure(88); clf; set(gcf, 'Position', [200, 200, 500, 400], 'Color', 'w');
+fprintf('  开始执行原生 3D 热传导演化 (请观看弹出窗口)...\n');
+
+for step = 1:Nt_th
+    % 计算 3D 拉普拉斯算子 ∇²T
+    % (MATLAB 内置的高度优化 del2 算子在 3D 下返回的是 (1/6)*∇²T*dx²，因此需乘以 6/dx²)
+    laplacian_T = 6 * del2(T_3d, dx);
+    
+    % 偏微分方程显式更新: T(t+dt) = T(t) + dt * (alpha * ∇²T + Q/(rho*Cp))
+    T_3d = T_3d + dt_th * (diffusivity_3d .* laplacian_T + dT_source_3d);
+    
+    % 每 15 步刷新一次动画，减少卡顿
+    if mod(step, 15) == 0 || step == Nt_th
+        imagesc(x*1e3, y*1e3, double(T_3d(:, :, best_idx)));
+        axis image; colormap hot; colorbar;
+        caxis([20, max(21, max(max(T_3d(:, :, best_idx))))]);
+        title(sprintf('原生 FDTD 热演化: %.2f s / %.1f s (Max: %.1f °C)', step*dt_th, exposure_time, max(max(T_3d(:, :, best_idx)))));
+        drawnow;
+    end
+end
+
+% 提取焦平面稳态温度场
+T_focal_2d = double(T_3d(:, :, best_idx));
+T_max_real = max(T_focal_2d(:));
+fprintf('  >>> 演化完成！焦点最高温度: %.1f °C\n', T_max_real);
+
+%% 13. 基于真实热力学的形貌预测
+Thermal_Curing_Threshold = 65; % 真实树脂热交联阈值
+cured_mask_2d = T_focal_2d > Thermal_Curing_Threshold;
+
+ROI_pixels = sum(imag_target(:) > 0.5); 
+cured_coverage = (sum(cured_mask_2d(:)) / ROI_pixels) * 100; 
+if cured_coverage > 100, cured_coverage = 100; end
+
+R_binary = imag_target > 0.5;
+intersection = R_binary & cured_mask_2d;
+union = R_binary | cured_mask_2d;
+IoU = sum(intersection(:)) / sum(union(:)); 
+
+%% 14. 终极可视化全景仪表盘
+figure('Position', [30 30 1500 1000], 'Color', 'w');
+y = x; 
+
+subplot(3, 5, 1);
+imagesc(x*1e3, y*1e3, imag_target); axis image; colormap(gca, gray);
+title('目标图案'); xlabel('mm'); ylabel('mm');
+
+subplot(3, 5, 2);
+imagesc(x*1e3, y*1e3, phase_wrapped); axis image; colormap(gca, hsv); colorbar;
+title('全息相位 (理想)'); xlabel('mm');
+
+subplot(3, 5, 3);
+imagesc(x*1e3, y*1e3, phase_aligned); axis image; colormap(gca, hsv); colorbar;
+title(sprintf('实际相位 (误差%.1f°)', mean_phase_error*180/pi)); xlabel('mm');
+
+subplot(3, 5, 4);
+surf(x*1e3, y*1e3, actual_thickness*1e3); view(2); shading interp; colorbar;
+title('透镜厚度 (mm)'); xlabel('mm');
+
+subplot(3, 5, 5);
+semilogy(1:length(error_history), error_history, 'b-', 'LineWidth', 1.5);
+xlabel('迭代'); ylabel('MSE'); title('IASA收敛曲线'); grid on;
+
+subplot(3, 5, 6);
+p_exit = p_field_3d(:, :, z_board_exit_idx);
+p_exit = (p_exit / max(p_field_3d(:))) * target_focal_pressure; 
+imagesc(x*1e3, y*1e3, p_exit/1e6); axis image; colormap(gca, jet); colorbar;
+title('出口声压 (MPa)'); xlabel('mm');
+
+subplot(3, 5, 7);
+p_focal_scaled = (best_slice / max(best_slice(:))) * target_focal_pressure;
+imagesc(x*1e3, y*1e3, p_focal_scaled/1e6); axis image; colormap(gca, jet); colorbar;
+title(sprintf('最佳焦面 (Z=%.2fmm)', actual_z_dist)); xlabel('mm');
+
+subplot(3, 5, 8);
+imagesc(x*1e3, y*1e3, cured_mask_2d); axis image;
+colormap(gca, [0.05 0.05 0.2; 0.9 0.9 0.1]);
+title('真实的物理热固化边界'); xlabel('mm');
+
+subplot(3, 5, 9);
+imagesc(x*1e3, y*1e3, T_focal_2d); axis image; colormap(gca, hot); colorbar;
+title(sprintf('热扩散温度 Max:%.1f°C', T_max_real)); xlabel('mm');
+
+subplot(3, 5, 10);
+plot(metrics.z, metrics.corr, 'b-', 'LineWidth', 1.5);
+hold on; plot(actual_z_dist, best_corr, 'ro', 'MarkerSize', 10);
+xlabel('Z (mm)'); ylabel('Correlation'); title('Z-Scan 景深寻优'); grid on;
+
+subplot(3, 5, [11 12 13]);
+center = round(Nx/2);
+plot(x*1e3, imag_target(center, :), 'k--', 'LineWidth', 2); hold on;
+plot(x*1e3, p_focal_scaled(center, :)/max(p_focal_scaled(:)), 'r-', 'LineWidth', 1.5);
+plot(x*1e3, p_exit(center, :)/max(p_exit(:)), 'b:', 'LineWidth', 1);
+legend('目标', '焦面', '出口'); title('中心剖面对比'); grid on; xlabel('mm');
+
+subplot(3, 5, [14 15]);
+[X_surf, Y_surf] = meshgrid(x*1e3, y*1e3);
+surf(X_surf, Y_surf, p_focal_scaled/1e6); shading interp; colormap(gca, jet);
+title('3D焦面绝对声压分布 (MPa)'); xlabel('mm'); ylabel('mm'); zlabel('MPa');
+
+%% 15. 输出报告
+fprintf('\n========================================\n');
+fprintf('HDSP 严谨物理仿真报告 (Final - 原生 FDTD 验证版)\n');
+fprintf('========================================\n');
+fprintf('网格配置:\n');
+fprintf('  分辨率: %.2f μm\n', dx*1e6);
+fprintf('  PPW: %.2f\n', lambda_water/dx);
+fprintf('  节点: %.2fM\n', (Nx*Ny*Nz)/1e6);
+fprintf('----------------------------------------\n');
+fprintf('IASA 全息生成:\n');
+fprintf('  最佳截断步数: %d\n', length(error_history) - patience_counter);
+fprintf('  相位误差 (连续台阶): %.2f° (最大%.2f°)\n', mean_phase_error*180/pi, max_phase_error*180/pi);
+fprintf('----------------------------------------\n');
+fprintf('成像质量 (最佳焦面):\n');
+fprintf('  位置: %.2f mm (理论%.2f mm)\n', actual_z_dist, z_target_dist*1e3);
+fprintf('  Correlation: %.4f\n', best_corr);
+[~, best_nmse_idx] = min(abs(metrics.corr - best_corr));
+fprintf('  NMSE: %.4f\n', metrics.nmse(best_nmse_idx));
+fprintf('----------------------------------------\n');
+fprintf('严谨物理预测 (原生 3D 热传导 FDTD 引擎):\n');
+fprintf('  注入焦点峰值声压: %.2f MPa\n', target_focal_pressure/1e6);
+fprintf('  照射时间: %.1f 秒\n', exposure_time);
+fprintf('  热传导演化最高温度: %.1f°C\n', T_max_real);
+fprintf('  热交联阈值(>%d°C) 目标覆盖率: %.1f%%\n', Thermal_Curing_Threshold, cured_coverage);
+fprintf('  最终热固化形貌交并比 (IoU): %.4f\n', IoU);
+fprintf('========================================\n');
+>>>>>>> Stashed changes
