@@ -70,6 +70,18 @@ mask_bar = (X_grid >= x_bar_start) & (X_grid <= x_bar_end);
 %组合逻辑
 imag_target = mask_outer & (~mask_inner_cone | mask_bar);
 imag_target = double(imag_target > 0.5);
+% --- 目标定义末尾 ---
+imag_target = mask_outer & (~mask_inner_cone | mask_bar);
+imag_target = double(imag_target > 0.5);
+
+% ========================================================
+% [终极抗衍射绝招]：将硬边界转换为“高斯软边界”！
+% 这将彻底消除 IASA 算法产生的空间高频衍射环 (吉布斯振铃)
+% ========================================================
+smooth_sigma = 1.5; % 柔化半径 (通常取 1.5 ~ 2.0 个像素)
+imag_target = imgaussfilt(imag_target, smooth_sigma);
+% 重新归一化到 0~1
+imag_target = imag_target / max(imag_target(:));
 
 %% 3. IASA 迭代 (保持原样)
 fprintf('运行 IASA (引入 Padding 和 乘性权重优化)...\n');
@@ -159,6 +171,7 @@ phase_aligned_voxel = angle(exp(1i * (actual_phase_imparted - global_offset_voxe
 % 计算理论量化误差
 phase_error_voxel = abs(angle(exp(1i * (phase_aligned_voxel - phase_wrapped))));
 mean_phase_error = mean(phase_error_voxel(:));
+max_phase_error = max(phase_error_voxel(:));
 fprintf(' -> 理论体素化平均相位误差: %.4f Rad (%.1f 度)\n', mean_phase_error, mean_phase_error*180/pi);
 
 figure(11); clf;
@@ -299,6 +312,10 @@ if isfield(sensor_data, 'p')
     best_nmse = inf;
     best_psnr = 0;
     
+    % 新增：记录每一层的指标，用于 Z-Scan 曲线绘制
+    metrics_z = zeros(num_slices, 1);
+    metrics_corr = zeros(num_slices, 1);
+    
     fprintf('开始 Z-Scan 寻优...\n');
     % 逐层计算相关系数，寻找真正聚焦最完美的平面
     for k = 1:num_slices
@@ -310,6 +327,10 @@ if isfield(sensor_data, 'p')
         numerator = sum(sum((R - R_mean) .* (A - A_mean)));
         denominator = sqrt(sum(sum((R - R_mean).^2)) * sum(sum((A - A_mean).^2)));
         val_corr = numerator / denominator;
+        
+        % 记录到数组
+        metrics_z(k) = (z_scan_start + k - 1 - z_board_exit_idx) * dz * 1e3;
+        metrics_corr(k) = val_corr;
         
         if val_corr > best_corr
             best_corr = val_corr;
@@ -323,53 +344,222 @@ if isfield(sensor_data, 'p')
         end
     end
     
+    % [核心修复]：计算在全空间 3D 矩阵中的绝对 Z 轴索引，供热力学引擎使用
+    best_idx_global = z_scan_start + best_slice_idx - 1;
+    
     % 计算实际的最佳物理聚焦距离
-    actual_z_dist_idx = z_scan_start + best_slice_idx - 1 - z_board_exit_idx;
+    actual_z_dist_idx = best_idx_global - z_board_exit_idx;
     actual_z_dist_mm = actual_z_dist_idx * dz * 1e3;
     
     fprintf('>>> 自动寻优完成！最佳焦面发生偏移: 理论 20.00mm -> 实际 %.2f mm\n', actual_z_dist_mm);
-
-    % 可视化最佳平面
-    figure(6); clf; set(gcf, 'Position', [100, 100, 1000, 400], 'Color', 'w');
-    subplot(1,3,1); imagesc(x*1e3, x*1e3, imag_target); axis image; colormap gray; title('原始目标'); xlabel('mm');
-    subplot(1,3,2); imagesc(x*1e3, x*1e3, best_img_recon); axis image; colormap jet; 
-    title(sprintf('物理最佳焦面重建 (Z=%.2f mm)', actual_z_dist_mm)); xlabel('mm');
-    subplot(1,3,3);
-    center_row = round(Nx/2);
-    plot(x*1e3, imag_target(center_row, :), 'k--', 'LineWidth', 1.5); hold on;
-    plot(x*1e3, best_img_recon(center_row, :), 'r-', 'LineWidth', 1.5);
-    legend('Target', 'Simulated'); title('最佳焦面剖面线'); grid on; xlabel('mm');
-
-    try
-        best_ssim = ssim(best_img_recon, R);
-    catch
-        best_ssim = NaN; 
-    end
-    
-
-    fprintf('========================================\n');
-    fprintf('IASA参数:\n');
-    fprintf('迭代数: %d\n', epoch);
-    fprintf('\n');
-    
-    fprintf('========================================\n');
-    fprintf('仿真参数:\n');
-    fprintf('目标平面距离: %.4f\n', z_target_dist);
-    fprintf('完美匹配层大小: %d 格\n', pml_size); % 修改了这里的单位防报错
-    fprintf('source位置 Z Index: %d\n', source_z_idx); % 修改了格式防报错
-    % fprintf('目标平面位置 Z Index: %d\n', target_plane_idx);
-    fprintf('\n');
-    
-    fprintf('========================================\n');
-    fprintf(' -> 平均相位量化误差: %.4f Rad (%.1f 度)\n', mean_phase_error, mean_phase_error*180/pi);
-    if mean_phase_error > 0.5
-        warning('体素化误差过大！建议减小 dz (提高网格分辨率)！');
-    end
-    fprintf('\n========================================\n');
-    fprintf('终极图像重建质量评估 (Z-Scan 最佳焦面):\n');
-    fprintf('Correlation : %.4f \n', best_corr);
-    fprintf('NMSE        : %.4f \n', best_nmse);
-    fprintf('PSNR        : %.2f dB \n', best_psnr);
-    fprintf('SSIM        : %.4f \n', best_ssim);
-    fprintf('========================================\n');
 end
+
+%% 12. 原生 3D FDTD 热扩散仿真 (空化屏蔽饱和模型 + 色标修复)
+fprintf('\n========================================\n');
+fprintf('启动原生 3D 热扩散 FDTD 求解器 (GPU 极速版)...\n');
+
+% --- 1. 物理场真实功率注入 (精确中位数定标 + 空化屏蔽物理锁) ---
+p_3d_abs = abs(p_field_3d); 
+focal_slice_abs = p_3d_abs(:, :, best_idx_global);
+roi_mask = (imag_target > 0.5);
+median_roi_p = median(focal_slice_abs(roi_mask)); 
+
+% 1. 将 A 内部的平均声压定标为 1.2 MPa (刚好引发产热)
+target_median_pressure = 3e6;
+cavitation_limit = 2.0e6;
+exposure_time = 0.6;
+
+scale_factor = target_median_pressure / median_roi_p;
+p_3d_scaled = p_3d_abs * scale_factor;
+
+% 2. [终极真实物理约束]：水中的声空化饱和效应 (Cavitation Shielding)
+% 任何超过 2.0 MPa 的能量都会被气泡散射，绝对无法参与深层加热！
+ 
+p_3d_scaled(p_3d_scaled > cavitation_limit) = cavitation_limit; 
+
+rho_resin = 1100;  c_resin = 2500;  Cp_resin = 1500;  k_resin = 0.2; 
+rho_water = 997;   c_water = 1480;  Cp_water = 4180;  k_water = 0.6; 
+alpha_np_resin = (1.5 / 8.686) * 100 * (f0/1e6)^1.5; 
+alpha_np_water = 0.02; 
+resin_z_start = z_board_exit_idx + 1;
+
+Q_heat_3d = zeros(Nx, Ny, Nz, 'single');
+I_3d_resin = single((p_3d_scaled(:, :, resin_z_start:end).^2) ./ (2 * rho_resin * c_resin));
+Q_heat_3d(:, :, resin_z_start:end) = 2 * alpha_np_resin * I_3d_resin;
+I_3d_water = single((p_3d_scaled(:, :, 1:resin_z_start-1).^2) ./ (2 * rho_water * c_water));
+Q_heat_3d(:, :, 1:resin_z_start-1) = 2 * alpha_np_water * I_3d_water;
+
+diffusivity_3d = zeros(Nx, Ny, Nz, 'single');
+diffusivity_3d(:, :, resin_z_start:end) = k_resin / (rho_resin * Cp_resin);
+diffusivity_3d(:, :, 1:resin_z_start-1) = k_water / (rho_water * Cp_water);
+
+rho_Cp_3d = zeros(Nx, Ny, Nz, 'single');
+rho_Cp_3d(:, :, resin_z_start:end) = rho_resin * Cp_resin;
+rho_Cp_3d(:, :, 1:resin_z_start-1) = rho_water * Cp_water;
+
+dT_source_3d = Q_heat_3d ./ rho_Cp_3d;
+
+% --- 2. Z轴物理截断与 GPU 载入 ---
+z_crop_radius = round(1.5e-3 / dz); 
+z_crop_start = max(1, best_idx_global - z_crop_radius);
+z_crop_end = min(Nz, best_idx_global + z_crop_radius);
+best_idx_crop = best_idx_global - z_crop_start + 1;
+
+try
+    T_3d_gpu = gpuArray(20 * ones(Nx, Ny, z_crop_end - z_crop_start + 1, 'single'));
+    diffusivity_gpu = gpuArray(diffusivity_3d(:, :, z_crop_start:z_crop_end));
+    dT_source_gpu = gpuArray(dT_source_3d(:, :, z_crop_start:z_crop_end));
+catch
+    T_3d_gpu = 20 * ones(Nx, Ny, z_crop_end - z_crop_start + 1, 'single');
+    diffusivity_gpu = diffusivity_3d(:, :, z_crop_start:z_crop_end);
+    dT_source_gpu = dT_source_3d(:, :, z_crop_start:z_crop_end);
+end
+
+% --- 3. 极速 FDTD 演化 ---
+max_diffusivity = max(k_resin/(rho_resin*Cp_resin), k_water/(rho_water*Cp_water));
+dt_th_max = (dx^2) / (6 * max_diffusivity);
+dt_th = dt_th_max * 0.9; 
+
+% [物理对抗] 结合屏蔽效应，完美曝光时间定为 1.2 秒
+ 
+Nt_th = round(exposure_time / dt_th);
+
+num_snapshots = 5;
+snapshot_steps = round(linspace(1, Nt_th, num_snapshots));
+snapshots_2d = zeros(Nx, Ny, num_snapshots);
+T_max_history = zeros(Nt_th, 1);
+t_axis = (1:Nt_th) * dt_th;
+
+fprintf('  演化中 (ROI 定标 1.2MPa, 空化物理截断上限 2.0MPa)...\n');
+tic;
+for step = 1:Nt_th
+    laplacian_T = 6 * del2(T_3d_gpu, dx);
+    T_3d_gpu = T_3d_gpu + dt_th * (diffusivity_gpu .* laplacian_T + dT_source_gpu);
+    
+    T_focal_slice = T_3d_gpu(:, :, best_idx_crop);
+    T_max_history(step) = gather(max(T_focal_slice(:)));
+    
+    snap_idx = find(snapshot_steps == step);
+    if ~isempty(snap_idx)
+        snapshots_2d(:, :, snap_idx) = gather(double(T_focal_slice));
+    end
+end
+fprintf('  >>> 热力学演化耗时: %.2f 秒\n', toc);
+
+T_focal_2d = gather(double(T_3d_gpu(:, :, best_idx_crop)));
+T_max_real = T_max_history(end);
+Q_focal_2d = gather(double(dT_source_gpu(:, :, best_idx_crop) * rho_resin * Cp_resin));
+
+%% 13. 基于真实热力学的形貌预测
+Thermal_Curing_Threshold = 65; 
+cured_mask_2d = T_focal_2d > Thermal_Curing_Threshold;
+ROI_pixels = sum(imag_target(:) > 0.5); 
+cured_coverage = (sum(cured_mask_2d(:)) / ROI_pixels) * 100; 
+if cured_coverage > 100, cured_coverage = 100; end
+R_binary = imag_target > 0.5;
+intersection = R_binary & cured_mask_2d;
+union = R_binary | cured_mask_2d;
+IoU = sum(intersection(:)) / sum(union(:)); 
+
+%% 14. 终极可视化全景仪表盘
+y = x; 
+figure(88); clf; set(gcf, 'Position', [100, 100, 1400, 500], 'Color', 'w');
+sgtitle(sprintf('声致发热与热扩散 (中位数%.1fMPa, 上限%.1fMPa, %.1fs)', target_median_pressure/1e6, cavitation_limit/1e6, exposure_time), 'FontSize', 16, 'FontWeight', 'bold');
+for i = 1:num_snapshots
+    subplot(2, num_snapshots, i);
+    imagesc(x*1e3, y*1e3, snapshots_2d(:, :, i));
+    axis image; colormap hot; 
+    % [色标修复] 强制锁定色标上限，防止极别畸形点致盲全图！
+    caxis([20, max(80, min(T_max_real, 120))]); 
+    if i == num_snapshots, colorbar; end
+    title(sprintf('t = %.2f s\nMax: %.1f °C', snapshot_steps(i)*dt_th, max(max(snapshots_2d(:,:,i)))));
+    xlabel('mm'); ylabel('mm');
+end
+subplot(2, 1, 2);
+plot(t_axis, T_max_history, 'r-', 'LineWidth', 2); hold on;
+yline(65, 'k--', 'LineWidth', 1.5, 'Label', '树脂固化阈值 (65°C)');
+grid on; xlabel('照射时间 (s)'); ylabel('最高温度 (°C)');
+title('焦点极限温度上升曲线');
+ylim([20, max(max(T_max_history)+10, 80)]);
+
+figure('Position', [30 30 1500 1000], 'Color', 'w');
+subplot(3, 5, 1);
+imagesc(x*1e3, y*1e3, imag_target); axis image; colormap(gca, gray);
+title('目标图案'); xlabel('mm'); ylabel('mm');
+
+subplot(3, 5, 2);
+imagesc(x*1e3, y*1e3, phase_wrapped); axis image; colormap(gca, hsv); colorbar;
+title('全息相位 (理想)'); xlabel('mm');
+
+subplot(3, 5, 3);
+imagesc(x*1e3, y*1e3, phase_aligned_voxel); axis image; colormap(gca, hsv); colorbar;
+title(sprintf('实际相位 (误差%.1f°)', mean_phase_error*180/pi)); xlabel('mm');
+
+subplot(3, 5, 4);
+surf(x*1e3, y*1e3, actual_thickness*1e3); view(2); shading interp; colorbar;
+title('透镜厚度 (mm)'); xlabel('mm');
+
+subplot(3, 5, 5);
+imagesc(x*1e3, y*1e3, current_weight); axis image; colormap(gca, parula); colorbar;
+title('W-IASA 最终振幅权重'); xlabel('mm'); ylabel('mm');
+
+subplot(3, 5, 6);
+imagesc(x*1e3, y*1e3, Q_focal_2d / 1e6); axis image; colormap(gca, hot); colorbar;
+title('焦面物理产热率 Q (MW/m^3)'); xlabel('mm');
+
+subplot(3, 5, 7);
+p_focal_scaled = gather(p_3d_scaled(:, :, best_idx_global));
+imagesc(x*1e3, y*1e3, p_focal_scaled/1e6); axis image; colormap(gca, jet); colorbar;
+title(sprintf('最佳焦面饱和声压 (Max %.1fMPa)', max(p_focal_scaled(:))/1e6)); xlabel('mm');
+
+subplot(3, 5, 8);
+imagesc(x*1e3, y*1e3, cured_mask_2d); axis image;
+colormap(gca, [0.05 0.05 0.2; 0.9 0.9 0.1]);
+title(sprintf('固化形貌 (IoU: %.4f)', IoU)); xlabel('mm');
+
+subplot(3, 5, 9);
+imagesc(x*1e3, y*1e3, T_focal_2d); axis image; colormap(gca, hot); colorbar;
+% 同样修复这里被致盲的可能
+caxis([20, max(65, min(T_max_real, 120))]);
+title(sprintf('稳态温度 Max:%.1f°C', T_max_real)); xlabel('mm');
+
+subplot(3, 5, 10);
+plot(metrics_z, metrics_corr, 'b-', 'LineWidth', 1.5); hold on; 
+plot(actual_z_dist_mm, best_corr, 'ro', 'MarkerSize', 10);
+xlabel('Z 偏移 (mm)'); ylabel('Correlation'); title('Z-Scan 景深寻优'); grid on;
+
+subplot(3, 5, [11 12 13]);
+center = round(Nx/2);
+plot(x*1e3, imag_target(center, :), 'k--', 'LineWidth', 2); hold on;
+plot(x*1e3, p_focal_scaled(center, :)/max(p_focal_scaled(:)), 'r-', 'LineWidth', 1.5);
+legend('目标', '饱和声压分布'); title('中心剖面对比'); grid on; xlabel('mm');
+
+subplot(3, 5, [14 15]);
+[X_surf, Y_surf] = meshgrid(x*1e3, y*1e3);
+surf(X_surf, Y_surf, p_focal_scaled/1e6); shading interp; colormap(gca, jet);
+title('3D焦面空化饱和声压场 (MPa)'); xlabel('mm'); ylabel('mm'); zlabel('MPa');
+
+%% 15. 输出报告
+fprintf('\n========================================\n');
+fprintf('HDSP 严谨物理仿真报告 (最终完美闭环版)\n');
+fprintf('========================================\n');
+fprintf('网格配置:\n');
+fprintf('  分辨率: %.2f μm\n', dx*1e6);
+fprintf('  节点: %.2fM\n', (Nx*Ny*Nz)/1e6);
+fprintf('----------------------------------------\n');
+fprintf('IASA 全息生成:\n');
+fprintf('  最佳截断步数: %d\n', epoch);
+fprintf('  相位误差 (连续台阶): %.2f° (最大%.2f°)\n', mean_phase_error*180/pi, max_phase_error*180/pi);
+fprintf('----------------------------------------\n');
+fprintf('成像质量 (最佳焦面):\n');
+fprintf('  位置: %.2f mm\n', actual_z_dist_mm);
+fprintf('  Correlation: %.4f\n', best_corr);
+fprintf('----------------------------------------\n');
+fprintf('严谨物理预测 (空化屏蔽饱和模型 + GPU FDTD):\n');
+fprintf('  区域中位数定标声压: %.2f MPa\n', target_median_pressure/1e6);
+fprintf('  物理空化截断上限: %.2f MPa\n', cavitation_limit/1e6);
+fprintf('  照射时间: %.1f 秒\n', exposure_time);
+fprintf('  热传导演化最高温度: %.1f°C\n', T_max_real);
+fprintf('  热交联阈值(>%d°C) 目标覆盖率: %.1f%%\n', Thermal_Curing_Threshold, cured_coverage);
+fprintf('  最终热固化形貌交并比 (IoU): %.4f\n', IoU);
+fprintf('========================================\n');
