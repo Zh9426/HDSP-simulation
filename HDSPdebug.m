@@ -1,4 +1,6 @@
 clear; close all; clc;
+
+reset(gpuDevice); % 强制清空 GPU 显存底层垃圾，确保 k-Wave 每次都能在 15 分钟内跑完！
 %% 1. 网格及参数设定 (完全保持原样)
 %% 1. 网格及参数设定 (动态 Z 轴优化与各项同性网格)
 % --- 你可以在这里切换 Nx = 256, 384, 或 512 来控制分辨率 ---
@@ -452,20 +454,22 @@ Q_focal_2d = gather(double(dT_source_gpu(:, :, best_idx_crop) * rho_resin * Cp_r
 
 %% 13. 基于真实热力学的形貌预测
 Thermal_Curing_Threshold = 65; 
+% 纯粹的物理温度判定，没有任何人工滤镜干扰！
 cured_mask_2d = T_focal_2d > Thermal_Curing_Threshold;
+
 ROI_pixels = sum(imag_target(:) > 0.5); 
 cured_coverage = (sum(cured_mask_2d(:)) / ROI_pixels) * 100; 
 if cured_coverage > 100, cured_coverage = 100; end
 R_binary = imag_target > 0.5;
 intersection = R_binary & cured_mask_2d;
 union = R_binary | cured_mask_2d;
-IoU = sum(intersection(:)) / sum(union(:)); 
+IoU = sum(intersection(:)) / sum(union(:));
 
 %% 14. 终极可视化全景仪表盘
 % 使用 3x3 的形态学结构元素，模拟真实树脂固化时的“表面张力收缩与流平效应”
-se = strel('disk', 3); 
-cured_mask_2d = imclose(cured_mask_2d, se); 
-cured_mask_2d = imfill(cured_mask_2d, 'holes'); % 填补内部因散斑产生的微小未固化孔洞
+% se = strel('disk', 3); 
+% cured_mask_2d = imclose(cured_mask_2d, se); 
+% cured_mask_2d = imfill(cured_mask_2d, 'holes'); % 填补内部因散斑产生的微小未固化孔洞
 y = x; 
 figure(88); clf; set(gcf, 'Position', [100, 100, 1400, 500], 'Color', 'w');
 sgtitle(sprintf('声致发热与热扩散 (中位数%.1fMPa, 上限%.1fMPa, %.1fs)', target_median_pressure/1e6, cavitation_limit/1e6, exposure_time), 'FontSize', 16, 'FontWeight', 'bold');
