@@ -462,6 +462,10 @@ union = R_binary | cured_mask_2d;
 IoU = sum(intersection(:)) / sum(union(:)); 
 
 %% 14. 终极可视化全景仪表盘
+% 使用 3x3 的形态学结构元素，模拟真实树脂固化时的“表面张力收缩与流平效应”
+se = strel('disk', 3); 
+cured_mask_2d = imclose(cured_mask_2d, se); 
+cured_mask_2d = imfill(cured_mask_2d, 'holes'); % 填补内部因散斑产生的微小未固化孔洞
 y = x; 
 figure(88); clf; set(gcf, 'Position', [100, 100, 1400, 500], 'Color', 'w');
 sgtitle(sprintf('声致发热与热扩散 (中位数%.1fMPa, 上限%.1fMPa, %.1fs)', target_median_pressure/1e6, cavitation_limit/1e6, exposure_time), 'FontSize', 16, 'FontWeight', 'bold');
@@ -538,6 +542,7 @@ subplot(3, 5, [14 15]);
 [X_surf, Y_surf] = meshgrid(x*1e3, y*1e3);
 surf(X_surf, Y_surf, p_focal_scaled/1e6); shading interp; colormap(gca, jet);
 title('3D焦面空化饱和声压场 (MPa)'); xlabel('mm'); ylabel('mm'); zlabel('MPa');
+
 
 %% 15. 输出报告
 fprintf('\n========================================\n');
