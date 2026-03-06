@@ -111,8 +111,7 @@ mask_roi = (target_pad > 0.5);
 mask_dark = (target_pad < 0.5);    
 
 epoch = 150; 
-tukey_1d = tukeywin(Nx, 0.3); % 边缘 30% 的区域进行平滑衰减
-window_2d = tukey_1d * tukey_1d';
+
 for i = 1:epoch
     U_source = zeros(Nx_pad, Ny_pad);
     center_phase = angle(board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny));
@@ -369,9 +368,9 @@ roi_mask = (imag_target > 0.5);
 median_roi_p = median(focal_slice_abs(roi_mask)); 
 
 % 1. 将 A 内部的平均声压定标为 1.2 MPa (刚好引发产热)
-target_median_pressure = 3e6;
+target_median_pressure = 2e6;
 cavitation_limit = 2.0e6;
-exposure_time = 0.6;
+exposure_time = 0.3;
 
 scale_factor = target_median_pressure / median_roi_p;
 p_3d_scaled = p_3d_abs * scale_factor;
@@ -410,11 +409,11 @@ z_crop_end = min(Nz, best_idx_global + z_crop_radius);
 best_idx_crop = best_idx_global - z_crop_start + 1;
 
 try
-    T_3d_gpu = gpuArray(20 * ones(Nx, Ny, z_crop_end - z_crop_start + 1, 'single'));
+    T_3d_gpu = gpuArray(50 * ones(Nx, Ny, z_crop_end - z_crop_start + 1, 'single'));
     diffusivity_gpu = gpuArray(diffusivity_3d(:, :, z_crop_start:z_crop_end));
     dT_source_gpu = gpuArray(dT_source_3d(:, :, z_crop_start:z_crop_end));
 catch
-    T_3d_gpu = 20 * ones(Nx, Ny, z_crop_end - z_crop_start + 1, 'single');
+    T_3d_gpu = 50 * ones(Nx, Ny, z_crop_end - z_crop_start + 1, 'single');
     diffusivity_gpu = diffusivity_3d(:, :, z_crop_start:z_crop_end);
     dT_source_gpu = dT_source_3d(:, :, z_crop_start:z_crop_end);
 end
@@ -454,7 +453,7 @@ T_focal_2d = gather(double(T_3d_gpu(:, :, best_idx_crop)));
 T_max_real = T_max_history(end);
 Q_focal_2d = gather(double(dT_source_gpu(:, :, best_idx_crop) * rho_resin * Cp_resin));
 
-%% 13. 基于真实热力学的形貌预测
+% 13. 基于真实热力学的形貌预测
 Thermal_Curing_Threshold = 65; 
 % 纯粹的物理温度判定，没有任何人工滤镜干扰！
 cured_mask_2d = T_focal_2d > Thermal_Curing_Threshold;
@@ -467,7 +466,7 @@ intersection = R_binary & cured_mask_2d;
 union = R_binary | cured_mask_2d;
 IoU = sum(intersection(:)) / sum(union(:));
 
-%% 14. 终极可视化全景仪表盘
+% 14. 终极可视化全景仪表盘
 % 使用 3x3 的形态学结构元素，模拟真实树脂固化时的“表面张力收缩与流平效应”
 % se = strel('disk', 3); 
 % cured_mask_2d = imclose(cured_mask_2d, se); 
@@ -480,7 +479,7 @@ for i = 1:num_snapshots
     imagesc(x*1e3, y*1e3, snapshots_2d(:, :, i));
     axis image; colormap hot; 
     % [色标修复] 强制锁定色标上限，防止极别畸形点致盲全图！
-    caxis([20, max(80, min(T_max_real, 120))]); 
+    caxis([50, max(65, min(T_max_real, 120))]); 
     if i == num_snapshots, colorbar; end
     title(sprintf('t = %.2f s\nMax: %.1f °C', snapshot_steps(i)*dt_th, max(max(snapshots_2d(:,:,i)))));
     xlabel('mm'); ylabel('mm');
@@ -530,7 +529,7 @@ title(sprintf('固化形貌 (IoU: %.4f)', IoU)); xlabel('mm');
 subplot(3, 5, 9);
 imagesc(x*1e3, y*1e3, T_focal_2d); axis image; colormap(gca, hot); colorbar;
 % 同样修复这里被致盲的可能
-caxis([20, max(65, min(T_max_real, 120))]);
+caxis([50, max(65, min(T_max_real, 80))]);
 title(sprintf('稳态温度 Max:%.1f°C', T_max_real)); xlabel('mm');
 
 subplot(3, 5, 10);
@@ -550,7 +549,7 @@ surf(X_surf, Y_surf, p_focal_scaled/1e6); shading interp; colormap(gca, jet);
 title('3D焦面空化饱和声压场 (MPa)'); xlabel('mm'); ylabel('mm'); zlabel('MPa');
 
 
-%% 15. 输出报告
+% 15. 输出报告
 fprintf('\n========================================\n');
 fprintf('HDSP 严谨物理仿真报告 (最终完美闭环版)\n');
 fprintf('========================================\n');
