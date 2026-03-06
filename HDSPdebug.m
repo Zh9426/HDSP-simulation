@@ -111,9 +111,20 @@ mask_roi = (target_pad > 0.5);
 mask_dark = (target_pad < 0.5);    
 
 epoch = 150; 
+k_board_val = 2 * pi * f0 / c_board;
+k_water_val = 2 * pi * f0 / c_water;
+k_diff = abs(k_water_val - k_board_val);
 for i = 1:epoch
-    U_source = zeros(Nx_pad, Ny_pad);
     center_phase = angle(board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny));
+    if i > 100 % 在前100次自由寻优后，最后50次强制引入 3D 打印机的物理阶梯限制
+        % 将连续相位转为物理厚度
+        temp_thickness = mod(center_phase, 2*pi) / k_diff;
+        % 强制阶梯化 (提前模拟 3D 打印的 round)
+        quantized_thickness = round(temp_thickness / dz) * dz;
+        % 再转回阶梯相位，送给声波去传播
+        center_phase = mod(quantized_thickness * k_diff, 2*pi);
+    end
+    U_source = zeros(Nx_pad, Ny_pad);
     U_source(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = 1.0 .* exp(1i * center_phase);
     
     A_source = fftshift(fft2(ifftshift(U_source)));
