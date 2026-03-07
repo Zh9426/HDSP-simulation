@@ -1,24 +1,27 @@
 function results = HDSP_Engine(params)
-% HDSP_Engine: 核心声学与热力学仿真计算引擎
-% 输入: params 结构体 (包含来自 App UI 的参数)
-% 输出: results 结构体 (包含用于 App 绘图的所有 2D/3D 矩阵数据)
+% HDSP_Engine: 基于用户 0.9077 黄金基线版本的核心计算引擎
+% 输入: params 结构体 (来自 App UI 的动态参数)
+% 输出: results 结构体 (包含用于 App 绘图的所有数据)
 
-    % 1. 强制清空 GPU 底层，确保满血运行 (可选，防止多次运行显存爆炸)
+    % 强制清空 GPU 底层垃圾
     reset(gpuDevice); 
 
-    %% === [1. 参数解析 (从 App 传入)] ===
-    Nx = params.Nx; % 推荐 256 或 384
-    f0 = params.f0 * 1e6; % 将 MHz 转换为 Hz
-    target_median_pressure = params.pressure * 1e6; % MPa -> Pa
-    cavitation_limit = params.limit * 1e6; % MPa -> Pa
-    exposure_time = params.time;
-    Thermal_Curing_Threshold = params.threshold;
-
-    %% === [2. 物理网格构建] ===
-    Lx = 40e-3; Ny = Nx; Ly = Lx;
+    %% 1. 网格及参数设定 (从 App 动态读取)
+    Nx = params.Nx; % 例如 384
+    f0 = params.f0 * 1e6; % MHz 转 Hz
+    target_median_pressure = params.pressure * 1e6; % MPa 转 Pa
+    cavitation_limit = params.limit * 1e6; % MPa 转 Pa
+    exposure_time = params.time; % 秒
+    Thermal_Curing_Threshold = params.threshold; % 固化温度 (例如 65)
+    
+    Lx = 40e-3;
+    Ny = Nx; Ly = Lx;
+    System_Offset = 2.03e-3;
     z_target_dist = 20e-3; 
-    c_water = 1480; c_board = 2430; 
-    density_water = 997; density_board = 1100; 
+    c_water = 1480; 
+    c_board = 2430; 
+    density_water = 997;
+    density_board = 1100; 
     lambda_water = c_water / f0;
     
     dx = Lx / Nx; dy = dx; dz = dx; 
@@ -29,7 +32,7 @@ function results = HDSP_Engine(params)
     Lz = Nz * dz;
     x = (-Nx/2 : Nx/2-1) * dx;
 
-    %% === [3. 目标定义与软边界处理] ===
+    %% 2. 目标定义 (完全保持原样)
     imag_target = zeros(Nx, Ny);
     h_A = 160; w_base = 100; thickness = 22; bar_pos = 50; bar_width = 20;
     cx = round(Nx/2); cy = round(Ny/2);
@@ -48,33 +51,31 @@ function results = HDSP_Engine(params)
     imag_target = mask_outer & (~mask_inner_cone | mask_bar);
     imag_target = double(imag_target > 0.5);
     
-    % 高斯软边界
     smooth_sigma = 1.5; 
     imag_target = imgaussfilt(imag_target, smooth_sigma);
     imag_target = imag_target / max(imag_target(:));
 
-   %% === [4. W-IASA 全息迭代] ===
-    pad_factor = 2; Nx_pad = Nx * pad_factor; Ny_pad = Ny * pad_factor;
+    %% 3. IASA 迭代 (完全使用你的原始算法，无任何魔改)
+    pad_factor = 2; 
+    Nx_pad = Nx * pad_factor; Ny_pad = Ny * pad_factor;
     Lx_pad = Lx * pad_factor; dk_pad = 2 * pi / Lx_pad;
     kx_pad = (-Nx_pad/2 : Nx_pad/2-1) * dk_pad;
     [Kx_pad, Ky_pad] = meshgrid(kx_pad, kx_pad);
     k_water = 2 * pi / lambda_water;
-    Kz_sq = k_water^2 - Kx_pad.^2 - Ky_pad.^2; Kz_sq(Kz_sq < 0) = 0; 
+    Kz_sq = k_water^2 - Kx_pad.^2 - Ky_pad.^2;
+    Kz_sq(Kz_sq < 0) = 0; 
     H_forward = exp(1i * sqrt(Kz_sq) * z_target_dist); 
     H_backward = exp(-1i * sqrt(Kz_sq) * z_target_dist); 
     
     rng(9426);
     board_phase_pad = zeros(Nx_pad, Ny_pad);
-    
-    % [修复 1: 恢复低频相位起手式，消灭初始相位奇点]
-    raw_rand_phase = rand(Nx, Nx) * 2 * pi;
-    smooth_initial_phase = imgaussfilt(raw_rand_phase, 8); 
-    board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = exp(1i * smooth_initial_phase);
+    board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = exp(1i * rand(Nx, Nx) * 2 * pi);
 
     target_pad = zeros(Nx_pad, Ny_pad);
     target_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = imag_target;
     weight_pad = target_pad * 1.5; 
-    mask_roi = (target_pad > 0.5); mask_dark = (target_pad < 0.5);    
+    mask_roi = (target_pad > 0.5);     
+    mask_dark = (target_pad < 0.5);    
     
     epoch = 150; 
     for i = 1:epoch
@@ -87,13 +88,9 @@ function results = HDSP_Engine(params)
         U_target = fftshift(ifft2(ifftshift(A_target)));
         
         rec_amp = abs(U_target);
-        
-        % [修复 2: 恢复迭代内平滑约束，给算法戴上“近视眼镜”]
-        rec_amp_blurred = imgaussfilt(rec_amp, 1.2); 
-        
-        peak_val = max(rec_amp_blurred(mask_roi)); 
-        if peak_val == 0, peak_val = max(rec_amp_blurred(:)); end
-        rec_amp_norm = rec_amp_blurred / peak_val;
+        peak_val = max(rec_amp(mask_roi)); 
+        if peak_val == 0, peak_val = max(rec_amp(:)); end
+        rec_amp_norm = rec_amp / peak_val;
         
         if i > 5
             beta = 0.8; 
@@ -102,24 +99,29 @@ function results = HDSP_Engine(params)
             weight_pad(weight_pad > 10) = 10;
             weight_pad(mask_dark) = 0;
         end
+        current_weight = weight_pad; 
         U_target_constrained = weight_pad .* exp(1i * angle(U_target));
         A_target_cons = fftshift(fft2(ifftshift(U_target_constrained)));
         A_source_cons = A_target_cons .* H_backward;
         U_source_new = fftshift(ifft2(ifftshift(A_source_cons)));
+        
         board_phase_pad = U_source_new;
     end
     holo_phase = angle(board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny));
-    final_weight = weight_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny);
+    % 截取中间有效区域的权重用于出图
+    final_weight = current_weight(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny); 
 
-    %% === [5. 物理体素化] ===
+    %% === 4. 相位转厚度与体素化 ===
     phase_wrapped = mod(holo_phase, 2*pi); 
-    k_board_val = 2 * pi * f0 / c_board; k_water_val = 2 * pi * f0 / c_water;
+    k_board_val = 2 * pi * f0 / c_board;
+    k_water_val = 2 * pi * f0 / c_water;
     k_diff = abs(k_water_val - k_board_val); 
     thickness_ideal = phase_wrapped / k_diff;
-    thickness_map = imgaussfilt(thickness_ideal, 0.2) + 2 * dz; 
+    thickness_map = imgaussfilt(thickness_ideal, 0.2); 
+    min_base = 2 * dz; 
+    thickness_map = thickness_map + min_base;
     net_num_board = round(thickness_map / dz);
     actual_thickness = net_num_board * dz;
-    
     actual_phase_imparted = mod(actual_thickness * k_diff, 2*pi);
     complex_diff_voxel = exp(1i * actual_phase_imparted) ./ exp(1i * phase_wrapped);
     global_offset_voxel = angle(mean(complex_diff_voxel(:))); 
@@ -127,14 +129,14 @@ function results = HDSP_Engine(params)
     phase_error_voxel = abs(angle(exp(1i * (phase_aligned_voxel - phase_wrapped))));
     mean_phase_error = mean(phase_error_voxel(:));
 
-    %% === [6. k-Wave 环境与声波仿真] ===
+    %% === 5-8. k-Wave 环境构建与 3D FDTD 全波场求解 ===
     kgrid = kWaveGrid(Nx, dx, Ny, dy, Nz, dz);
     medium.sound_speed = c_water * ones(Nx, Ny, Nz);
     rho_match = (c_water * density_water) / c_board;
     medium.density = density_water * ones(Nx, Ny, Nz);
     medium.alpha_coeff = 0.002 * ones(Nx, Ny, Nz); 
     medium.alpha_power = 1.5;
-
+    
     pml_size = 10; source_z_idx = pml_size + 5; z_board_stat_idx = source_z_idx + 2;
     for i = 1:Nx
         for j = 1:Ny
@@ -147,7 +149,7 @@ function results = HDSP_Engine(params)
         end
     end
     thickest = max(net_num_board(:)) * dz;
-
+    
     cfl = 0.3; t_end = (Lz * 1.5) / c_water; 
     kgrid.makeTime(medium.sound_speed, cfl, t_end); 
     source.p_mask = zeros(Nx, Ny, Nz); source.p_mask(:, :, source_z_idx) = 1; 
@@ -161,7 +163,8 @@ function results = HDSP_Engine(params)
     target_plane_idx = z_board_exit_idx + round(z_target_dist / dz);
     scan_range_idx = round(3e-3 / dz); 
     z_scan_start = target_plane_idx - scan_range_idx;
-    z_scan_end = min(target_plane_idx + scan_range_idx, Nz - pml_size);
+    z_scan_end = target_plane_idx + scan_range_idx;
+    if z_scan_end > Nz - pml_size, z_scan_end = Nz - pml_size; end
     sensor.mask(:, :, z_scan_start:z_scan_end) = 1;
     sensor.record = {'p'}; 
     sensor.record_start_index = kgrid.Nt - round(3/f0/kgrid.dt);
@@ -174,7 +177,7 @@ function results = HDSP_Engine(params)
         sensor_data = kspaceFirstOrder3D(kgrid, medium, source, sensor, input_args{:});
     end
 
-    %% === [7. Z-Scan 寻焦评估] ===
+    %% === 9. Z-Scan 寻焦 ===
     p_raw = gather(sensor_data.p); 
     [~, Nt_rec] = size(p_raw);
     p_fft = fft(p_raw, [], 2);
@@ -202,7 +205,7 @@ function results = HDSP_Engine(params)
     best_idx_global = z_scan_start + best_slice_idx - 1;
     actual_z_dist_mm = (best_idx_global - z_board_exit_idx) * dz * 1e3;
 
-    %% === [8. FDTD 热扩散仿真] ===
+    %% === 12. GPU 热力学引擎 (完全使用你的 50度设定) ===
     p_3d_abs = abs(p_field_3d); 
     focal_slice_abs = p_3d_abs(:, :, best_idx_global);
     roi_mask = (imag_target > 0.5);
@@ -236,12 +239,13 @@ function results = HDSP_Engine(params)
     z_crop_end = min(Nz, best_idx_global + z_crop_radius);
     best_idx_crop = best_idx_global - z_crop_start + 1;
     
+    % [保持你的 50°C 设定]
     try
-        T_3d_gpu = gpuArray(60 * ones(Nx, Ny, z_crop_end - z_crop_start + 1, 'single'));
+        T_3d_gpu = gpuArray(50 * ones(Nx, Ny, z_crop_end - z_crop_start + 1, 'single'));
         diffusivity_gpu = gpuArray(diffusivity_3d(:, :, z_crop_start:z_crop_end));
         dT_source_gpu = gpuArray(dT_source_3d(:, :, z_crop_start:z_crop_end));
     catch
-        T_3d_gpu = 60 * ones(Nx, Ny, z_crop_end - z_crop_start + 1, 'single');
+        T_3d_gpu = 50 * ones(Nx, Ny, z_crop_end - z_crop_start + 1, 'single');
         diffusivity_gpu = diffusivity_3d(:, :, z_crop_start:z_crop_end);
         dT_source_gpu = dT_source_3d(:, :, z_crop_start:z_crop_end);
     end
@@ -249,36 +253,52 @@ function results = HDSP_Engine(params)
     max_diffusivity = max(k_resin/(rho_resin*Cp_resin), k_water/(rho_water*Cp_water));
     dt_th_max = (dx^2) / (6 * max_diffusivity); dt_th = dt_th_max * 0.9; 
     Nt_th = round(exposure_time / dt_th);
+    
+    % 只保存部分快照以避免内存爆炸
+    num_snapshots = 5;
+    snapshot_steps = round(linspace(1, Nt_th, num_snapshots));
+    snapshots_2d = zeros(Nx, Ny, num_snapshots);
     T_max_history = zeros(Nt_th, 1);
     
     for step = 1:Nt_th
         laplacian_T = 6 * del2(T_3d_gpu, dx);
         T_3d_gpu = T_3d_gpu + dt_th * (diffusivity_gpu .* laplacian_T + dT_source_gpu);
-        T_max_history(step) = gather(max(max(T_3d_gpu(:, :, best_idx_crop))));
+        
+        T_focal_slice = T_3d_gpu(:, :, best_idx_crop);
+        T_max_history(step) = gather(max(T_focal_slice(:)));
+        
+        snap_idx = find(snapshot_steps == step);
+        if ~isempty(snap_idx)
+            snapshots_2d(:, :, snap_idx) = gather(double(T_focal_slice));
+        end
     end
     
     T_focal_2d = gather(double(T_3d_gpu(:, :, best_idx_crop)));
     T_max_real = T_max_history(end);
     Q_focal_2d = gather(double(dT_source_gpu(:, :, best_idx_crop) * rho_resin * Cp_resin));
 
-    %% === [9. 数据打包输出给 App] ===
+    %% === 13. 结算指标装填给 App ===
     cured_mask_2d = T_focal_2d > Thermal_Curing_Threshold;
     R_binary = imag_target > 0.5;
-    IoU = sum(sum(R_binary & cured_mask_2d)) / sum(sum(R_binary | cured_mask_2d));
-    cured_coverage = (sum(cured_mask_2d(:)) / sum(R_binary(:))) * 100;
+    intersection = R_binary & cured_mask_2d;
+    union_mask = R_binary | cured_mask_2d;
+    IoU = sum(intersection(:)) / sum(union_mask(:));
+    
+    ROI_pixels = sum(imag_target(:) > 0.5); 
+    cured_coverage = (sum(cured_mask_2d(:)) / ROI_pixels) * 100; 
     if cured_coverage > 100, cured_coverage = 100; end
 
-    % 填装所有需要展示的数据
-    results.x = x * 1e3; % mm
-    results.y = x * 1e3; % mm
+    % 打包所有结果
+    results.x = x;
+    results.y = x;
     results.imag_target = imag_target;
     results.phase_wrapped = phase_wrapped;
-    results.actual_thickness = actual_thickness * 1e3; % mm
+    results.actual_thickness = actual_thickness; 
     results.phase_aligned_voxel = phase_aligned_voxel;
-    results.mean_phase_error = mean_phase_error * 180 / pi;
+    results.mean_phase_error = mean_phase_error;
     results.final_weight = final_weight;
-    results.Q_focal_2d = Q_focal_2d / 1e6;
-    results.p_focal_scaled = gather(p_3d_scaled(:, :, best_idx_global)) / 1e6; % MPa
+    results.Q_focal_2d = Q_focal_2d;
+    results.p_focal_scaled = gather(p_3d_scaled(:, :, best_idx_global));
     results.cured_mask_2d = cured_mask_2d;
     results.T_focal_2d = T_focal_2d;
     results.IoU = IoU;
@@ -290,5 +310,7 @@ function results = HDSP_Engine(params)
     results.T_max_real = T_max_real;
     results.t_axis = (1:Nt_th) * dt_th;
     results.T_max_history = T_max_history;
-
+    results.snapshots_2d = snapshots_2d;
+    results.snapshot_steps = snapshot_steps;
+    results.dt_th = dt_th;
 end
