@@ -85,8 +85,8 @@ imag_target = imgaussfilt(imag_target, smooth_sigma);
 % 重新归一化到 0~1
 imag_target = imag_target / max(imag_target(:));
 
-%% 3. IASA 迭代 (无散斑版 Speckle-Free W-IASA)
-fprintf('运行 IASA (引入低频相位先验与迭代内平滑约束)...\n');
+%% 3. IASA 迭代 (保持原样)
+fprintf('运行 IASA (引入 Padding 和 乘性权重优化)...\n');
 pad_factor = 2; 
 Nx_pad = Nx * pad_factor; 
 Ny_pad = Ny * pad_factor;
@@ -94,30 +94,23 @@ Lx_pad = Lx * pad_factor;
 dk_pad = 2 * pi / Lx_pad;
 kx_pad = (-Nx_pad/2 : Nx_pad/2-1) * dk_pad;
 [Kx_pad, Ky_pad] = meshgrid(kx_pad, kx_pad);
+
 k_water = 2 * pi / lambda_water;
 Kz_sq = k_water^2 - Kx_pad.^2 - Ky_pad.^2;
 Kz_sq(Kz_sq < 0) = 0; 
 H_forward = exp(1i * sqrt(Kz_sq) * z_target_dist); 
 H_backward = exp(-1i * sqrt(Kz_sq) * z_target_dist); 
-
 rng(9426);
 board_phase_pad = zeros(Nx_pad, Ny_pad);
-
-% =================================================================
-% 🚀 [手术一：低频相位起手式] 彻底消灭初始的相位奇点(光斑黑洞)！
-% =================================================================
-raw_rand_phase = rand(Nx, Nx) * 2 * pi;
-% 用极大的平滑核 (sigma=8) 把白噪声变成平缓的“相位丘陵”
-smooth_initial_phase = imgaussfilt(raw_rand_phase, 8); 
-board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = exp(1i * smooth_initial_phase);
+board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = exp(1i * rand(Nx, Nx) * 2 * pi);
 
 target_pad = zeros(Nx_pad, Ny_pad);
 target_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = imag_target;
 weight_pad = target_pad * 1.5; 
 mask_roi = (target_pad > 0.5);     
 mask_dark = (target_pad < 0.5);    
-epoch = 150; 
 
+epoch = 150; 
 for i = 1:epoch
     U_source = zeros(Nx_pad, Ny_pad);
     center_phase = angle(board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny));
@@ -128,27 +121,17 @@ for i = 1:epoch
     U_target = fftshift(ifft2(ifftshift(A_target)));
     
     rec_amp = abs(U_target);
-    
-    % =================================================================
-    % 🚀 [手术二：迭代内平滑约束] 给算法戴上“近视眼镜”，忽略单像素散斑！
-    % =================================================================
-    % 在计算权重前，把生成的振幅做一次轻微模糊 (sigma=1.2)
-    % 这能强迫算法放弃追逐那些微小的刺眼散斑，转而优化整体能量的“高原平坦度”
-    rec_amp_blurred = imgaussfilt(rec_amp, 1.2); 
-    
-    peak_val = max(rec_amp_blurred(mask_roi)); 
-    if peak_val == 0, peak_val = max(rec_amp_blurred(:)); end
-    rec_amp_norm = rec_amp_blurred / peak_val;
+    peak_val = max(rec_amp(mask_roi)); 
+    if peak_val == 0, peak_val = max(rec_amp(:)); end
+    rec_amp_norm = rec_amp / peak_val;
     
     if i > 5
         beta = 0.8; 
-        % 算法现在基于“模糊后的宏观分布”来计算更新权重，彻底告别像素级震荡
         correction = (target_pad(mask_roi) ./ (rec_amp_norm(mask_roi) + 1e-6)) .^ beta;
         weight_pad(mask_roi) = weight_pad(mask_roi) .* correction;
         weight_pad(weight_pad > 10) = 10;
         weight_pad(mask_dark) = 0;
     end
-    
     current_weight = weight_pad; 
     U_target_constrained = weight_pad .* exp(1i * angle(U_target));
     A_target_cons = fftshift(fft2(ifftshift(U_target_constrained)));
@@ -157,6 +140,7 @@ for i = 1:epoch
     
     board_phase_pad = U_source_new;
 end
+
 holo_phase = angle(board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny));
 figure(1);
 subplot(1,2,1); imagesc(x*1e3, x*1e3, imag_target); axis image; colormap gray; title('目标');
@@ -468,7 +452,7 @@ T_focal_2d = gather(double(T_3d_gpu(:, :, best_idx_crop)));
 T_max_real = T_max_history(end);
 Q_focal_2d = gather(double(dT_source_gpu(:, :, best_idx_crop) * rho_resin * Cp_resin));
 
-% 13. 基于真实热力学的形貌预测
+%% 13. 基于真实热力学的形貌预测
 Thermal_Curing_Threshold = 65; 
 % 纯粹的物理温度判定，没有任何人工滤镜干扰！
 cured_mask_2d = T_focal_2d > Thermal_Curing_Threshold;
@@ -481,7 +465,7 @@ intersection = R_binary & cured_mask_2d;
 union = R_binary | cured_mask_2d;
 IoU = sum(intersection(:)) / sum(union(:));
 
-% 14. 终极可视化全景仪表盘
+%% 14. 终极可视化全景仪表盘
 % 使用 3x3 的形态学结构元素，模拟真实树脂固化时的“表面张力收缩与流平效应”
 % se = strel('disk', 3); 
 % cured_mask_2d = imclose(cured_mask_2d, se); 
@@ -564,7 +548,7 @@ surf(X_surf, Y_surf, p_focal_scaled/1e6); shading interp; colormap(gca, jet);
 title('3D焦面空化饱和声压场 (MPa)'); xlabel('mm'); ylabel('mm'); zlabel('MPa');
 
 
-% 15. 输出报告
+%% 15. 输出报告
 fprintf('\n========================================\n');
 fprintf('HDSP 严谨物理仿真报告 (最终完美闭环版)\n');
 fprintf('========================================\n');
