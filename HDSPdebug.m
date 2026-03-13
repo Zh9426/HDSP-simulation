@@ -147,7 +147,8 @@ subplot(1,2,1); imagesc(x*1e3, x*1e3, imag_target); axis image; colormap gray; t
 subplot(1,2,2); imagesc(x*1e3, x*1e3, holo_phase); axis image; colormap jet; title('IASA 相位 (Pad优化)');
 
 %% === [修改部分 Start] 相位转厚度与体素化优化 ===
-phase_wrapped = mod(holo_phase, 2*pi); 
+limit = 2 * 2 * pi;
+phase_wrapped = mod(holo_phase, limit); 
 
 k_board_val = 2 * pi * f0 / c_board;
 k_water_val = 2 * pi * f0 / c_water;
@@ -190,7 +191,7 @@ medium.sound_speed = c_water * ones(Nx, Ny, Nz);
 % [关键物理隔离]：为了证明是网格散射惹的祸，而不是材料反射
 % 我们强行关闭材料的阻抗失配！即：保持声速不同以产生相位差，但让密度补偿以匹配水的声阻抗。
 % 声阻抗 Z = rho * c。我们希望 Z_board = Z_water
-rho_match = (c_water * density_water) / c_board;
+% rho_match = (c_water * density_water) / c_board;
 
 medium.density = density_water * ones(Nx, Ny, Nz);
 medium.alpha_coeff = 0.002 * ones(Nx, Ny, Nz); 
@@ -211,7 +212,7 @@ for i = 1:Nx
             medium.sound_speed(i, j, z_start:z_end) = c_board;
             
             % 使用阻抗匹配的密度，消除内部反射
-            medium.density(i, j, z_start:z_end) = rho_match; 
+            medium.density(i, j, z_start:z_end) = density_board; 
             
             % 为了看清纯粹的相位作用，暂时关闭树脂的额外衰减
             % medium.alpha_coeff(i, j, z_start:z_end) = 1.0; 
