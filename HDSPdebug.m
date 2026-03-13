@@ -147,8 +147,8 @@ subplot(1,2,1); imagesc(x*1e3, x*1e3, imag_target); axis image; colormap gray; t
 subplot(1,2,2); imagesc(x*1e3, x*1e3, holo_phase); axis image; colormap jet; title('IASA 相位 (Pad优化)');
 
 %% === [修改部分 Start] 相位转厚度与体素化优化 ===
-limit = 2 * 2 * pi;
-phase_wrapped = mod(holo_phase, limit); 
+
+phase_wrapped = mod(holo_phase, 2*pi); 
 
 k_board_val = 2 * pi * f0 / c_board;
 k_water_val = 2 * pi * f0 / c_water;
