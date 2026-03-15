@@ -85,8 +85,42 @@ imag_target = imgaussfilt(imag_target, smooth_sigma);
 % 重新归一化到 0~1
 imag_target = imag_target / max(imag_target(:));
 
-%% 3. IASA 迭代 (保持原样)
-fprintf('运行 IASA (引入 Padding 和 乘性权重优化)...\n');
+% === 1. 导出靶标数据到专属中转站 ===
+    transport_dir = 'C:\Users\Zh89\Desktop\transport';
+    if ~exist(transport_dir, 'dir')
+        mkdir(transport_dir);
+    end
+    
+    export_path = fullfile(transport_dir, 'target_for_python.mat');
+    save(export_path, 'imag_target', 'Nx', 'Ny', 'Lx', 'lambda_water', 'z_target_dist');
+    
+    % --- 极其显眼的交互提示 ---
+    fprintf('\n==================================================\n');
+    fprintf('🎯 靶标数据已导出至: %s\n', export_path);
+    fprintf('⏳ 【系统暂停中】请不要关闭 MATLAB！\n');
+    fprintf('👉 任务：请去 VS Code 中运行 Python 脚本...\n');
+    fprintf('==================================================\n\n');
+    
+    disp('按下【回车键 (Enter)】继续读取 Python 的结果...');
+    pause; % 程序会在这里完全挂起，直到你敲击键盘
+    
+    fprintf('\n🚀 收到继续指令！正在检查中转站...\n');
+%% === 3. IASA 迭代 (接收深度学习快递) ===
+fprintf('运行 PANN-IASA 混合架构收敛...\n');
+
+% 定义中转站路径
+transport_dir = 'C:\Users\Zh89\Desktop\transport';
+import_path = fullfile(transport_dir, 'dl_phase_init.mat');
+
+% 防呆检测：确保 Python 已经跑完了
+if ~exist(import_path, 'file')
+    error('❌ 中转站里没有找到 dl_phase_init.mat！请确认 Python 脚本是否成功运行。');
+end
+
+% 加载深度学习生成的初始相位
+load(import_path, 'optimal_initial_phase');
+fprintf('📦 成功从中转站提取神级初始相位！准备起飞...\n');
+% ... 接下来的 target_pad 定义和 epoch=150 的循环，完全保持你原样 ...
 pad_factor = 2; 
 Nx_pad = Nx * pad_factor; 
 Ny_pad = Ny * pad_factor;
@@ -100,9 +134,8 @@ Kz_sq = k_water^2 - Kx_pad.^2 - Ky_pad.^2;
 Kz_sq(Kz_sq < 0) = 0; 
 H_forward = exp(1i * sqrt(Kz_sq) * z_target_dist); 
 H_backward = exp(-1i * sqrt(Kz_sq) * z_target_dist); 
-rng(9426);
-board_phase_pad = zeros(Nx_pad, Ny_pad);
-board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = exp(1i * rand(Nx, Nx) * 2 * pi);
+    board_phase_pad = zeros(Nx_pad, Ny_pad);
+    board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = exp(1i * optimal_initial_phase);
 
 target_pad = zeros(Nx_pad, Ny_pad);
 target_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = imag_target;
