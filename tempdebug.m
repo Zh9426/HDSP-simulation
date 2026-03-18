@@ -1,4 +1,6 @@
 clear; close all; clc;
+
+reset(gpuDevice); % 强制清空 GPU 显存底层垃圾，确保 k-Wave 每次都能在 15 分钟内跑完！
 %% 1. 网格及参数设定 (完全保持原样)
 %% 1. 网格及参数设定 (动态 Z 轴优化与各项同性网格)
 % --- 你可以在这里切换 Nx = 256, 384, 或 512 来控制分辨率 ---
@@ -70,9 +72,55 @@ mask_bar = (X_grid >= x_bar_start) & (X_grid <= x_bar_end);
 %组合逻辑
 imag_target = mask_outer & (~mask_inner_cone | mask_bar);
 imag_target = double(imag_target > 0.5);
+% --- 目标定义末尾 ---
+imag_target = mask_outer & (~mask_inner_cone | mask_bar);
+imag_target = double(imag_target > 0.5);
 
-%% 3. IASA 迭代 (保持原样)
-fprintf('运行 IASA (引入 Padding 和 乘性权重优化)...\n');
+% ========================================================
+% [终极抗衍射绝招]：将硬边界转换为“高斯软边界”！
+% 这将彻底消除 IASA 算法产生的空间高频衍射环 (吉布斯振铃)
+% ========================================================
+smooth_sigma = 1.5; % 柔化半径 (通常取 1.5 ~ 2.0 个像素)
+imag_target = imgaussfilt(imag_target, smooth_sigma);
+% 重新归一化到 0~1
+imag_target = imag_target / max(imag_target(:));
+
+% === 1. 导出靶标数据到专属中转站 ===
+    transport_dir = 'C:\Users\Zh89\Desktop\transport';
+    if ~exist(transport_dir, 'dir')
+        mkdir(transport_dir);
+    end
+    
+    export_path = fullfile(transport_dir, 'target_for_python.mat');
+    save(export_path, 'imag_target', 'Nx', 'Ny', 'Lx', 'lambda_water', 'z_target_dist');
+    
+    % --- 极其显眼的交互提示 ---
+    fprintf('\n==================================================\n');
+    fprintf('🎯 靶标数据已导出至: %s\n', export_path);
+    fprintf('⏳ 【系统暂停中】请不要关闭 MATLAB！\n');
+    fprintf('👉 任务：请去 VS Code 中运行 Python 脚本...\n');
+    fprintf('==================================================\n\n');
+    
+    disp('按下【回车键 (Enter)】继续读取 Python 的结果...');
+    pause; % 程序会在这里完全挂起，直到你敲击键盘
+    
+    fprintf('\n🚀 收到继续指令！正在检查中转站...\n');
+%% === 3. IASA 迭代 (接收深度学习快递) ===
+fprintf('运行 PANN-IASA 混合架构收敛...\n');
+
+% 定义中转站路径
+transport_dir = 'C:\Users\Zh89\Desktop\transport';
+import_path = fullfile(transport_dir, 'dl_phase_init.mat');
+
+% 防呆检测：确保 Python 已经跑完了
+if ~exist(import_path, 'file')
+    error('❌ 中转站里没有找到 dl_phase_init.mat！请确认 Python 脚本是否成功运行。');
+end
+
+% 加载深度学习生成的初始相位
+load(import_path, 'optimal_initial_phase');
+fprintf('📦 成功从中转站提取神级初始相位！准备起飞...\n');
+% ... 接下来的 target_pad 定义和 epoch=150 的循环，完全保持你原样 ...
 pad_factor = 2; 
 Nx_pad = Nx * pad_factor; 
 Ny_pad = Ny * pad_factor;
@@ -86,9 +134,8 @@ Kz_sq = k_water^2 - Kx_pad.^2 - Ky_pad.^2;
 Kz_sq(Kz_sq < 0) = 0; 
 H_forward = exp(1i * sqrt(Kz_sq) * z_target_dist); 
 H_backward = exp(-1i * sqrt(Kz_sq) * z_target_dist); 
-rng(9426);
-board_phase_pad = zeros(Nx_pad, Ny_pad);
-board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = exp(1i * rand(Nx, Nx) * 2 * pi);
+    board_phase_pad = zeros(Nx_pad, Ny_pad);
+    board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = exp(1i * optimal_initial_phase);
 
 target_pad = zeros(Nx_pad, Ny_pad);
 target_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = imag_target;
@@ -133,6 +180,7 @@ subplot(1,2,1); imagesc(x*1e3, x*1e3, imag_target); axis image; colormap gray; t
 subplot(1,2,2); imagesc(x*1e3, x*1e3, holo_phase); axis image; colormap jet; title('IASA 相位 (Pad优化)');
 
 %% === [修改部分 Start] 相位转厚度与体素化优化 ===
+
 phase_wrapped = mod(holo_phase, 2*pi); 
 
 k_board_val = 2 * pi * f0 / c_board;
@@ -176,7 +224,7 @@ medium.sound_speed = c_water * ones(Nx, Ny, Nz);
 % [关键物理隔离]：为了证明是网格散射惹的祸，而不是材料反射
 % 我们强行关闭材料的阻抗失配！即：保持声速不同以产生相位差，但让密度补偿以匹配水的声阻抗。
 % 声阻抗 Z = rho * c。我们希望 Z_board = Z_water
-rho_match = (c_water * density_water) / c_board;
+% rho_match = (c_water * density_water) / c_board;
 
 medium.density = density_water * ones(Nx, Ny, Nz);
 medium.alpha_coeff = 0.002 * ones(Nx, Ny, Nz); 
@@ -197,7 +245,7 @@ for i = 1:Nx
             medium.sound_speed(i, j, z_start:z_end) = c_board;
             
             % 使用阻抗匹配的密度，消除内部反射
-            medium.density(i, j, z_start:z_end) = rho_match; 
+            medium.density(i, j, z_start:z_end) = density_board; 
             
             % 为了看清纯粹的相位作用，暂时关闭树脂的额外衰减
             % medium.alpha_coeff(i, j, z_start:z_end) = 1.0; 
@@ -342,6 +390,7 @@ if isfield(sensor_data, 'p')
     fprintf('>>> 自动寻优完成！最佳焦面发生偏移: 理论 20.00mm -> 实际 %.2f mm\n', actual_z_dist_mm);
 end
 
+
 %% 12. 原生 3D FDTD 热扩散仿真 (空化屏蔽饱和模型 + 色标修复)
 fprintf('\n========================================\n');
 fprintf('启动原生 3D 热扩散 FDTD 求解器 (GPU 极速版)...\n');
@@ -353,13 +402,16 @@ roi_mask = (imag_target > 0.5);
 median_roi_p = median(focal_slice_abs(roi_mask)); 
 
 % 1. 将 A 内部的平均声压定标为 1.2 MPa (刚好引发产热)
-target_median_pressure = 3e6; 
+target_median_pressure = 2e6;
+cavitation_limit = 2.0e6;
+exposure_time = 0.28;
+
 scale_factor = target_median_pressure / median_roi_p;
 p_3d_scaled = p_3d_abs * scale_factor;
 
 % 2. [终极真实物理约束]：水中的声空化饱和效应 (Cavitation Shielding)
 % 任何超过 2.0 MPa 的能量都会被气泡散射，绝对无法参与深层加热！
-cavitation_limit = 2.0e6; 
+ 
 p_3d_scaled(p_3d_scaled > cavitation_limit) = cavitation_limit; 
 
 rho_resin = 1100;  c_resin = 2500;  Cp_resin = 1500;  k_resin = 0.2; 
@@ -391,22 +443,19 @@ z_crop_end = min(Nz, best_idx_global + z_crop_radius);
 best_idx_crop = best_idx_global - z_crop_start + 1;
 
 try
-    T_3d_gpu = gpuArray(20 * ones(Nx, Ny, z_crop_end - z_crop_start + 1, 'single'));
+    T_3d_gpu = gpuArray(50 * ones(Nx, Ny, z_crop_end - z_crop_start + 1, 'single'));
     diffusivity_gpu = gpuArray(diffusivity_3d(:, :, z_crop_start:z_crop_end));
     dT_source_gpu = gpuArray(dT_source_3d(:, :, z_crop_start:z_crop_end));
 catch
-    T_3d_gpu = 20 * ones(Nx, Ny, z_crop_end - z_crop_start + 1, 'single');
+    T_3d_gpu = 50 * ones(Nx, Ny, z_crop_end - z_crop_start + 1, 'single');
     diffusivity_gpu = diffusivity_3d(:, :, z_crop_start:z_crop_end);
     dT_source_gpu = dT_source_3d(:, :, z_crop_start:z_crop_end);
 end
 
-% --- 3. 极速 FDTD 演化 ---
+% --- 3. 极速 FDTD 演化 (植入 Arrhenius 动力学引擎) ---
 max_diffusivity = max(k_resin/(rho_resin*Cp_resin), k_water/(rho_water*Cp_water));
 dt_th_max = (dx^2) / (6 * max_diffusivity);
 dt_th = dt_th_max * 0.9; 
-
-% [物理对抗] 结合屏蔽效应，完美曝光时间定为 1.2 秒
-exposure_time = 0.6; 
 Nt_th = round(exposure_time / dt_th);
 
 num_snapshots = 5;
@@ -415,38 +464,67 @@ snapshots_2d = zeros(Nx, Ny, num_snapshots);
 T_max_history = zeros(Nt_th, 1);
 t_axis = (1:Nt_th) * dt_th;
 
-fprintf('  演化中 (ROI 定标 1.2MPa, 空化物理截断上限 2.0MPa)...\n');
+% 🚀 [新增核心]：Arrhenius 动力学常数初始化
+E_a = 1.0e5;           % 活化能 (J/mol)，代表触发交联所需的能量门槛
+A_freq = 5.0e15;       % 频率因子 (1/s)，代表分子碰撞频率
+R_gas = 8.314;         % 理想气体常数 (J/(mol*K))
+Arrhenius_Omega_gpu = gpuArray(zeros(Nx, Ny, 'single')); % GPU 上的累积热剂量矩阵
+
+fprintf('  演化中 (ROI 定标 1.2MPa, 空化上限 2.0MPa, 启动 Arrhenius 积分)...\n');
 tic;
 for step = 1:Nt_th
+    % 1. 解热传导偏微分方程
     laplacian_T = 6 * del2(T_3d_gpu, dx);
     T_3d_gpu = T_3d_gpu + dt_th * (diffusivity_gpu .* laplacian_T + dT_source_gpu);
     
+    % 取出当前时刻的焦面温度分布
     T_focal_slice = T_3d_gpu(:, :, best_idx_crop);
     T_max_history(step) = gather(max(T_focal_slice(:)));
     
+    % 🚀 [新增核心]：在时间循环中，实时积分累积反应度 (Omega)
+    % 将摄氏度转换为绝对开尔文温度
+    T_current_K = T_focal_slice + 273.15; 
+    % 计算当前瞬态温度下的化学反应速率 k(T)
+    reaction_rate = A_freq .* exp(-E_a ./ (R_gas .* T_current_K));
+    % 时间积分：累加到反应度矩阵中
+    Arrhenius_Omega_gpu = Arrhenius_Omega_gpu + reaction_rate .* dt_th;
+    
+    % 记录快照
     snap_idx = find(snapshot_steps == step);
     if ~isempty(snap_idx)
         snapshots_2d(:, :, snap_idx) = gather(double(T_focal_slice));
     end
 end
-fprintf('  >>> 热力学演化耗时: %.2f 秒\n', toc);
+fprintf('  >>> 热力学与动力学演化耗时: %.2f 秒\n', toc);
 
 T_focal_2d = gather(double(T_3d_gpu(:, :, best_idx_crop)));
 T_max_real = T_max_history(end);
 Q_focal_2d = gather(double(dT_source_gpu(:, :, best_idx_crop) * rho_resin * Cp_resin));
 
-%% 13. 基于真实热力学的形貌预测
-Thermal_Curing_Threshold = 65; 
-cured_mask_2d = T_focal_2d > Thermal_Curing_Threshold;
+% 提取最终的反应度分布矩阵回 CPU
+Omega_final_2d = gather(double(Arrhenius_Omega_gpu));
+
+%% 13. 基于真实动力学的形貌预测 (废除绝对温度阈值)
+% 物理意义：当累积热剂量 Omega >= 1.0 时，认为材料分子链已完成交联网络构建
+Thermal_Dose_Threshold = 1.0; 
+
+% 现在的判定标准变成了动力学积分量！
+cured_mask_2d = Omega_final_2d >= Thermal_Dose_Threshold;
+
 ROI_pixels = sum(imag_target(:) > 0.5); 
 cured_coverage = (sum(cured_mask_2d(:)) / ROI_pixels) * 100; 
 if cured_coverage > 100, cured_coverage = 100; end
+
 R_binary = imag_target > 0.5;
 intersection = R_binary & cured_mask_2d;
 union = R_binary | cured_mask_2d;
-IoU = sum(intersection(:)) / sum(union(:)); 
+IoU = sum(intersection(:)) / sum(union(:));
 
 %% 14. 终极可视化全景仪表盘
+% 使用 3x3 的形态学结构元素，模拟真实树脂固化时的“表面张力收缩与流平效应”
+% se = strel('disk', 3); 
+% cured_mask_2d = imclose(cured_mask_2d, se); 
+% cured_mask_2d = imfill(cured_mask_2d, 'holes'); % 填补内部因散斑产生的微小未固化孔洞
 y = x; 
 figure(88); clf; set(gcf, 'Position', [100, 100, 1400, 500], 'Color', 'w');
 sgtitle(sprintf('声致发热与热扩散 (中位数%.1fMPa, 上限%.1fMPa, %.1fs)', target_median_pressure/1e6, cavitation_limit/1e6, exposure_time), 'FontSize', 16, 'FontWeight', 'bold');
@@ -455,7 +533,7 @@ for i = 1:num_snapshots
     imagesc(x*1e3, y*1e3, snapshots_2d(:, :, i));
     axis image; colormap hot; 
     % [色标修复] 强制锁定色标上限，防止极别畸形点致盲全图！
-    caxis([20, max(80, min(T_max_real, 120))]); 
+    caxis([50, max(65, min(T_max_real, 120))]); 
     if i == num_snapshots, colorbar; end
     title(sprintf('t = %.2f s\nMax: %.1f °C', snapshot_steps(i)*dt_th, max(max(snapshots_2d(:,:,i)))));
     xlabel('mm'); ylabel('mm');
@@ -505,7 +583,7 @@ title(sprintf('固化形貌 (IoU: %.4f)', IoU)); xlabel('mm');
 subplot(3, 5, 9);
 imagesc(x*1e3, y*1e3, T_focal_2d); axis image; colormap(gca, hot); colorbar;
 % 同样修复这里被致盲的可能
-caxis([20, max(65, min(T_max_real, 120))]);
+caxis([50, max(65, min(T_max_real, 80))]);
 title(sprintf('稳态温度 Max:%.1f°C', T_max_real)); xlabel('mm');
 
 subplot(3, 5, 10);
@@ -523,6 +601,7 @@ subplot(3, 5, [14 15]);
 [X_surf, Y_surf] = meshgrid(x*1e3, y*1e3);
 surf(X_surf, Y_surf, p_focal_scaled/1e6); shading interp; colormap(gca, jet);
 title('3D焦面空化饱和声压场 (MPa)'); xlabel('mm'); ylabel('mm'); zlabel('MPa');
+
 
 %% 15. 输出报告
 fprintf('\n========================================\n');
