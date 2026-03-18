@@ -31,12 +31,12 @@ fprintf('优化后网格尺寸: %d x %d x %d (总节点数: %.1f 百万)\n', Nx,
 fprintf('Z轴物理长度缩减至: %.2f mm\n', Lz*1e3);
 fprintf('==================================================\n');
 
-%% 2. 目标图案几何定义 (超采样物理平滑 + 分辨率解耦版)
+%% 2. 目标图案几何定义 (物理超采样平滑 + 分辨率解耦版)
 fprintf('目标图案定义 (物理超采样抗锯齿)\n');
 logo_filename = "C:\Users\Zh89\Desktop\transport\a3-1jdxhred.png"; 
 
 if ~exist(logo_filename, 'file')
-    error('❌ 找不到目标图案文件 %s！请确保文件在当前目录。', logo_filename);
+    error('❌ 找不到目标图案文件 %s！请确保文件在代码所在Github仓库当前目录中。', logo_filename);
 end
 
 logo_rgb = imread(logo_filename);
@@ -48,9 +48,10 @@ end
 
 % 1. 提取原始超高分辨率掩膜
 logo_bw_raw = logo_base > 10;
+% [修复镜像] 同时进行上下和左右翻转
 logo_bw_flipped = fliplr(flipud(logo_bw_raw)); 
 
-% 2. 🚀 核心逻辑：在超高分辨率下定义【真实物理打印分辨率】
+% 2. 🚀 核心逻辑：在超高分辨率下定义【真实物理分辨极限】
 [h_orig, w_orig] = size(logo_bw_flipped);
 
 % 假设校徽在物理空间中占据整个靶区高度的 60%
@@ -58,14 +59,19 @@ target_fill_ratio_y = 0.6;
 physical_logo_size_mm = (Ny * dy * 1000) * target_fill_ratio_y; % 约 24 mm
 pixel_size_orig_mm = physical_logo_size_mm / h_orig; % 原图每个像素代表的物理大小
 
-% 设定真实的声学/打印物理极限 (例如 200 微米)
-% 我们不再依赖声学网格 dx，而是直接输入我们期望的物理平滑尺度
-print_resolution_mm = 0.20; 
-sigma_physical = print_resolution_mm / pixel_size_orig_mm; % 转换为原图像素尺度
+% 🌟 核心修改点：按照系统真实的衍射极限来刻画柔化尺度。
+% 物理真相：声学系统的最佳分辨极限大约在 瑞利判据 R = 0.61*lambda 附近。
+% 对于4 MHz，lambda ~ 0.37mm。我们将分辨极限设为更逼近物理的 0.7 * lambda ~ 0.26mm。
+resolution_limit_mm = 0.7 * lambda_water * 1000; % ~ 0.26 mm
 
-% 3. 在原图上进行极其细腻的物理平滑 (彻底消灭绝对直角)
-fprintf('   执行原图级物理平滑 (Sigma: %.2f pixels)...\n', sigma_physical);
-logo_smooth_highres = imgaussfilt(double(logo_bw_flipped), sigma_physical);
+% 设定物理柔化 Sigma 为分辨极限的一半 (FWHM ~ resolution_limit)
+sigma_physical_mm = resolution_limit_mm / 2.0; % ~ 0.13 mm
+sigma_orig_pixels = sigma_physical_mm / pixel_size_orig_mm; % 转换为原图像素尺度
+
+% 3. 在原图上进行极其细腻的物理平滑 (彻底消灭声波无法分辨的绝对直角)
+fprintf('   执行原图级物理柔化 (Sigma: %.2f pixels, 对应物理: %.1f μm)...\n', ...
+    sigma_orig_pixels, sigma_physical_mm*1000);
+logo_smooth_highres = imgaussfilt(double(logo_bw_flipped), sigma_orig_pixels);
 
 % 4. 降采样映射到声学幕布 (Nx * Ny)
 % 🚀 [绝杀更改] 彻底抛弃 'nearest'，改用 'bicubic' (双三次插值) 保留柔滑边缘！
@@ -85,9 +91,9 @@ imag_target(start_r : start_r + h_sc_px - 1, ...
             start_c : start_c + w_sc_px - 1) = single(logo_scaled_smooth);
 
 ROI_pixels = sum(imag_target(:) > 0.5);
-fprintf('📦 万能靶标发生器接口：超采样灰度校徽已生成！(有效像素数: %d)\n', ROI_pixels);
+fprintf('📦 万能靶标发生器接口：物理超采样校徽已生成！(ROI体素数: %d)\n', ROI_pixels);
 
-% 导出靶标数据到专属中转站
+% 导出靶标数据到专属中转站 (通信模块无需更改...)
 transport_dir = 'C:\Users\Zh89\Desktop\transport';
 if ~exist(transport_dir, 'dir')
     mkdir(transport_dir);
