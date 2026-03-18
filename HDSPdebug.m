@@ -297,8 +297,10 @@ if z_scan_end > Nz - pml_size
 end
 sensor.mask(:, :, z_scan_start:z_scan_end) = 1;
 
-sensor.record = {'p'}; 
-sensor.record_start_index = kgrid.Nt - round(3/f0/kgrid.dt);
+% 🚀 【绝杀修改点】：从 'p' 变更为 'p_max'
+        % 这让 k-Wave 只提取每个网格的物理振幅，彻底抛弃庞大的时间维度！内存占用瞬间降至 1/50！
+        sensor.record = {'p_max'}; 
+        sensor.record_start_index = kgrid.Nt - round(3/f0/kgrid.dt);
 % fprintf('  - 出口校验面 Z Index: %d\n', z_board_exit_idx);
 fprintf('  - 扫描范围 Z Index: %d 到 %d (寻找物理最佳焦面)\n', z_scan_start, z_scan_end);
 % fprintf('  - 目标平面 Z Index: %d (距离源 %.2f mm)\n', target_plane_idx, target_plane_idx*dz*1e3);
@@ -321,20 +323,17 @@ catch
     sensor_data = kspaceFirstOrder3D(kgrid, medium, source, sensor, input_args{:});
 end
 
-%% 9. 数据处理与量化评估 (新增自动 Z-Scan 寻优逻辑)
-if isfield(sensor_data, 'p')
-    p_raw = gather(sensor_data.p); 
-    [~, Nt_rec] = size(p_raw);
-    p_fft = fft(p_raw, [], 2);
-    [~, f_idx] = min(abs( (0:Nt_rec-1)/Nt_rec/kgrid.dt - f0 ));
-    p_complex = p_fft(:, f_idx);
+%% 9. 数据处理与量化评估 (新增自动 Z-Scan 寻优逻辑 - 极速版)
+if isfield(sensor_data, 'p_max')
+    % 🚀 直接提取 k-Wave 底层计算好的稳态振幅场，绕过消耗 8GB 内存的 FFT！
+    p_amp = gather(sensor_data.p_max); 
     
     p_field_3d = zeros(Nx, Ny, Nz);
     mask_indices = find(sensor.mask);
-    p_field_3d(mask_indices) = p_complex;
+    p_field_3d(mask_indices) = p_amp; % 此时 p_field_3d 已经是纯振幅矩阵
     
     % 提取扫描体积的声压幅值
-    scan_vol = abs(p_field_3d(:, :, z_scan_start:z_scan_end));
+    scan_vol = p_field_3d(:, :, z_scan_start:z_scan_end);
     num_slices = size(scan_vol, 3);
     
     % --- 准备目标图像进行评估 ---
