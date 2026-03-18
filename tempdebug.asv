@@ -403,7 +403,7 @@ median_roi_p = median(focal_slice_abs(roi_mask));
 % 1. 将 A 内部的平均声压定标为 1.2 MPa (刚好引发产热)
 target_median_pressure = 2e6;
 cavitation_limit = 2.0e6;
-exposure_time = 0.24;
+exposure_time = 0.2;
 
 scale_factor = target_median_pressure / median_roi_p;
 p_3d_scaled = p_3d_abs * scale_factor;
