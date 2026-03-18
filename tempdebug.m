@@ -390,9 +390,9 @@ if isfield(sensor_data, 'p_max')
 end
 
 
-%% 12. 原生 3D FDTD 热扩散仿真 (空化屏蔽饱和模型 + 色标修复)
+%% 12. 原生 3D FDTD 热扩散仿真 (步骤三：非均匀介质热通量引擎版)
 fprintf('\n========================================\n');
-fprintf('启动原生 3D 热扩散 FDTD 求解器 (GPU 极速版)...\n');
+fprintf('启动 3D 非均匀介质热动力学求解器 (GPU 极速版)...\n');
 
 % --- 1. 物理场真实功率注入 (精确中位数定标 + 空化屏蔽物理锁) ---
 p_3d_abs = abs(p_field_3d); 
@@ -400,109 +400,117 @@ focal_slice_abs = p_3d_abs(:, :, best_idx_global);
 roi_mask = (imag_target > 0.5);
 median_roi_p = median(focal_slice_abs(roi_mask)); 
 
-% 1. 将 A 内部的平均声压定标为 1.2 MPa (刚好引发产热)
-target_median_pressure = 2e6;
+% 功率定标与空化限制
+target_median_pressure = 2.0e6; % 2.0 MPa
 cavitation_limit = 2.0e6;
-exposure_time = 0.4;
-cooling_time = 0.40;  % 关机后的冷却观察时间 (让热量飞一会儿，熨平毛刺！)
+exposure_time = 0.4;           % 照射时间
+cooling_time = 0.4;            % 冷却相平滑时间
+total_time = exposure_time + cooling_time;
 
 scale_factor = target_median_pressure / median_roi_p;
 p_3d_scaled = p_3d_abs * scale_factor;
-
-% 2. [终极真实物理约束]：水中的声空化饱和效应 (Cavitation Shielding)
-% 任何超过 2.0 MPa 的能量都会被气泡散射，绝对无法参与深层加热！
- 
 p_3d_scaled(p_3d_scaled > cavitation_limit) = cavitation_limit; 
 
-rho_resin = 1100;  c_resin = 2500;  Cp_resin = 1500;  k_resin = 0.2; 
-rho_water = 997;   c_water = 1480;  Cp_water = 4180;  k_water = 0.6; 
-alpha_np_resin = (1.5 / 8.686) * 100 * (f0/1e6)^1.5; 
+% --- 2. 基础材料属性设定 (分区域初始化) ---
+rho_resin = 1100;  c_resin = 2500;  Cp_resin_liq = 1800;  k_resin_liq = 0.15; 
+rho_water = 997;   c_water = 1480;  Cp_water = 4180;      k_water = 0.6; 
+alpha_np_resin_liq = (1.5 / 8.686) * 100 * (f0/1e6)^1.5; 
 alpha_np_water = 0.02; 
+
 resin_z_start = z_board_exit_idx + 1;
 
+% 初始化 3D 物理属性矩阵 (用于步骤三非均匀计算)
+k_3d = k_water * ones(Nx, Ny, Nz, 'single');
+k_3d(:, :, resin_z_start:end) = k_resin_liq;
+
+rho_Cp_3d = (rho_water * Cp_water) * ones(Nx, Ny, Nz, 'single');
+rho_Cp_3d(:, :, resin_z_start:end) = rho_resin * Cp_resin_liq;
+
+% 初始化初始产热源 Q (W/m^3)
 Q_heat_3d = zeros(Nx, Ny, Nz, 'single');
 I_3d_resin = single((p_3d_scaled(:, :, resin_z_start:end).^2) ./ (2 * rho_resin * c_resin));
-Q_heat_3d(:, :, resin_z_start:end) = 2 * alpha_np_resin * I_3d_resin;
+Q_heat_3d(:, :, resin_z_start:end) = 2 * alpha_np_resin_liq * I_3d_resin;
 I_3d_water = single((p_3d_scaled(:, :, 1:resin_z_start-1).^2) ./ (2 * rho_water * c_water));
 Q_heat_3d(:, :, 1:resin_z_start-1) = 2 * alpha_np_water * I_3d_water;
 
-diffusivity_3d = zeros(Nx, Ny, Nz, 'single');
-diffusivity_3d(:, :, resin_z_start:end) = k_resin / (rho_resin * Cp_resin);
-diffusivity_3d(:, :, 1:resin_z_start-1) = k_water / (rho_water * Cp_water);
-
-rho_Cp_3d = zeros(Nx, Ny, Nz, 'single');
-rho_Cp_3d(:, :, resin_z_start:end) = rho_resin * Cp_resin;
-rho_Cp_3d(:, :, 1:resin_z_start-1) = rho_water * Cp_water;
-
-dT_source_3d = Q_heat_3d ./ rho_Cp_3d;
-
-% --- 2. Z轴物理截断与 GPU 载入 ---
+% --- 3. Z轴物理截断与 GPU 载入 ---
 z_crop_radius = round(1.5e-3 / dz); 
 z_crop_start = max(1, best_idx_global - z_crop_radius);
 z_crop_end = min(Nz, best_idx_global + z_crop_radius);
 best_idx_crop = best_idx_global - z_crop_start + 1;
 
-% --- 2. Z轴物理截断与 GPU 载入 ---
-% ...
 try
-    % 🚀 [致命修复] 恢复 25°C 室温环境！千万别再用 50°C 煮树脂了！
     T_3d_gpu = gpuArray(25 * ones(Nx, Ny, z_crop_end - z_crop_start + 1, 'single'));
-    diffusivity_gpu = gpuArray(diffusivity_3d(:, :, z_crop_start:z_crop_end));
-    dT_source_gpu = gpuArray(dT_source_3d(:, :, z_crop_start:z_crop_end));
+    k_3d_gpu = gpuArray(k_3d(:, :, z_crop_start:z_crop_end));
+    rho_Cp_3d_gpu = gpuArray(rho_Cp_3d(:, :, z_crop_start:z_crop_end));
+    Q_heat_3d_gpu = gpuArray(Q_heat_3d(:, :, z_crop_start:z_crop_end));
 catch
-    % 同样修复 CPU 备用分支
     T_3d_gpu = 25 * ones(Nx, Ny, z_crop_end - z_crop_start + 1, 'single');
-    diffusivity_gpu = diffusivity_3d(:, :, z_crop_start:z_crop_end);
-    dT_source_gpu = dT_source_3d(:, :, z_crop_start:z_crop_end);
+    k_3d_gpu = k_3d(:, :, z_crop_start:z_crop_end);
+    rho_Cp_3d_gpu = rho_Cp_3d(:, :, z_crop_start:z_crop_end);
+    Q_heat_3d_gpu = Q_heat_3d(:, :, z_crop_start:z_crop_end);
 end
 
-% --- 3. 极速 FDTD 演化 (植入动态热透镜与冷却相) ---
-max_diffusivity = max(k_resin/(rho_resin*Cp_resin), k_water/(rho_water*Cp_water));
-dt_th_max = (dx^2) / (6 * max_diffusivity);
-dt_th = dt_th_max * 0.9; 
-
-exposure_time = 0.40; % 照射时间
-cooling_time = 0.40;  % 冷却时间 (热传导抗锯齿)
-total_time = exposure_time + cooling_time;
-
+% --- 4. 极速 FDTD 演化 (非均匀通量 + 动态耦合 + Arrhenius) ---
+inv_dx2 = 1 / (dx^2);
+max_diff = max(k_water/(rho_water*Cp_water), k_resin_liq/(rho_resin*Cp_resin_liq));
+dt_th = (dx^2 / (6 * max_diff)) * 0.8; 
 Nt_th = round(total_time / dt_th);
 step_exposure_end = round(exposure_time / dt_th);
 
+% 动力学常数
+E_a = 9.5e4; A_freq = 8.0e15; R_gas = 8.314;
+Arrhenius_Omega_gpu = gpuArray(zeros(Nx, Ny, 'single')); 
+T_max_history = zeros(Nt_th, 1);
+t_axis = (1:Nt_th) * dt_th;
 num_snapshots = 5;
 snapshot_steps = round(linspace(1, Nt_th, num_snapshots));
 snapshots_2d = zeros(Nx, Ny, num_snapshots);
-T_max_history = zeros(Nt_th, 1);
-t_axis = (1:Nt_th) * dt_th;
 
-E_a = 9.5e4;           
-A_freq = 8.0e15;       
-R_gas = 8.314;         
-Arrhenius_Omega_gpu = gpuArray(zeros(Nx, Ny, 'single')); 
-
-fprintf('  启动热透镜动态耦合引擎 (加热 %.2fs + 冷却 %.2fs)...\n', exposure_time, cooling_time);
+fprintf('  演化中: 加热(%.2fs) + 冷却(%.2fs)...\n', exposure_time, cooling_time);
 tic;
 for step = 1:Nt_th
-    % 1. 计算当前的固化相变度 (Chi: 0 到 1)
-    chi_gpu = 1.0 - exp(-Arrhenius_Omega_gpu);
+    % A. 动态属性更新 (基于当前固化度 chi)
+    chi_focal = 1.0 - exp(-Arrhenius_Omega_gpu);
     
-    % 🚀 核心大招：固态吸收率是液态的 4 倍，因此热源最大放大 4 倍！
-    absorption_multiplier = 1.0 + 3.0 * chi_gpu; 
+    % 更新焦面热导率 (固化后 k 提升 60%)
+    k_3d_gpu(:, :, best_idx_crop) = k_resin_liq * (1.0 + 0.6 * chi_focal);
     
-    laplacian_T = 6 * del2(T_3d_gpu, dx);
+    % B. 🚀 步骤三：计算非均匀热通量散度 div(k * grad(T))
+    % X 方向
+    T_diff_x = diff(T_3d_gpu, 1, 1);
+    k_mid_x = (k_3d_gpu(1:end-1,:,:) + k_3d_gpu(2:end,:,:)) / 2;
+    flux_x = k_mid_x .* T_diff_x;
+    div_flux_x = diff([zeros(1,Ny,size(T_3d_gpu,3),'single','gpuArray'); flux_x; zeros(1,Ny,size(T_3d_gpu,3),'single','gpuArray')], 1, 1);
     
+    % Y 方向
+    T_diff_y = diff(T_3d_gpu, 1, 2);
+    k_mid_y = (k_3d_gpu(:,1:end-1,:) + k_3d_gpu(:,2:end,:)) / 2;
+    flux_y = k_mid_y .* T_diff_y;
+    div_flux_y = diff([zeros(Nx,1,size(T_3d_gpu,3),'single','gpuArray'), flux_y, zeros(Nx,1,size(T_3d_gpu,3),'single','gpuArray')], 1, 2);
+    
+    % Z 方向
+    T_diff_z = diff(T_3d_gpu, 1, 3);
+    k_mid_z = (k_3d_gpu(:,:,1:end-1) + k_3d_gpu(:,:,2:end)) / 2;
+    flux_z = k_mid_z .* T_diff_z;
+    div_flux_z = diff(cat(3, zeros(Nx,Ny,1,'single','gpuArray'), flux_z, zeros(Nx,Ny,1,'single','gpuArray')), 1, 3);
+
+    thermal_diffusion_term = (div_flux_x + div_flux_y + div_flux_z) ./ rho_Cp_3d_gpu * inv_dx2;
+
+    % C. 温度场迭代
     if step <= step_exposure_end
-        % 照射期：复制原始完美的 3D 热源矩阵
-        dT_source_dynamic = dT_source_gpu;
-        % 仅对焦面上发生交联的区域，施加“吸热暴涨”的非线性加速！
-        dT_source_dynamic(:, :, best_idx_crop) = dT_source_gpu(:, :, best_idx_crop) .* absorption_multiplier;
+        % 动态产热 (步骤二：热透镜效应)
+        abs_multiplier = 1.0 + 3.0 * chi_focal; 
+        Q_dynamic = Q_heat_3d_gpu;
+        Q_dynamic(:, :, best_idx_crop) = Q_heat_3d_gpu(:, :, best_idx_crop) .* abs_multiplier;
         
-        T_3d_gpu = T_3d_gpu + dt_th * (diffusivity_gpu .* laplacian_T + dT_source_dynamic);
+        T_3d_gpu = T_3d_gpu + dt_th * (thermal_diffusion_term + Q_dynamic ./ rho_Cp_3d_gpu);
     else
-        % 冷却期：声波关闭，热量在物质间自然扩散平滑
-        T_3d_gpu = T_3d_gpu + dt_th * (diffusivity_gpu .* laplacian_T);
+        % 纯扩散阶段 (冷却相)
+        T_3d_gpu = T_3d_gpu + dt_th * thermal_diffusion_term;
     end
     
-    % 2. 提取温度并积分动力学方程
+    % D. 动力学积分 (步骤一：Arrhenius)
     T_focal_slice = T_3d_gpu(:, :, best_idx_crop);
     T_max_history(step) = gather(max(T_focal_slice(:)));
     
@@ -515,20 +523,13 @@ for step = 1:Nt_th
         snapshots_2d(:, :, snap_idx) = gather(double(T_focal_slice));
     end
 end
-fprintf('  >>> 演化耗时: %.2f 秒\n', toc);
+fprintf('  >>> 物理演化耗时: %.2f 秒\n', toc);
 
-% 提取结果回 CPU (供后续 13, 14 节使用)
 T_focal_2d = gather(double(T_3d_gpu(:, :, best_idx_crop)));
 T_max_real = max(T_max_history); 
-Q_focal_2d = gather(double(dT_source_gpu(:, :, best_idx_crop) * rho_resin * Cp_resin));
+Q_focal_2d = gather(double(Q_heat_3d_gpu(:, :, best_idx_crop)));
 Omega_final_2d = gather(double(Arrhenius_Omega_gpu));
 
-% ... 衔接原有的后续读取代码
-
-T_focal_2d = gather(double(T_3d_gpu(:, :, best_idx_crop)));
-T_max_real = max(T_max_history); % 提取全局最高温度
-Q_focal_2d = gather(double(dT_source_gpu(:, :, best_idx_crop) * rho_resin * Cp_resin));
-Omega_final_2d = gather(double(Arrhenius_Omega_gpu));
 
 % 13. 基于真实动力学的形貌预测
 Thermal_Dose_Threshold = 1.0; 
