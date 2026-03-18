@@ -33,7 +33,7 @@ fprintf('==================================================\n');
 
 %% 2. 目标图案几何定义 (超采样物理平滑 + 分辨率解耦版)
 fprintf('目标图案定义 (物理超采样抗锯齿)\n');
-logo_filename = 'image_6.png'; 
+logo_filename = "C:\Users\Zh89\Desktop\transport\a3-1jdxhred.png"; 
 
 if ~exist(logo_filename, 'file')
     error('❌ 找不到目标图案文件 %s！请确保文件在当前目录。', logo_filename);
