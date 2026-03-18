@@ -1,7 +1,6 @@
 clear; close all; clc;
 reset(gpuDevice); % 强制清空 GPU 显存底层垃圾
 
-
 %% 1. 网格及参数设定 (动态 Z 轴优化与各项同性网格)
 Nx = 384; 
 Lx = 40e-3;
@@ -32,9 +31,9 @@ fprintf('优化后网格尺寸: %d x %d x %d (总节点数: %.1f 百万)\n', Nx,
 fprintf('Z轴物理长度缩减至: %.2f mm\n', Lz*1e3);
 fprintf('==================================================\n');
 
-%% 2. 目标图案几何定义 (万能校徽平台版 + 物理级抗锯齿)
-fprintf('目标图案定义\n');
-logo_filename = "C:\Users\Zh89\Desktop\transport\a3-1jdxhred.png"; 
+%% 2. 目标图案几何定义 (超采样物理平滑 + 分辨率解耦版)
+fprintf('目标图案定义 (物理超采样抗锯齿)\n');
+logo_filename = 'image_6.png'; 
 
 if ~exist(logo_filename, 'file')
     error('❌ 找不到目标图案文件 %s！请确保文件在当前目录。', logo_filename);
@@ -47,33 +46,46 @@ else
     logo_base = logo_rgb;
 end
 
-% 动态二值化处理
+% 1. 提取原始超高分辨率掩膜
 logo_bw_raw = logo_base > 10;
-% [修复镜像] 同时进行上下和左右翻转
 logo_bw_flipped = fliplr(flipud(logo_bw_raw)); 
 
-% 尺寸定标与缩放
-[h_logo_px, w_logo_px] = size(logo_bw_flipped);
-target_fill_ratio_y = 0.6;
-scale_factor = (Ny * target_fill_ratio_y) / h_logo_px;
-logo_scaled_bw = imresize(logo_bw_flipped, scale_factor, 'nearest');
+% 2. 🚀 核心逻辑：在超高分辨率下定义【真实物理打印分辨率】
+[h_orig, w_orig] = size(logo_bw_flipped);
 
-% 居中对齐与物理场生成
+% 假设校徽在物理空间中占据整个靶区高度的 60%
+target_fill_ratio_y = 0.6;
+physical_logo_size_mm = (Ny * dy * 1000) * target_fill_ratio_y; % 约 24 mm
+pixel_size_orig_mm = physical_logo_size_mm / h_orig; % 原图每个像素代表的物理大小
+
+% 设定真实的声学/打印物理极限 (例如 200 微米)
+% 我们不再依赖声学网格 dx，而是直接输入我们期望的物理平滑尺度
+print_resolution_mm = 0.20; 
+sigma_physical = print_resolution_mm / pixel_size_orig_mm; % 转换为原图像素尺度
+
+% 3. 在原图上进行极其细腻的物理平滑 (彻底消灭绝对直角)
+fprintf('   执行原图级物理平滑 (Sigma: %.2f pixels)...\n', sigma_physical);
+logo_smooth_highres = imgaussfilt(double(logo_bw_flipped), sigma_physical);
+
+% 4. 降采样映射到声学幕布 (Nx * Ny)
+% 🚀 [绝杀更改] 彻底抛弃 'nearest'，改用 'bicubic' (双三次插值) 保留柔滑边缘！
+scale_factor = (Ny * target_fill_ratio_y) / h_orig;
+logo_scaled_smooth = imresize(logo_smooth_highres, scale_factor, 'bicubic');
+
+% 严格限制在 0-1 之间，防止插值溢出
+logo_scaled_smooth = max(0, min(1, logo_scaled_smooth));
+
+% 5. 居中对齐与物理场生成
 imag_target = zeros(Nx, Ny, 'single'); 
-[h_sc_px, w_sc_px] = size(logo_scaled_bw);
+[h_sc_px, w_sc_px] = size(logo_scaled_smooth);
 start_r = round((Nx - h_sc_px) / 2) + 1; 
 start_c = round((Ny - w_sc_px) / 2) + 1;
 
 imag_target(start_r : start_r + h_sc_px - 1, ...
-            start_c : start_c + w_sc_px - 1) = single(logo_scaled_bw);
-
-% 🚀 物理级靶标预处理 (抑制散斑的终极杀器)
-sigma_blur = 1.5; 
-imag_target = imgaussfilt(imag_target, sigma_blur);
-imag_target = imag_target ./ max(imag_target(:)); 
+            start_c : start_c + w_sc_px - 1) = single(logo_scaled_smooth);
 
 ROI_pixels = sum(imag_target(:) > 0.5);
-fprintf('📦 万能靶标发生器接口：校徽图案已成功转化为二值矩阵！(ROI 像素数: %d)\n', ROI_pixels);
+fprintf('📦 万能靶标发生器接口：超采样灰度校徽已生成！(有效像素数: %d)\n', ROI_pixels);
 
 % 导出靶标数据到专属中转站
 transport_dir = 'C:\Users\Zh89\Desktop\transport';
@@ -94,7 +106,6 @@ disp('按下【回车键 (Enter)】继续读取 Python 的结果...');
 pause; 
 
 fprintf('\n🚀 收到继续指令！正在检查中转站...\n');
-
 %% 3. IASA 迭代 (接收深度学习快递)
 fprintf('运行 PANN-IASA 混合架构收敛...\n');
 import_path = fullfile(transport_dir, 'dl_phase_init.mat');
