@@ -6,24 +6,19 @@ import numpy as np
 import os
 
 # ==========================================
-# 0. 绝对路径与硬件配置 (锁死随机种子)
+# 0. 路径与硬件 (锁死天命种子)
 # ==========================================
 transport_dir = r"C:\Users\Zh89\Desktop\transport"
 input_file = os.path.join(transport_dir, 'target_for_python.mat')
 output_file = os.path.join(transport_dir, 'dl_phase_init.mat')
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"\n🚀 顶级 PANN 炼丹炉启动，当前设备: {device.type.upper()}")
+print(f"\n🚀 极简巅峰版 PANN 启动，当前设备: {device.type.upper()}")
 
-# 锁定全宇宙的随机种子，确保实验可复现
-seed = 42
+seed = 42  # 锁死随机种子，拒绝抽卡
 torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
 torch.backends.cudnn.deterministic = True
-
-# 加载靶标数据
-if not os.path.exists(input_file):
-    raise FileNotFoundError(f"❌ 找不到靶标文件，请检查 MATLAB 导出路径: {input_file}")
 
 data = sio.loadmat(input_file)
 target_amp = torch.tensor(data['imag_target'], dtype=torch.float32).to(device)
@@ -33,7 +28,7 @@ lambda_water = float(data['lambda_water'].item())
 z_target = float(data['z_target_dist'].item())
 
 # ==========================================
-# 1. 物理层：角谱传播算子 (ASM)
+# 1. 物理层
 # ==========================================
 pad_factor = 2
 Nx_pad, Ny_pad = Nx * pad_factor, Ny * pad_factor
@@ -56,91 +51,50 @@ def propagate_asm(source_field):
     return U_target[pad_len:-pad_len, pad_len:-pad_len]
 
 # ==========================================
-# 2. 损失函数集：相关性 + 像素对齐 + 平滑约束
+# 2. 核心：回归极简 3 层微型网络
 # ==========================================
-def pearson_correlation_loss(output, target):
-    """直接优化 MATLAB 的 Correlation 指标"""
-    x = output - torch.mean(output)
-    y = target - torch.mean(target)
-    rho = torch.sum(x * y) / (torch.sqrt(torch.sum(x**2) * torch.sum(y**2)) + 1e-8)
-    return 1 - rho 
-
-def tv_loss(img):
-    """TV正则化：抑制高频相位突变，消除边缘毛刺"""
-    w_variance = torch.sum(torch.pow(img[:,:,:,1:] - img[:,:,:,:-1], 2))
-    h_variance = torch.sum(torch.pow(img[:,:,1:,:] - img[:,:,:-1,:], 2))
-    return h_variance + w_variance
-
-# ==========================================
-# 3. 核心架构：ResNet 残差相位网络 (补全定义)
-# ==========================================
-class ResBlock(nn.Module):
-    def __init__(self, channels):
-        super().__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(channels, channels, 3, padding=1),
-            nn.BatchNorm2d(channels),
-            nn.LeakyReLU(0.2),
-            nn.Conv2d(channels, channels, 3, padding=1),
-            nn.BatchNorm2d(channels)
-        )
-    def forward(self, x):
-        return x + self.conv(x)
-
-class PhaseResNet(nn.Module):
+class PhaseNet(nn.Module):
     def __init__(self):
         super().__init__()
-        self.in_conv = nn.Sequential(nn.Conv2d(1, 32, 5, padding=2), nn.LeakyReLU(0.2))
-        self.res_blocks = nn.Sequential(ResBlock(32), ResBlock(32), ResBlock(32))
-        self.out_conv = nn.Sequential(nn.Conv2d(32, 1, 5, padding=2), nn.Sigmoid())
+        self.net = nn.Sequential(
+            nn.Conv2d(1, 16, kernel_size=5, padding=2),
+            nn.LeakyReLU(0.2),
+            nn.Conv2d(16, 16, kernel_size=5, padding=2),
+            nn.LeakyReLU(0.2),
+            nn.Conv2d(16, 1, kernel_size=5, padding=2),
+            nn.Sigmoid() 
+        )
         
     def forward(self, x):
-        x = self.in_conv(x)
-        x = self.res_blocks(x)
-        return self.out_conv(x) * 2 * np.pi - np.pi
+        return self.net(x) * 2 * np.pi - np.pi
 
 # ==========================================
-# 4. 训练引擎 (2000 Epochs + 余弦退火学习率)
+# 3. 极速训练 (仅 300 步，纯 MSE)
 # ==========================================
-model = PhaseResNet().to(device)
+model = PhaseNet().to(device)
 optimizer = optim.Adam(model.parameters(), lr=0.01)
-scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=2000, eta_min=1e-5)
-
-# 固定输入的纯随机噪声
 fixed_noise = torch.randn(1, 1, Nx, Ny).to(device)
 
-print(f"🧠 PANN 正在进行【声场纯净度】攻坚，预计 2000 步...")
+epochs = 300
+print(f"🧠 开始物理辅助炼丹，总步数: {epochs}...")
 
-for epoch in range(2000):
+for epoch in range(epochs):
     optimizer.zero_grad()
-    
     phase_map = model(fixed_noise).squeeze()
-    source_field = torch.exp(1j * phase_map)
+    source_field = 1.0 * torch.exp(1j * phase_map)
     
-    # 物理正向传播
     target_field = propagate_asm(source_field)
-    pred_amp = torch.abs(target_field)
-    pred_amp_norm = pred_amp / (torch.max(pred_amp) + 1e-8)
+    target_amp_pred = torch.abs(target_field)
+    target_amp_pred_norm = target_amp_pred / (torch.max(target_amp_pred) + 1e-8)
     
-    # --- 组合损失函数 ---
-    loss_corr = pearson_correlation_loss(pred_amp_norm, target_amp)
-    loss_mse = torch.nn.functional.mse_loss(pred_amp_norm, target_amp)
-    loss_tv = tv_loss(phase_map.unsqueeze(0).unsqueeze(0)) 
+    loss = torch.nn.functional.mse_loss(target_amp_pred_norm, target_amp)
     
-    # 核心策略：70% 权重交给相关性优化
-    total_loss = 0.7 * loss_corr + 0.2 * loss_mse + 0.05 * loss_tv
-    
-    total_loss.backward()
+    loss.backward()
     optimizer.step()
-    scheduler.step()
     
-    if (epoch + 1) % 200 == 0:
-        current_corr = 1 - loss_corr.item()
-        print(f"Epoch [{epoch+1}/2000] | Corr: {current_corr:.4f} | TV: {loss_tv.item():.2f} | LR: {optimizer.param_groups[0]['lr']:.6f}")
+    if (epoch + 1) % 50 == 0:
+        print(f"Epoch [{epoch+1}/{epochs}], MSE Loss: {loss.item():.4f}")
 
-# ==========================================
-# 5. 导出结果给 MATLAB
-# ==========================================
 final_phase = phase_map.detach().cpu().numpy()
 sio.savemat(output_file, {'optimal_initial_phase': final_phase})
-print(f"\n✅ 炼丹完成！极致平滑相位已投递至: {output_file}")
+print(f"\n✅ 极简神级相位已备好，投递至: {output_file}")
