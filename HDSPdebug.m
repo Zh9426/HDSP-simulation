@@ -2,11 +2,11 @@ clear; close all; clc;
 reset(gpuDevice); % 强制清空 GPU 显存底层垃圾
 
 %% 1. 网格及参数设定 (动态 Z 轴优化与各项同性网格)
-Nx = 512; 
+Nx = 640; 
 Lx = 65e-3;
 Ny = Nx; Ly = Lx;
 System_Offset = 2.03e-3;
-z_target_dist = 20e-3; % 目标距离
+z_target_dist = 16e-3; % 目标距离
 f0 = 4.5e6;
 c_water = 1480; 
 c_board = 2430; 
@@ -17,7 +17,7 @@ lambda_water = c_water / f0;
 dx = Lx / Nx; 
 dy = dx; 
 dz = dx; 
-Lz_needed = 25e-3; 
+Lz_needed = 20e-3; 
 Nz_min = ceil(Lz_needed / dz);
 optimal_sizes = [128, 192, 216, 256, 300, 384, 512];
 Nz = optimal_sizes(find(optimal_sizes >= Nz_min, 1));
@@ -31,38 +31,30 @@ fprintf('优化后网格尺寸: %d x %d x %d (总节点数: %.1f 百万)\n', Nx,
 fprintf('Z轴物理长度缩减至: %.2f mm\n', Lz*1e3);
 fprintf('==================================================\n');
 
-%% 2. 目标图案几何定义 (多孔支架 Scaffold - 纯代码生成，无模糊版)
-fprintf('目标图案定义 (多孔骨支架 Scaffold - 挑战系统极限)\n');
+%% 2. 目标图案多孔支架
+fprintf('目标图案定义\n');
 
-% 1. 生成物理坐标网格
-[Y_grid, X_grid] = meshgrid(x, x); % x 是从 -Lx/2 到 Lx/2 的坐标数组
+[Y_grid, X_grid] = meshgrid(x, x);
 
-% 2. 定义支架的几何尺寸 (物理单位：米)
-strut_width = 1.0e-3;      % 支架线条宽度: 1.0 mm (安全避开 4.5MHz 的绝对衍射死区)
-pore_size = 3.0e-3;        % 孔隙大小: 3.0 mm
-pitch = strut_width + pore_size; % 周期
+strut_width = 1.0e-3;     
+pore_size = 3.0e-3;        
+pitch = strut_width + pore_size; 
 
-% 3. 生成网格图案
-% 使用 mod 函数极其优雅地生成周期性的横竖线条
+
 mask_X = mod(X_grid + pitch/2, pitch) < strut_width;
 mask_Y = mod(Y_grid + pitch/2, pitch) < strut_width;
 scaffold_raw = mask_X | mask_Y;
 
-% 4. 裁剪为圆形靶标 (直径 30 mm)
 target_radius = 15e-3;
 circle_mask = (X_grid.^2 + Y_grid.^2) <= target_radius^2;
 imag_target_raw = scaffold_raw & circle_mask;
 
-% 5. 🎯 回应你的直觉：彻底移除严重的过度蒙化！
-% 我们只做一个极其微小的高斯滤波 (sigma=0.5)，仅仅为了消除数字网格像素的绝对锯齿(Aliasing)，
-% 绝对不破坏物理上的高对比度“悬崖”边缘！
 imag_target = imgaussfilt(double(imag_target_raw), 0.5);
 
-% 强制归一化
 imag_target = imag_target / max(imag_target(:));
 
 ROI_pixels = sum(imag_target(:) > 0.5);
-fprintf('📦 多孔支架靶标已生成：直径 30mm, 线宽 1.0mm (ROI体素数: %d)\n', ROI_pixels);
+fprintf('📦 多孔支架：直径 30mm, 线宽 1.0mm (ROI体素数: %d)\n', ROI_pixels);
 
 % 导出至中转站
 transport_dir = 'C:\Users\Zh89\Desktop\transport';
@@ -70,20 +62,15 @@ if ~exist(transport_dir, 'dir'), mkdir(transport_dir); end
 export_path = fullfile(transport_dir, 'target_for_python.mat');
 save(export_path, 'imag_target', 'Nx', 'Ny', 'Lx', 'lambda_water', 'z_target_dist');
 
-% 快速弹出一个预览图让你看看这个漂亮的支架
-figure(2); clf; set(gcf, 'Color', 'w');
+figure(1); clf; set(gcf, 'Color', 'w');
 imagesc(x*1e3, x*1e3, imag_target); axis image; colormap gray;
 title('待打印的组织工程支架 (1.0mm 线宽)'); xlabel('mm'); ylabel('mm');
 
 fprintf('\n==================================================\n');
-fprintf('🎯 靶标数据已导出至: %s\n', export_path);
-fprintf('⏳ 【系统暂停中】请不要关闭 MATLAB！\n');
-fprintf('👉 任务：请去 VS Code 中运行 GD-Holo 纯物理优化脚本...\n');
+fprintf('数据已导出至: %s\n', export_path);
 fprintf('==================================================\n\n');
 disp('按下【回车键 (Enter)】继续读取 Python 的结果...');
 pause;
-figure(1);
-imagesc(x*1e3, x*1e3, imag_target); axis image; colormap gray; title('目标');
 %% 3. IASA 迭代 (接收深度学习快递)
 fprintf('运行 PANN-IASA 混合架构收敛...\n');
 import_path = fullfile(transport_dir, 'dl_phase_init.mat');
@@ -473,7 +460,6 @@ y = x;
 figure(88); clf; set(gcf, 'Position', [100, 100, 1400, 500], 'Color', 'w');
 num_snapshots = 5;
 snapshot_steps = round(linspace(1, Nt_th, num_snapshots));
-% [注意] 这里如果需要历史快照图，需在 FDTD 里提取。由于寻优不保存 3D 过程，此处仅留位。
 
 subplot(2, 1, 2);
 plot(t_axis, T_max_history, 'r-', 'LineWidth', 2); hold on;
@@ -587,16 +573,15 @@ cured_hi_render = imgaussfilt(cured_hi, 1.5);
 
 % 4. 引入光影材质系统，渲染 3D 实体质感
 % 构造一个微小的厚度，让它看起来像个实物
-Z_hi = cured_hi_render * 0.5; % 假设打印层厚为 0.5mm 仅供视觉展示
+Z_hi = cured_hi_render * 0.5; 
 
 surf(X_hi, Y_hi, Z_hi, 'EdgeColor', 'none', 'FaceColor', [0.15, 0.25, 0.45]);
-view(0, 90); % 顶视图
+view(0, 90); 
 
-% 施加现实级光照与材质
 camlight('headlight'); 
 camlight('left');
 lighting gouraud;
-material dull; % 树脂通常是哑光质感
+material dull; 
 
 axis image; 
 set(gca, 'Color', 'w', 'XColor', 'k', 'YColor', 'k');
