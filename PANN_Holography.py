@@ -6,14 +6,14 @@ import os
 import scipy.ndimage
 
 # ==========================================
-# 0. 顶级物理配置 (OD=64mm, f=4.5MHz)
+# 0. 顶级物理配置
 # ==========================================
 transport_dir = r"C:\Users\Zh89\Desktop\transport"
 input_file = os.path.join(transport_dir, 'target_for_python.mat')
 output_file = os.path.join(transport_dir, 'dl_phase_init.mat')
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"\n🚀 GD-Holo v4.0 启动 [引入前景均匀度方差惩罚，彻底修复线条断裂]")
+print(f"\n🚀 GD-Holo v5.0 启动 [挂载能量回收涡轮，强行拉升 EE 效率]")
 
 if not os.path.exists(input_file): raise FileNotFoundError(f"❌ 找不到靶标: {input_file}")
 
@@ -24,9 +24,7 @@ Lx = float(data['Lx'].item())
 lambda_water = float(data['lambda_water'].item())
 z_target = float(data['z_target_dist'].item())
 
-# ==========================================
-# 1. 物理低通滤波 
-# ==========================================
+# 物理低通滤波 
 resolution_limit_mm = 0.61 * lambda_water * 1000 
 sigma_mm = resolution_limit_mm * 0.35 
 sigma_px = sigma_mm / (Lx/Nx * 1000)
@@ -36,9 +34,7 @@ temp_target_smooth = scipy.ndimage.gaussian_filter(temp_target, sigma_px)
 target_amp_phys = torch.tensor(temp_target_smooth, dtype=torch.float32).to(device)
 target_amp_phys = target_amp_phys / (torch.max(target_amp_phys) + 1e-8)
 
-# ==========================================
-# 2. 物理传播算子 (ASM)
-# ==========================================
+# 物理传播算子 (ASM)
 pad_factor = 2
 Nx_pad, Ny_pad = Nx * pad_factor, Ny * pad_factor
 dk = 2 * np.pi / (Lx * pad_factor)
@@ -63,46 +59,54 @@ def pearson_correlation_loss(output, target):
     return 1 - rho 
 
 # ==========================================
-# 3. 極速純物理梯度下降 (消灭断裂点)
+# 3. 極速純物理梯度下降 (加入 EE 榨取器)
 # ==========================================
-# 优化初始相位，加入一点球面相位曲率打破初始对称性，防止陷入死区
-r_sq = (kx[:Nx]**2 + ky[:Ny]**2).to(device)
 initial_phase = torch.rand(Nx, Ny, device=device) * 2 * np.pi - np.pi
 phase_map = torch.nn.Parameter(initial_phase)
 
 optimizer = optim.Adam([phase_map], lr=0.1)
 scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=1000, eta_min=0.001)
 
-# 掩膜定义：准确切分背景和前景
 bg_mask = (target_amp_phys < 0.2).float()
-fg_mask = (target_amp_phys > 0.8).float() # 前景掩膜：代表必须固化的实体线条区域
+fg_mask = (target_amp_phys > 0.8).float()
 
 weight_map = torch.ones_like(target_amp_phys)
-weight_map[bg_mask == 1] = 5.0 # 背景防污染惩罚
+weight_map[bg_mask == 1] = 5.0 
 
 epochs = 1000
-print(f"🧠 开始强压前景能量分布，消灭热力学断裂点...")
+print(f"🧠 开始强压前景能量分布，并榨取极限 EE (Energy Efficiency)...")
 
 for epoch in range(epochs):
     optimizer.zero_grad()
     
     source_field = torch.exp(1j * phase_map)
     target_field = propagate_asm(source_field)
+    
+    # 🌟 关键修改：计算真实的能量场 (振幅的平方) 用于求 EE
     pred_amp = torch.abs(target_field)
+    pred_energy = pred_amp ** 2 
     pred_amp_norm = pred_amp / (torch.max(pred_amp) + 1e-8)
     
-    # 1. 相关性与基础加权误差
+    # 1. 基础保真约束
     loss_corr = pearson_correlation_loss(pred_amp_norm, target_amp_phys)
     error = pred_amp_norm - target_amp_phys
     loss_wmse = torch.mean(weight_map * (error ** 2))
     
-    # 2. 🌟 致命一击：前景均匀度惩罚 (Uniformity Loss)
-    # 提取所有应该固化区域的声压，计算方差
+    # 2. 均匀度约束 (防止断裂)
     fg_pressures = pred_amp_norm[fg_mask == 1]
     loss_uniformity = torch.var(fg_pressures) if len(fg_pressures) > 0 else torch.tensor(0.0).to(device)
     
-    # 组合重拳：给方差极大的权重，强迫能量在线条内铺平
-    total_loss = 1.0 * loss_corr + 1.0 * loss_wmse + 10.0 * loss_uniformity
+    # 3. 🌟 新增：能量效率 (EE) 涡轮！
+    # 目标区域总能量 / 焦面总能量
+    target_energy_sum = torch.sum(pred_energy * fg_mask)
+    total_energy_sum = torch.sum(pred_energy)
+    current_EE = target_energy_sum / (total_energy_sum + 1e-8)
+    
+    # 我们希望 EE 越大越好，所以惩罚 (1 - EE)
+    loss_ee = 1.0 - current_EE
+    
+    # 组合重拳：在保证均匀度的前提下，逼迫优化器把散斑收回目标内！
+    total_loss = 1.0 * loss_corr + 1.0 * loss_wmse + 10.0 * loss_uniformity + 2.0 * loss_ee
     
     total_loss.backward()
     optimizer.step()
@@ -110,11 +114,8 @@ for epoch in range(epochs):
     
     if (epoch + 1) % 100 == 0:
         actual_corr = 1 - loss_corr.item()
-        print(f"Epoch [{epoch+1}/{epochs}] | Corr: {actual_corr:.4f} | Var: {loss_uniformity.item():.4f} | Loss: {total_loss.item():.4f}")
+        print(f"Epoch [{epoch+1}/{epochs}] | Corr: {actual_corr:.4f} | EE: {current_EE.item()*100:.2f}% | Loss: {total_loss.item():.4f}")
 
-# ==========================================
-# 4. 导出数据
-# ==========================================
 final_phase = phase_map.detach().cpu().numpy()
 sio.savemat(output_file, {'optimal_initial_phase': final_phase})
-print(f"\n✅ 高均匀度 GD-Holo 相位已备好，投递至: {output_file}")
+print(f"\n✅ 高效能 GD-Holo 相位已备好，投递至: {output_file}")
