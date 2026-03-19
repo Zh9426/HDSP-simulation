@@ -3,7 +3,7 @@ reset(gpuDevice); % 强制清空 GPU 显存底层垃圾
 
 %% 1. 网格及参数设定 (动态 Z 轴优化与各项同性网格)
 Nx = 512; 
-Lx = 60e-3;
+Lx = 64e-3;
 Ny = Nx; Ly = Lx;
 System_Offset = 2.03e-3;
 z_target_dist = 16e-3; % 目标距离
@@ -31,30 +31,47 @@ fprintf('优化后网格尺寸: %d x %d x %d (总节点数: %.1f 百万)\n', Nx,
 fprintf('Z轴物理长度缩减至: %.2f mm\n', Lz*1e3);
 fprintf('==================================================\n');
 
-%% 2. 目标图案多孔支架
+%% 2. 目标定义 (保持原样)
 fprintf('目标图案定义\n');
+imag_target = zeros(Nx, Ny);
+h_A = 160;       % 高度
+w_base = 100;    % 底部宽度
+thickness = 22;  % 粗细
+bar_pos = 50;    % 横高
+bar_width = 20;  % 横宽
+cx = round(Nx/2); 
+cy = round(Ny/2);
+x_top = cx - h_A/2;
+x_bottom = cx + h_A/2;
+slope = h_A / (w_base/2);
+[Y_grid, X_grid] = meshgrid(1:Ny, 1:Nx);
+dx_outer = X_grid - x_top;
+dy_abs = abs(Y_grid - cy);
+width_at_x = dx_outer / slope;
+mask_outer = (dx_outer >= 0) & (dx_outer <= h_A) & (dy_abs <= width_at_x);
+x_top_inner = x_top + thickness * 1.8; % 视觉调整系数，保证厚度适中
+dx_inner = X_grid - x_top_inner;
+width_inner_at_x = dx_inner / slope;
+mask_inner_cone = (dx_inner >= 0) & (dy_abs <= width_inner_at_x); 
+% 横杠
+x_bar_start = x_bottom - bar_pos - bar_width/2;
+x_bar_end   = x_bottom - bar_pos + bar_width/2;
+mask_bar = (X_grid >= x_bar_start) & (X_grid <= x_bar_end);
+%组合逻辑
+imag_target = mask_outer & (~mask_inner_cone | mask_bar);
+imag_target = double(imag_target > 0.5);
+% --- 目标定义末尾 ---
+imag_target = mask_outer & (~mask_inner_cone | mask_bar);
+imag_target = double(imag_target > 0.5);
 
-[Y_grid, X_grid] = meshgrid(x, x);
-
-strut_width = 1.0e-3;     
-pore_size = 3.0e-3;        
-pitch = strut_width + pore_size; 
-
-
-mask_X = mod(X_grid + pitch/2, pitch) < strut_width;
-mask_Y = mod(Y_grid + pitch/2, pitch) < strut_width;
-scaffold_raw = mask_X | mask_Y;
-
-target_radius = 15e-3;
-circle_mask = (X_grid.^2 + Y_grid.^2) <= target_radius^2;
-imag_target_raw = scaffold_raw & circle_mask;
-
-imag_target = imgaussfilt(double(imag_target_raw), 0.5);
-
+% ========================================================
+% [终极抗衍射绝招]：将硬边界转换为“高斯软边界”！
+% 这将彻底消除 IASA 算法产生的空间高频衍射环 (吉布斯振铃)
+% ========================================================
+smooth_sigma = 1.5; % 柔化半径 (通常取 1.5 ~ 2.0 个像素)
+imag_target = imgaussfilt(imag_target, smooth_sigma);
+% 重新归一化到 0~1
 imag_target = imag_target / max(imag_target(:));
-
-ROI_pixels = sum(imag_target(:) > 0.5);
-fprintf('📦 多孔支架：直径 30mm, 线宽 1.0mm (ROI体素数: %d)\n', ROI_pixels);
 
 % 导出至中转站
 transport_dir = 'C:\Users\Zh89\Desktop\transport';
