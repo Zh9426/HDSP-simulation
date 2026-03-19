@@ -13,7 +13,7 @@ input_file = os.path.join(transport_dir, 'target_for_python.mat')
 output_file = os.path.join(transport_dir, 'dl_phase_init.mat')
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"\n🚀 GD-Holo v3.0 启动 [引入自适应非对称损失，修复噪点与线条扭曲]")
+print(f"\n🚀 GD-Holo v4.0 启动 [引入前景均匀度方差惩罚，彻底修复线条断裂]")
 
 if not os.path.exists(input_file): raise FileNotFoundError(f"❌ 找不到靶标: {input_file}")
 
@@ -25,7 +25,7 @@ lambda_water = float(data['lambda_water'].item())
 z_target = float(data['z_target_dist'].item())
 
 # ==========================================
-# 1. 物理低通滤波 (轻微消除数字锯齿)
+# 1. 物理低通滤波 
 # ==========================================
 resolution_limit_mm = 0.61 * lambda_water * 1000 
 sigma_mm = resolution_limit_mm * 0.35 
@@ -62,28 +62,26 @@ def pearson_correlation_loss(output, target):
     rho = torch.sum(x * y) / (torch.sqrt(torch.sum(x**2) * torch.sum(y**2)) + 1e-8)
     return 1 - rho 
 
-def tv_loss(img):
-    h_variance = torch.sum(torch.pow(img[1:, :] - img[:-1, :], 2))
-    w_variance = torch.sum(torch.pow(img[:, 1:] - img[:, :-1], 2))
-    return (h_variance + w_variance) / (Nx * Ny)
-
 # ==========================================
-# 3. 極速純物理梯度下降 (自适应优化)
+# 3. 極速純物理梯度下降 (消灭断裂点)
 # ==========================================
-phase_map = torch.nn.Parameter((torch.rand(Nx, Ny, device=device) * 2 * np.pi) - np.pi)
+# 优化初始相位，加入一点球面相位曲率打破初始对称性，防止陷入死区
+r_sq = (kx[:Nx]**2 + ky[:Ny]**2).to(device)
+initial_phase = torch.rand(Nx, Ny, device=device) * 2 * np.pi - np.pi
+phase_map = torch.nn.Parameter(initial_phase)
 
 optimizer = optim.Adam([phase_map], lr=0.1)
 scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=1000, eta_min=0.001)
 
-# 🌟 构建通用权重掩膜 (自动识别任何图案的背景)
-# 靶标亮度 < 0.2 的地方被定义为背景(孔洞)
+# 掩膜定义：准确切分背景和前景
 bg_mask = (target_amp_phys < 0.2).float()
+fg_mask = (target_amp_phys > 0.8).float() # 前景掩膜：代表必须固化的实体线条区域
+
 weight_map = torch.ones_like(target_amp_phys)
-# 对背景孔洞施加 8 倍的极端惩罚，绞杀孤立块状物！
-weight_map[bg_mask == 1] = 8.0 
+weight_map[bg_mask == 1] = 5.0 # 背景防污染惩罚
 
 epochs = 1000
-print(f"🧠 开始执行自适应非对称全息优化 (彻底斩除空洞噪点)...")
+print(f"🧠 开始强压前景能量分布，消灭热力学断裂点...")
 
 for epoch in range(epochs):
     optimizer.zero_grad()
@@ -93,20 +91,18 @@ for epoch in range(epochs):
     pred_amp = torch.abs(target_field)
     pred_amp_norm = pred_amp / (torch.max(pred_amp) + 1e-8)
     
-    # 1. 相关性约束 (保大局)
+    # 1. 相关性与基础加权误差
     loss_corr = pearson_correlation_loss(pred_amp_norm, target_amp_phys)
-    
-    # 2. 🌟 自适应加权 MSE (防过热/防空洞散斑)
     error = pred_amp_norm - target_amp_phys
     loss_wmse = torch.mean(weight_map * (error ** 2))
     
-    # 3. 🌟 局部 TV 惩罚 (保直线)
-    # 仅对背景区域应用 TV 平滑，不干扰主体边缘，保持横平竖直
-    pred_bg_only = pred_amp_norm * bg_mask
-    loss_tv_bg = tv_loss(pred_bg_only)
+    # 2. 🌟 致命一击：前景均匀度惩罚 (Uniformity Loss)
+    # 提取所有应该固化区域的声压，计算方差
+    fg_pressures = pred_amp_norm[fg_mask == 1]
+    loss_uniformity = torch.var(fg_pressures) if len(fg_pressures) > 0 else torch.tensor(0.0).to(device)
     
-    # 组合重拳
-    total_loss = 1.0 * loss_corr + 1.0 * loss_wmse + 0.1 * loss_tv_bg
+    # 组合重拳：给方差极大的权重，强迫能量在线条内铺平
+    total_loss = 1.0 * loss_corr + 1.0 * loss_wmse + 10.0 * loss_uniformity
     
     total_loss.backward()
     optimizer.step()
@@ -114,11 +110,11 @@ for epoch in range(epochs):
     
     if (epoch + 1) % 100 == 0:
         actual_corr = 1 - loss_corr.item()
-        print(f"Epoch [{epoch+1}/{epochs}] | Corr: {actual_corr:.4f} | wMSE: {loss_wmse.item():.4f} | Loss: {total_loss.item():.4f}")
+        print(f"Epoch [{epoch+1}/{epochs}] | Corr: {actual_corr:.4f} | Var: {loss_uniformity.item():.4f} | Loss: {total_loss.item():.4f}")
 
 # ==========================================
 # 4. 导出数据
 # ==========================================
 final_phase = phase_map.detach().cpu().numpy()
 sio.savemat(output_file, {'optimal_initial_phase': final_phase})
-print(f"\n✅ 极致纯净 GD-Holo 相位已备好，投递至: {output_file}")
+print(f"\n✅ 高均匀度 GD-Holo 相位已备好，投递至: {output_file}")
