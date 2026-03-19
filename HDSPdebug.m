@@ -2,7 +2,7 @@ clear; close all; clc;
 reset(gpuDevice); % 强制清空 GPU 显存底层垃圾
 
 %% 1. 网格及参数设定 (动态 Z 轴优化与各项同性网格)
-Nx = 640; 
+Nx = 600; 
 Lx = 65e-3;
 Ny = Nx; Ly = Lx;
 System_Offset = 2.03e-3;
