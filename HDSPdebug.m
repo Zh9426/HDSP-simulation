@@ -31,47 +31,38 @@ fprintf('优化后网格尺寸: %d x %d x %d (总节点数: %.1f 百万)\n', Nx,
 fprintf('Z轴物理长度缩减至: %.2f mm\n', Lz*1e3);
 fprintf('==================================================\n');
 
-%% 2. 目标定义 (保持原样)
-fprintf('目标图案定义\n');
-imag_target = zeros(Nx, Ny);
-h_A = 160;       % 高度
-w_base = 100;    % 底部宽度
-thickness = 22;  % 粗细
-bar_pos = 50;    % 横高
-bar_width = 20;  % 横宽
-cx = round(Nx/2); 
-cy = round(Ny/2);
-x_top = cx - h_A/2;
-x_bottom = cx + h_A/2;
-slope = h_A / (w_base/2);
-[Y_grid, X_grid] = meshgrid(1:Ny, 1:Nx);
-dx_outer = X_grid - x_top;
-dy_abs = abs(Y_grid - cy);
-width_at_x = dx_outer / slope;
-mask_outer = (dx_outer >= 0) & (dx_outer <= h_A) & (dy_abs <= width_at_x);
-x_top_inner = x_top + thickness * 1.8; % 视觉调整系数，保证厚度适中
-dx_inner = X_grid - x_top_inner;
-width_inner_at_x = dx_inner / slope;
-mask_inner_cone = (dx_inner >= 0) & (dy_abs <= width_inner_at_x); 
-% 横杠
-x_bar_start = x_bottom - bar_pos - bar_width/2;
-x_bar_end   = x_bottom - bar_pos + bar_width/2;
-mask_bar = (X_grid >= x_bar_start) & (X_grid <= x_bar_end);
-%组合逻辑
-imag_target = mask_outer & (~mask_inner_cone | mask_bar);
-imag_target = double(imag_target > 0.5);
-% --- 目标定义末尾 ---
-imag_target = mask_outer & (~mask_inner_cone | mask_bar);
-imag_target = double(imag_target > 0.5);
+%% 2. 目标图案几何定义 (多孔支架 Scaffold - 纯代码生成，无模糊版)
+fprintf('目标图案定义 (多孔骨支架 Scaffold - 挑战系统极限)\n');
 
-% ========================================================
-% [终极抗衍射绝招]：将硬边界转换为“高斯软边界”！
-% 这将彻底消除 IASA 算法产生的空间高频衍射环 (吉布斯振铃)
-% ========================================================
-smooth_sigma = 1.5; % 柔化半径 (通常取 1.5 ~ 2.0 个像素)
-imag_target = imgaussfilt(imag_target, smooth_sigma);
-% 重新归一化到 0~1
+% 1. 生成物理坐标网格
+[Y_grid, X_grid] = meshgrid(x, x); % x 是从 -Lx/2 到 Lx/2 的坐标数组
+
+% 2. 定义支架的几何尺寸 (物理单位：米)
+strut_width = 1.0e-3;      % 支架线条宽度: 1.0 mm (安全避开 4.5MHz 的绝对衍射死区)
+pore_size = 3.0e-3;        % 孔隙大小: 3.0 mm
+pitch = strut_width + pore_size; % 周期
+
+% 3. 生成网格图案
+% 使用 mod 函数极其优雅地生成周期性的横竖线条
+mask_X = mod(X_grid + pitch/2, pitch) < strut_width;
+mask_Y = mod(Y_grid + pitch/2, pitch) < strut_width;
+scaffold_raw = mask_X | mask_Y;
+
+% 4. 裁剪为圆形靶标 (直径 30 mm)
+target_radius = 15e-3;
+circle_mask = (X_grid.^2 + Y_grid.^2) <= target_radius^2;
+imag_target_raw = scaffold_raw & circle_mask;
+
+% 5. 🎯 回应你的直觉：彻底移除严重的过度蒙化！
+% 我们只做一个极其微小的高斯滤波 (sigma=0.5)，仅仅为了消除数字网格像素的绝对锯齿(Aliasing)，
+% 绝对不破坏物理上的高对比度“悬崖”边缘！
+imag_target = imgaussfilt(double(imag_target_raw), 0.5);
+
+% 强制归一化
 imag_target = imag_target / max(imag_target(:));
+
+ROI_pixels = sum(imag_target(:) > 0.5);
+fprintf('📦 多孔支架靶标已生成：直径 30mm, 线宽 1.0mm (ROI体素数: %d)\n', ROI_pixels);
 
 % 导出至中转站
 transport_dir = 'C:\Users\Zh89\Desktop\transport';
@@ -79,12 +70,15 @@ if ~exist(transport_dir, 'dir'), mkdir(transport_dir); end
 export_path = fullfile(transport_dir, 'target_for_python.mat');
 save(export_path, 'imag_target', 'Nx', 'Ny', 'Lx', 'lambda_water', 'z_target_dist');
 
-figure(1); clf; set(gcf, 'Color', 'w');
+% 快速弹出一个预览图让你看看这个漂亮的支架
+figure(2); clf; set(gcf, 'Color', 'w');
 imagesc(x*1e3, x*1e3, imag_target); axis image; colormap gray;
 title('待打印的组织工程支架 (1.0mm 线宽)'); xlabel('mm'); ylabel('mm');
 
 fprintf('\n==================================================\n');
-fprintf('数据已导出至: %s\n', export_path);
+fprintf('🎯 靶标数据已导出至: %s\n', export_path);
+fprintf('⏳ 【系统暂停中】请不要关闭 MATLAB！\n');
+fprintf('👉 任务：请去 VS Code 中运行 GD-Holo 纯物理优化脚本...\n');
 fprintf('==================================================\n\n');
 disp('按下【回车键 (Enter)】继续读取 Python 的结果...');
 pause;
