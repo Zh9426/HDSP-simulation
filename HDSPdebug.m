@@ -3,7 +3,7 @@ reset(gpuDevice); % 强制清空 GPU 显存底层垃圾
 
 %% 1. 网格及参数设定 (动态 Z 轴优化与各项同性网格)
 Nx = 512; 
-Lx = 64e-3;
+Lx = 65e-3;
 Ny = Nx; Ly = Lx;
 System_Offset = 2.03e-3;
 z_target_dist = 16e-3; % 目标距离
@@ -105,9 +105,14 @@ kx_pad = (-Nx_pad/2 : Nx_pad/2-1) * dk_pad;
 [Kx_pad, Ky_pad] = meshgrid(kx_pad, kx_pad);
 k_water = 2 * pi / lambda_water;
 Kz_sq = k_water^2 - Kx_pad.^2 - Ky_pad.^2;
-Kz_sq(Kz_sq < 0) = 0; 
-H_forward = exp(1i * sqrt(Kz_sq) * z_target_dist); 
-H_backward = exp(-1i * sqrt(Kz_sq) * z_target_dist); 
+% 优化：显式构建 evanescent 滤波器
+propagating = (Kz_sq > 0);
+Kz = zeros(size(Kz_sq));
+Kz(propagating) = sqrt(Kz_sq(propagating));
+H_forward = zeros(size(Kz_sq));
+H_forward(propagating) = exp(1i * Kz(propagating) * z_target_dist);
+H_backward = conj(H_forward);
+
 
 board_phase_pad = zeros(Nx_pad, Ny_pad);
 board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = exp(1i * optimal_initial_phase);
