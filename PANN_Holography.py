@@ -5,8 +5,7 @@ import numpy as np
 import os
 import scipy.ndimage
 
-# ==========================================
-# 0. 顶级物理配置
+# 0. 物理配置
 # ==========================================
 transport_dir = r"C:\Users\Zh89\Desktop\transport"
 input_file = os.path.join(transport_dir, 'target_for_python.mat')
@@ -59,7 +58,7 @@ def pearson_correlation_loss(output, target):
     return 1 - rho 
 
 # ==========================================
-# 3. 極速純物理梯度下降 (加入 EE 榨取器)
+# 3.物理梯度下降 (加入 EE)
 # ==========================================
 initial_phase = torch.rand(Nx, Ny, device=device) * 2 * np.pi - np.pi
 phase_map = torch.nn.Parameter(initial_phase)
@@ -74,7 +73,6 @@ weight_map = torch.ones_like(target_amp_phys)
 weight_map[bg_mask == 1] = 5.0 
 
 epochs = 1000
-print(f"🧠 开始强压前景能量分布，并榨取极限 EE (Energy Efficiency)...")
 
 for epoch in range(epochs):
     optimizer.zero_grad()
@@ -82,7 +80,7 @@ for epoch in range(epochs):
     source_field = torch.exp(1j * phase_map)
     target_field = propagate_asm(source_field)
     
-    # 🌟 关键修改：计算真实的能量场 (振幅的平方) 用于求 EE
+    # 计算真实的能量场 (振幅的平方) 用于求 EE
     pred_amp = torch.abs(target_field)
     pred_energy = pred_amp ** 2 
     pred_amp_norm = pred_amp / (torch.max(pred_amp) + 1e-8)
@@ -96,13 +94,13 @@ for epoch in range(epochs):
     fg_pressures = pred_amp_norm[fg_mask == 1]
     loss_uniformity = torch.var(fg_pressures) if len(fg_pressures) > 0 else torch.tensor(0.0).to(device)
     
-    # 3. 🌟 新增：能量效率 (EE) 涡轮！
+    # 3.能量效率 (EE) 涡轮！
     # 目标区域总能量 / 焦面总能量
     target_energy_sum = torch.sum(pred_energy * fg_mask)
     total_energy_sum = torch.sum(pred_energy)
     current_EE = target_energy_sum / (total_energy_sum + 1e-8)
     
-    # 我们希望 EE 越大越好，所以惩罚 (1 - EE)
+    # 我们希望 EE 越大越好，惩罚 (1 - EE)
     loss_ee = 1.0 - current_EE
     
     # 组合重拳：在保证均匀度的前提下，逼迫优化器把散斑收回目标内！
@@ -118,4 +116,4 @@ for epoch in range(epochs):
 
 final_phase = phase_map.detach().cpu().numpy()
 sio.savemat(output_file, {'optimal_initial_phase': final_phase})
-print(f"\n✅ 高效能 GD-Holo 相位已备好，投递至: {output_file}")
+print(f"\n相位已备好: {output_file}")
