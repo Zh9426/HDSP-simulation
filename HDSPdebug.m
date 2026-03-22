@@ -114,13 +114,18 @@ target_pad = zeros(Nx_pad, Ny_pad);
 target_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = imag_target;
 weight_pad = target_pad * 1.5; 
 mask_roi = (target_pad > 0.5);     
-mask_dark = (target_pad < 0.5);    
+mask_dark = (target_pad < 0.5);   
 
+[Y_grid_source, X_grid_source] = meshgrid(x, x);
+circle_mask_board = (X_grid_source.^2 + Y_grid_source.^2) <= (32e-3)^2;
 epoch = 150; 
 for i = 1:epoch
     U_source = zeros(Nx_pad, Ny_pad);
+
     center_phase = angle(board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny));
-    U_source(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = 1.0 .* exp(1i * center_phase);
+    center_source = 1.0 .* exp(1i * center_phase);
+    center_source(~circle_mask_board) = 0; % IASA 迭代严格切断圆外能量
+    U_source(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = center_source;
     
     A_source = fftshift(fft2(ifftshift(U_source)));
     A_target = A_source .* H_forward;
@@ -159,7 +164,9 @@ min_base = 2 * dz;
 thickness_map = thickness_map + min_base;
 
 net_num_board = round(thickness_map / dz);
+net_num_board(~circle_mask_board) = 2; % 圆外强制削平为 2 层底座
 actual_thickness = net_num_board * dz;
+actual_thickness(~circle_mask_board) = NaN; % 画图时隐藏圆外部分防报错
 
 actual_phase_imparted = mod(actual_thickness * k_diff, 2*pi);
 complex_diff_voxel = exp(1i * actual_phase_imparted) ./ exp(1i * phase_wrapped);
@@ -200,7 +207,7 @@ t_end = (Lz * 1.5) / c_water;
 kgrid.makeTime(medium.sound_speed, cfl, t_end); 
 
 source.p_mask = zeros(Nx, Ny, Nz);
-source.p_mask(:, :, source_z_idx) = 1; 
+source.p_mask(:, :, source_z_idx) = circle_mask_board;
 t_vec = kgrid.t_array;
 source_sig = sin(2 * pi * f0 * t_vec); 
 ramp_pts = round(2 / f0 / kgrid.dt); 

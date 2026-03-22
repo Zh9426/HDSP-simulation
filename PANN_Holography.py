@@ -71,13 +71,18 @@ fg_mask = (target_amp_phys > 0.8).float()
 
 weight_map = torch.ones_like(target_amp_phys)
 weight_map[bg_mask == 1] = 5.0 
-
+x_vec = torch.linspace(-Lx/2, Lx/2, Nx)
+y_vec = torch.linspace(-Lx/2, Lx/2, Ny)
+Y_grid, X_grid = torch.meshgrid(y_vec, x_vec, indexing='ij')
+source_mask = ((X_grid**2 + Y_grid**2) <= (32e-3)**2).float().to(device)
 epochs = 1000
 
 for epoch in range(epochs):
     optimizer.zero_grad()
     
-    source_field = torch.exp(1j * phase_map)
+    # 原代码: source_field = torch.exp(1j * phase_map)
+# 修改为:
+    source_field = torch.exp(1j * phase_map) * source_mask
     target_field = propagate_asm(source_field)
     
     # 计算真实的能量场 (振幅的平方) 用于求 EE
