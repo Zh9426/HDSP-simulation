@@ -75,7 +75,7 @@ x_vec = torch.linspace(-Lx/2, Lx/2, Nx)
 y_vec = torch.linspace(-Lx/2, Lx/2, Ny)
 Y_grid, X_grid = torch.meshgrid(y_vec, x_vec, indexing='ij')
 source_mask = ((X_grid**2 + Y_grid**2) <= (32e-3)**2).float().to(device)
-epochs = 1000
+epochs = 3000
 
 for epoch in range(epochs):
     optimizer.zero_grad()
