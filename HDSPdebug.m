@@ -34,59 +34,45 @@ fprintf('==================================================\n');
 %% 2. 目标图案几何定义 (多孔支架 Scaffold - 纯代码生成，无模糊版)
 fprintf('目标图案定义 (多孔骨支架 Scaffold - 挑战系统极限)\n');
 
-% 1. 生成物理坐标网格
-[Y_grid, X_grid] = meshgrid(x, x); % x 是从 -Lx/2 到 Lx/2 的坐标数组
+[Y_grid, X_grid] = meshgrid(x, x);
 
-% 2. 定义支架的几何尺寸 (物理单位：米)
-strut_width = 1.0e-3;      % 支架线条宽度: 1.0 mm (安全避开 4.5MHz 的绝对衍射死区)
-pore_size = 3.0e-3;        % 孔隙大小: 3.0 mm
-pitch = strut_width + pore_size; % 周期
+strut_width = 1.0e-3;
+pore_size = 3.0e-3;
+pitch = strut_width + pore_size;
 
-% 3. 生成网格图案
-% 使用 mod 函数极其优雅地生成周期性的横竖线条
+
 mask_X = mod(X_grid + pitch/2, pitch) < strut_width;
 mask_Y = mod(Y_grid + pitch/2, pitch) < strut_width;
 scaffold_raw = mask_X | mask_Y;
 
-% 4. 裁剪为圆形靶标 (直径 30 mm)
+
 target_radius = 15e-3;
 circle_mask = (X_grid.^2 + Y_grid.^2) <= target_radius^2;
 imag_target_raw = scaffold_raw & circle_mask;
 
-% 5. 🎯 回应你的直觉：彻底移除严重的过度蒙化！
-% 我们只做一个极其微小的高斯滤波 (sigma=0.5)，仅仅为了消除数字网格像素的绝对锯齿(Aliasing)，
-% 绝对不破坏物理上的高对比度“悬崖”边缘！
 imag_target = imgaussfilt(double(imag_target_raw), 0.5);
 
-% 强制归一化
 imag_target = imag_target / max(imag_target(:));
 
 ROI_pixels = sum(imag_target(:) > 0.5);
-fprintf('📦 多孔支架靶标已生成：直径 30mm, 线宽 1.0mm (ROI体素数: %d)\n', ROI_pixels);
+fprintf('多孔支架靶标：(体素数: %d)\n', ROI_pixels);
 
-% 导出至中转站
 transport_dir = 'C:\Users\Zh89\Desktop\transport';
 if ~exist(transport_dir, 'dir'), mkdir(transport_dir); end
 export_path = fullfile(transport_dir, 'target_for_python.mat');
 save(export_path, 'imag_target', 'Nx', 'Ny', 'Lx', 'lambda_water', 'z_target_dist');
 
-% 快速弹出一个预览图让你看看这个漂亮的支架
-figure(2); clf; set(gcf, 'Color', 'w');
-imagesc(x*1e3, x*1e3, imag_target); axis image; colormap gray;
-title('待打印的组织工程支架 (1.0mm 线宽)'); xlabel('mm'); ylabel('mm');
 
 fprintf('\n==================================================\n');
-fprintf('🎯 靶标数据已导出至: %s\n', export_path);
-fprintf('⏳ 【系统暂停中】请不要关闭 MATLAB！\n');
-fprintf('👉 任务：请去 VS Code 中运行 GD-Holo 纯物理优化脚本...\n');
+fprintf('靶标数据已导出至: %s\n', export_path);
+fprintf('请不要关闭 MATLAB！\n');
 fprintf('==================================================\n\n');
-disp('按下【回车键 (Enter)】继续读取 Python 的结果...');
 pause;
 %% 3. IASA 迭代 (接收深度学习快递)
 fprintf('运行 PANN-IASA 混合架构收敛...\n');
 import_path = fullfile(transport_dir, 'dl_phase_init.mat');
 if ~exist(import_path, 'file')
-    error('❌ 中转站里没有找到 dl_phase_init.mat！请确认 Python 脚本是否成功运行。');
+    error('中转站里没有找到 dl_phase_init.mat！请确认 Python 脚本是否成功运行。');
 end
 load(import_path, 'optimal_initial_phase');
 
@@ -99,7 +85,7 @@ kx_pad = (-Nx_pad/2 : Nx_pad/2-1) * dk_pad;
 [Kx_pad, Ky_pad] = meshgrid(kx_pad, kx_pad);
 k_water = 2 * pi / lambda_water;
 Kz_sq = k_water^2 - Kx_pad.^2 - Ky_pad.^2;
-% 优化：显式构建 evanescent 滤波器
+
 propagating = (Kz_sq > 0);
 Kz = zeros(size(Kz_sq));
 Kz(propagating) = sqrt(Kz_sq(propagating));
@@ -118,7 +104,7 @@ mask_dark = (target_pad < 0.5);
 
 [Y_grid_source, X_grid_source] = meshgrid(x, x);
 circle_mask_board = (X_grid_source.^2 + Y_grid_source.^2) <= (32e-3)^2;
-epoch = 150; 
+epoch = 10; 
 for i = 1:epoch
     U_source = zeros(Nx_pad, Ny_pad);
 
@@ -164,9 +150,9 @@ min_base = 2 * dz;
 thickness_map = thickness_map + min_base;
 
 net_num_board = round(thickness_map / dz);
-net_num_board(~circle_mask_board) = 2; % 圆外强制削平为 2 层底座
+net_num_board(~circle_mask_board) = 2; 
 actual_thickness = net_num_board * dz;
-actual_thickness(~circle_mask_board) = NaN; % 画图时隐藏圆外部分防报错
+actual_thickness(~circle_mask_board) = NaN; 
 
 actual_phase_imparted = mod(actual_thickness * k_diff, 2*pi);
 complex_diff_voxel = exp(1i * actual_phase_imparted) ./ exp(1i * phase_wrapped);
@@ -277,7 +263,7 @@ actual_z_dist_mm = actual_z_dist_idx * dz * 1e3;
 
 %% 12. 原生 3D FDTD 自适应寻优引擎 (粗细双阶 + 能量启发式剪枝)
 fprintf('\n========================================\n');
-fprintf('🚀 启动 3D 非均匀介质【粗细双阶自适应】寻优引擎...\n');
+fprintf('启动 3D 非均匀介质寻优引擎...\n');
 p_3d_abs = abs(p_field_3d); 
 focal_slice_abs = p_3d_abs(:, :, best_idx_global);
 roi_mask = (imag_target > 0.5);
@@ -307,12 +293,12 @@ best_coarse = struct('P', 1.5e6, 'E', 0.3, 'C', 0.2);
 
 for phase = 1:2
     if phase == 1
-        fprintf('\n🟢 [第一阶段: 全局粗扫] 寻找物理能量甜点区...\n');
+        fprintf('\n[第一阶段: 全局粗扫]...\n');
         P_list = (1.2 : 0.2 : 1.8) * 1e6;   
         E_list = 0.15 : 0.10 : 0.45;        
         C_list = 0.10 : 0.10 : 0.30;        
     else
-        fprintf('\n🔴 [第二阶段: 局部微调] 围绕粗搜最优点 (P=%.2f, E=%.2f, C=%.2f) 进行极限压榨...\n', ...
+        fprintf('\n[第二阶段: 局部微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
             best_coarse.P/1e6, best_coarse.E, best_coarse.C);
         P_list = (best_coarse.P - 0.1e6) : 0.05e6 : (best_coarse.P + 0.1e6);
         E_list = max(0.10, best_coarse.E - 0.05) : 0.02 : (best_coarse.E + 0.05);
@@ -426,7 +412,6 @@ for phase = 1:2
     end
 end
 
-fprintf('\n🏆 全局自适应寻优彻底结束！最终【天命参数】出炉：\n');
 fprintf('   👑 最优定标声压: %.2f MPa\n', best_record.p_target / 1e6);
 fprintf('   👑 最优照射时间: %.2f 秒\n', best_record.t_exp);
 fprintf('   👑 最优冷却时间: %.2f 秒\n', best_record.t_cool);
