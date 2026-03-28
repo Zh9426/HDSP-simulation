@@ -53,6 +53,15 @@ imag_target_raw = scaffold_raw & circle_mask;
 imag_target = imgaussfilt(double(imag_target_raw), 0.5);
 
 imag_target = imag_target / max(imag_target(:));
+thermal_alpha_guess = 0.15 / (1100 * 1800);
+thermal_exposure_guess = 0.35;
+thermal_diff_len = sqrt(4 * thermal_alpha_guess * thermal_exposure_guess);
+thermal_sigma_px = max(0.8, 0.35 * thermal_diff_len / dx);
+precomp_threshold = 0.58;
+design_blur = imgaussfilt(double(imag_target_raw), thermal_sigma_px);
+imag_target_design = double(design_blur > precomp_threshold);
+imag_target_design = imgaussfilt(imag_target_design, 0.45);
+imag_target_design = imag_target_design / max(imag_target_design(:));
 
 ROI_pixels = sum(imag_target(:) > 0.5);
 fprintf('多孔支架靶标：(体素数: %d)\n', ROI_pixels);
@@ -60,7 +69,10 @@ fprintf('多孔支架靶标：(体素数: %d)\n', ROI_pixels);
 transport_dir = 'C:\Users\Zh89\Desktop\transport';
 if ~exist(transport_dir, 'dir'), mkdir(transport_dir); end
 export_path = fullfile(transport_dir, 'target_for_python.mat');
-save(export_path, 'imag_target', 'Nx', 'Ny', 'Lx', 'lambda_water', 'z_target_dist');
+min_base_layers = 2;
+save(export_path, 'imag_target', 'imag_target_design', 'Nx', 'Ny', 'Lx', ...
+    'lambda_water', 'z_target_dist', 'dx', 'dz', 'f0', 'c_water', ...
+    'c_board', 'thermal_sigma_px', 'min_base_layers');
 
 
 fprintf('\n==================================================\n');
@@ -74,7 +86,8 @@ import_path = fullfile(transport_dir, 'dl_phase_init.mat');
 if ~exist(import_path, 'file')
     error('中转站里没有找到 dl_phase_init.mat！请确认 Python 脚本是否成功运行。');
 end
-load(import_path, 'optimal_initial_phase');
+load(import_path, 'optimal_initial_phase', 'optimal_phase_bias', 'optimal_layer_map', ...
+    'target_dose_design', 'line_target_mask', 'halo_target_mask');
 
 pad_factor = 2; 
 Nx_pad = Nx * pad_factor; 
@@ -95,16 +108,31 @@ H_backward = conj(H_forward);
 
 
 board_phase_pad = zeros(Nx_pad, Ny_pad);
-board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = exp(1i * optimal_initial_phase);
 target_pad = zeros(Nx_pad, Ny_pad);
-target_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = imag_target;
-weight_pad = target_pad * 1.5; 
-mask_roi = (target_pad > 0.5);     
-mask_dark = (target_pad < 0.5);   
+target_amp_design = sqrt(max(target_dose_design, 0));
+target_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = target_amp_design;
+weight_pad = 0.05 + target_pad * 1.95; 
+mask_line = false(Nx_pad, Ny_pad);
+mask_halo = false(Nx_pad, Ny_pad);
+mask_line(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = line_target_mask > 0.5;
+mask_halo(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = halo_target_mask > 0.5;
+mask_roi = mask_line;
+mask_dark = ~(mask_line | mask_halo);   
 
 [Y_grid_source, X_grid_source] = meshgrid(x, x);
 circle_mask_board = (X_grid_source.^2 + Y_grid_source.^2) <= (32e-3)^2;
-epoch = 10; 
+k_board_val = 2 * pi * f0 / c_board;
+k_water_val = 2 * pi * f0 / c_water;
+k_diff = abs(k_water_val - k_board_val);
+phase_step = k_diff * dz;
+phase_bias_seed = 0;
+if exist('optimal_phase_bias', 'var')
+    phase_bias_seed = optimal_phase_bias;
+end
+[phase_projected_init, net_num_board, phase_bias_seed] = project_phase_to_board( ...
+    optimal_initial_phase, phase_step, min_base_layers, circle_mask_board, phase_bias_seed, true);
+board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = exp(1i * phase_projected_init);
+epoch = 40; 
 for i = 1:epoch
     U_source = zeros(Nx_pad, Ny_pad);
 
@@ -118,15 +146,16 @@ for i = 1:epoch
     U_target = fftshift(ifft2(ifftshift(A_target)));
     
     rec_amp = abs(U_target);
-    peak_val = max(rec_amp(mask_roi)); 
+    peak_val = max(rec_amp(mask_line)); 
     if peak_val == 0, peak_val = max(rec_amp(:)); end
     rec_amp_norm = rec_amp / peak_val;
     
     if i > 5
         beta = 0.6; 
-        correction = (target_pad(mask_roi) ./ (rec_amp_norm(mask_roi) + 1e-6)) .^ beta;
-        weight_pad(mask_roi) = weight_pad(mask_roi) .* correction;
+        correction = (target_pad(mask_line) ./ (rec_amp_norm(mask_line) + 1e-6)) .^ beta;
+        weight_pad(mask_line) = weight_pad(mask_line) .* correction;
         weight_pad(weight_pad > 10) = 10;
+        weight_pad(mask_halo) = 0.05;
         weight_pad(mask_dark) = 0;
     end
     U_target_constrained = weight_pad .* exp(1i * angle(U_target));
@@ -134,34 +163,33 @@ for i = 1:epoch
     A_source_cons = A_target_cons .* H_backward;
     U_source_new = fftshift(ifft2(ifftshift(A_source_cons)));
     
-    board_phase_pad = U_source_new;
+    source_phase_candidate = angle(U_source_new(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny));
+    [phase_projected_iter, net_num_board, phase_bias_seed] = project_phase_to_board( ...
+        source_phase_candidate, phase_step, min_base_layers, circle_mask_board, phase_bias_seed, true);
+
+    board_phase_pad = zeros(Nx_pad, Ny_pad);
+    board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = exp(1i * phase_projected_iter);
 end
-holo_phase = angle(board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny));
+holo_phase = mod(net_num_board * phase_step, 2*pi);
+holo_phase(~circle_mask_board) = 0;
 
 %% 4. 相位转厚度与体素化
 phase_wrapped = mod(holo_phase, 2*pi); 
-k_board_val = 2 * pi * f0 / c_board;
-k_water_val = 2 * pi * f0 / c_water;
-k_diff = abs(k_water_val - k_board_val); 
-thickness_ideal = phase_wrapped / k_diff;
-
-thickness_map = imgaussfilt(thickness_ideal, 0.2); 
-min_base = 2 * dz; 
-thickness_map = thickness_map + min_base;
-
-net_num_board = round(thickness_map / dz);
-net_num_board(~circle_mask_board) = 2; 
+min_base = min_base_layers * dz; 
+thickness_map = net_num_board * dz;
 actual_thickness = net_num_board * dz;
 actual_thickness(~circle_mask_board) = NaN; 
 
-actual_phase_imparted = mod(actual_thickness * k_diff, 2*pi);
-complex_diff_voxel = exp(1i * actual_phase_imparted) ./ exp(1i * phase_wrapped);
+actual_phase_imparted = mod(net_num_board * dz * k_diff, 2*pi);
+complex_diff_voxel = exp(1i * actual_phase_imparted(circle_mask_board)) ./ exp(1i * phase_wrapped(circle_mask_board));
 global_offset_voxel = angle(mean(complex_diff_voxel(:))); 
-phase_aligned_voxel = angle(exp(1i * (actual_phase_imparted - global_offset_voxel)));
+phase_aligned_voxel = nan(size(phase_wrapped));
+phase_aligned_voxel(circle_mask_board) = angle(exp(1i * (actual_phase_imparted(circle_mask_board) - global_offset_voxel)));
 
-phase_error_voxel = abs(angle(exp(1i * (phase_aligned_voxel - phase_wrapped))));
-mean_phase_error = mean(phase_error_voxel(:));
-max_phase_error = max(phase_error_voxel(:));
+phase_error_voxel = nan(size(phase_wrapped));
+phase_error_voxel(circle_mask_board) = abs(angle(exp(1i * (phase_aligned_voxel(circle_mask_board) - phase_wrapped(circle_mask_board)))));
+mean_phase_error = mean(phase_error_voxel(circle_mask_board));
+max_phase_error = max(phase_error_voxel(circle_mask_board));
 
 %% 5. k-Wave 介质建模
 fprintf('仿真环境与实体介质构建\n');
