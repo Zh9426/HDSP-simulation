@@ -13,6 +13,9 @@ c_board = 2430;
 density_water = 997;
 density_board = 1100; 
 lambda_water = c_water / f0;
+phase_refine_mode = 'python_iasa'; % 'python_only' or 'python_iasa'
+iasa_epoch = 20;
+iasa_anchor_eta = 0.55; % 0 keeps the Python phase, 1 uses full IASA updates
 
 dx = Lx / Nx; 
 dy = dx; 
@@ -132,7 +135,12 @@ end
 [phase_projected_init, net_num_board, phase_bias_seed] = project_phase_to_board( ...
     optimal_initial_phase, phase_step, min_base_layers, circle_mask_board, phase_bias_seed, true);
 board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = exp(1i * phase_projected_init);
-epoch = 40; 
+phase_anchor = phase_projected_init;
+if strcmpi(phase_refine_mode, 'python_only')
+    epoch = 0;
+else
+    epoch = iasa_epoch;
+end
 for i = 1:epoch
     U_source = zeros(Nx_pad, Ny_pad);
 
@@ -164,14 +172,29 @@ for i = 1:epoch
     U_source_new = fftshift(ifft2(ifftshift(A_source_cons)));
     
     source_phase_candidate = angle(U_source_new(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny));
-    [phase_projected_iter, net_num_board, phase_bias_seed] = project_phase_to_board( ...
+    [phase_projected_iter_raw, ~, phase_bias_seed] = project_phase_to_board( ...
         source_phase_candidate, phase_step, min_base_layers, circle_mask_board, phase_bias_seed, true);
+
+        blended_phase = phase_projected_iter_raw;
+    [phase_projected_iter, net_num_board, phase_bias_seed] = project_phase_to_board( ...
+        blended_phase, phase_step, min_base_layers, circle_mask_board, phase_bias_seed, true);
 
     board_phase_pad = zeros(Nx_pad, Ny_pad);
     board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = exp(1i * phase_projected_iter);
 end
 holo_phase = mod(net_num_board * phase_step, 2*pi);
 holo_phase(~circle_mask_board) = 0;
+asm_python_amp = compute_asm_focus_field(phase_projected_init, circle_mask_board, Nx, Ny, H_forward);
+asm_iasa_amp = compute_asm_focus_field(holo_phase, circle_mask_board, Nx, Ny, H_forward);
+asm_python_norm = asm_python_amp / max(asm_python_amp(:) + eps);
+asm_iasa_norm = asm_iasa_amp / max(asm_iasa_amp(:) + eps);
+target_norm_asm = imag_target / max(imag_target(:) + eps);
+asm_python_pcc = corr2(asm_python_norm, target_norm_asm);
+asm_iasa_pcc = corr2(asm_iasa_norm, target_norm_asm);
+asm_python_nmse = sum((target_norm_asm(:) - asm_python_norm(:)).^2) / sum(target_norm_asm(:).^2);
+asm_iasa_nmse = sum((target_norm_asm(:) - asm_iasa_norm(:)).^2) / sum(target_norm_asm(:).^2);
+asm_python_ssim = ssim(double(asm_python_norm), double(target_norm_asm));
+asm_iasa_ssim = ssim(double(asm_iasa_norm), double(target_norm_asm));
 
 %% 4. 相位转厚度与体素化
 phase_wrapped = mod(holo_phase, 2*pi); 
@@ -491,6 +514,10 @@ SSIM_val = ssim(double(p_focal_norm), double(target_norm));
 % Energy Efficiency (声能聚焦效率)
 % 定义为：落入目标掩膜区域的声压平方和 / 整个焦面的声压平方和
 Energy_Efficiency = sum(p_focal_norm(R_binary).^2) / sum(p_focal_norm(:).^2);
+asm_kwave_corr = corr2(asm_iasa_norm, p_focal_norm);
+asm_kwave_nmse = sum((asm_iasa_norm(:) - p_focal_norm(:)).^2) / sum(asm_iasa_norm(:).^2);
+asm_python_kwave_corr = corr2(asm_python_norm, p_focal_norm);
+asm_python_kwave_nmse = sum((asm_python_norm(:) - p_focal_norm(:)).^2) / sum(asm_python_norm(:).^2);
 %% 14. 终极可视化全景仪表盘 (全参数调试版)
 y = x; 
 figure(88); clf; set(gcf, 'Position', [100, 100, 1400, 500], 'Color', 'w');
@@ -502,6 +529,23 @@ plot(t_axis, T_max_history, 'r-', 'LineWidth', 2); hold on;
 yline(65, 'k--', 'LineWidth', 1.5, 'Label', '65°C 参考线'); 
 grid on; set(gca, 'Color', 'w');
 xlabel('时间 (s)'); ylabel('最高温度 (°C)');
+
+figure(89); clf; set(gcf, 'Position', [120, 120, 1400, 420], 'Color', 'w');
+subplot(1, 4, 1);
+imagesc(x*1e3, y*1e3, target_norm_asm); axis image; colormap(gca, gray);
+title('Target'); xlabel('mm'); ylabel('mm');
+
+subplot(1, 4, 2);
+imagesc(x*1e3, y*1e3, asm_python_norm); axis image; colormap(gca, turbo); colorbar;
+title(sprintf('Python ASM\nPCC %.4f | SSIM %.4f', asm_python_pcc, asm_python_ssim)); xlabel('mm'); ylabel('mm');
+
+subplot(1, 4, 3);
+imagesc(x*1e3, y*1e3, asm_iasa_norm); axis image; colormap(gca, turbo); colorbar;
+title(sprintf('IASA ASM\nPCC %.4f | SSIM %.4f', asm_iasa_pcc, asm_iasa_ssim)); xlabel('mm'); ylabel('mm');
+
+subplot(1, 4, 4);
+imagesc(x*1e3, y*1e3, p_focal_norm); axis image; colormap(gca, turbo); colorbar;
+title(sprintf('k-Wave Focal\nPCC %.4f | SSIM %.4f', best_corr, SSIM_val)); xlabel('mm'); ylabel('mm');
 
 figure('Position', [30 30 1500 1000], 'Color', 'w');
 subplot(3, 5, 1);
@@ -578,6 +622,10 @@ fprintf('  Pearson 相关系数 (PCC): %.4f (越大越好)\n', best_corr);
 fprintf('  结构相似度 (SSIM): %.4f (越大越好)\n', SSIM_val);
 fprintf('  归一化均方误差 (NMSE): %.4f (越小越好)\n', NMSE);
 fprintf('  声能聚焦效率 (EE): %.2f%% (越高代表散斑旁瓣越少)\n', Energy_Efficiency * 100);
+fprintf('  Python ASM PCC/SSIM/NMSE: %.4f / %.4f / %.4f\n', asm_python_pcc, asm_python_ssim, asm_python_nmse);
+fprintf('  IASA ASM   PCC/SSIM/NMSE: %.4f / %.4f / %.4f\n', asm_iasa_pcc, asm_iasa_ssim, asm_iasa_nmse);
+fprintf('  ASM(IASA)-kWave PCC/NMSE: %.4f / %.4f\n', asm_kwave_corr, asm_kwave_nmse);
+fprintf('  ASM(Py)-kWave   PCC/NMSE: %.4f / %.4f\n', asm_python_kwave_corr, asm_python_kwave_nmse);
 fprintf('----------------------------------------\n');
 fprintf('【热动力学与固化评估 (Thermal & Curing)】\n');
 fprintf('  最优曝光组合: %.2f MPa + %.2f s (冷却 %.2fs)\n', target_median_pressure/1e6, exposure_time, cooling_time);
