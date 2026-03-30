@@ -79,17 +79,16 @@ def error_diffusion_quantize_layers(layer_continuous, mask, min_base_layers, max
     return layer_map
 
 
-# 0. 物理配置
-# ==========================================
+# 0. physical config
 transport_dir = r"C:\Users\Zh89\Desktop\transport"
 input_file = os.path.join(transport_dir, "target_for_python.mat")
 output_file = os.path.join(transport_dir, "dl_phase_init.mat")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("\n[INFO] PANN-Thermal-Holo 启动：量化感知 + 热剂量主导损失 + 空间抖动初始化")
+print("\n[INFO] PANN-Thermal-Holo start: quantization-aware + dose-aware + jittered init")
 
 if not os.path.exists(input_file):
-    raise FileNotFoundError(f"找不到中转数据: {input_file}")
+    raise FileNotFoundError(f"Cannot find transport input: {input_file}")
 
 data = sio.loadmat(input_file)
 design_key = "imag_target_design" if "imag_target_design" in data else "imag_target"
@@ -107,8 +106,7 @@ c_board = float(data["c_board"].item())
 thermal_sigma_px = float(data["thermal_sigma_px"].item()) if "thermal_sigma_px" in data else 1.0
 min_base_layers = int(data["min_base_layers"].item()) if "min_base_layers" in data else 2
 
-# 1. 热预补偿目标与物理低通
-# ==========================================
+# 1. target shaping
 resolution_limit_mm = 0.61 * lambda_water * 1000.0
 sigma_mm = resolution_limit_mm * 0.35
 sigma_px = sigma_mm / (Lx / Nx * 1000.0)
@@ -132,8 +130,7 @@ target_dose = torch.tensor(target_dose_np, dtype=torch.float32, device=device)
 target_dose = normalize_map(torch.maximum(target_dose, 0.35 * target_smooth))
 target_raw_norm = normalize_map(target_amp_raw)
 
-# 2. 物理传播算子 (ASM)
-# ==========================================
+# 2. ASM operator
 pad_factor = 2
 Nx_pad, Ny_pad = Nx * pad_factor, Ny * pad_factor
 dk = 2.0 * math.pi / (Lx * pad_factor)
@@ -153,8 +150,7 @@ def propagate_asm(source_field):
     return propagated[pad_len_x:-pad_len_x, pad_len_y:-pad_len_y]
 
 
-# 3. 量化感知优化
-# ==========================================
+# 3. quantization-aware optimization
 k_diff = abs(2.0 * math.pi * f0 / c_water - 2.0 * math.pi * f0 / c_board)
 phase_step = k_diff * dz
 max_layer_index = min_base_layers + int(math.ceil(TWO_PI / phase_step)) + 1
@@ -239,8 +235,7 @@ for epoch in range(epochs):
             f"| Dark: {loss_dark.item():.4f} | Loss: {total_loss.item():.4f}"
         )
 
-# 4. 以量化感知结果做空间抖动输出
-# ==========================================
+# 4. export dithered result
 phase_map_final = best_state["phase_map"]
 phase_bias_final = best_state["phase_bias"]
 wrapped_phase = torch.remainder(phase_map_final + phase_bias_final, TWO_PI)
@@ -264,4 +259,4 @@ sio.savemat(
     },
 )
 
-print(f"\n[OK] 相位初始化已写入: {output_file}")
+print(f"\n[OK] Phase initialization written to: {output_file}")
