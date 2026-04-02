@@ -133,7 +133,7 @@ if exist('optimal_phase_bias', 'var')
     phase_bias_seed = optimal_phase_bias;
 end
 [phase_projected_init, net_num_board, phase_bias_seed] = project_phase_to_board( ...
-    optimal_initial_phase, phase_step, min_base_layers, circle_mask_board, phase_bias_seed, true);
+optimal_initial_phase, phase_step, min_base_layers, circle_mask_board, phase_bias_seed, true);
 board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = exp(1i * phase_projected_init);
 phase_anchor = phase_projected_init;
 if strcmpi(phase_refine_mode, 'python_only')
@@ -173,11 +173,11 @@ for i = 1:epoch
     
     source_phase_candidate = angle(U_source_new(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny));
     [phase_projected_iter_raw, ~, phase_bias_seed] = project_phase_to_board( ...
-        source_phase_candidate, phase_step, min_base_layers, circle_mask_board, phase_bias_seed, true);
+    source_phase_candidate, phase_step, min_base_layers, circle_mask_board, phase_bias_seed, true);
 
-        blended_phase = phase_projected_iter_raw;
+    blended_phase = phase_projected_iter_raw;
     [phase_projected_iter, net_num_board, phase_bias_seed] = project_phase_to_board( ...
-        blended_phase, phase_step, min_base_layers, circle_mask_board, phase_bias_seed, true);
+    blended_phase, phase_step, min_base_layers, circle_mask_board, phase_bias_seed, true);
 
     board_phase_pad = zeros(Nx_pad, Ny_pad);
     board_phase_pad(Nx/2+1:Nx/2+Nx, Ny/2+1:Ny/2+Ny) = exp(1i * phase_projected_iter);
@@ -330,7 +330,8 @@ cavitation_limit = 2.0e6;
 E_a = 9.5e4; A_freq = 8.0e15; R_gas = 8.314;
 inv_dx2 = 1 / (dx^2);
 max_diff = max(k_water/(rho_water*Cp_water), k_resin_liq/(rho_resin*Cp_resin_liq));
-dt_th = (dx^2 / (6 * max_diff)) * 0.8; 
+%计算两种介质中最大的热扩散率
+dt_th = (dx^2 / (6 * max_diff)) * 0.8; %三维热传导稳定极值
 
 z_crop_radius = round(1.5e-3 / dz); 
 z_crop_start = max(1, best_idx_global - z_crop_radius);
@@ -361,6 +362,8 @@ for phase = 1:2
     
     energy_index = (params_all(:,1)/1e6).^2 .* params_all(:,2);
     valid_mask = (energy_index >= 0.3) & (energy_index <= 1.2);
+
+%去掉无意义组，提高速度
     params_valid = params_all(valid_mask, :);
     params_valid = sortrows(params_valid, 1);
     num_tests = size(params_valid, 1);
@@ -393,6 +396,8 @@ for phase = 1:2
             Q_heat_3d_gpu = gpuArray(Q_heat_3d(:, :, z_crop_start:z_crop_end));
             
             current_P = p_target;
+            %I_3d_resin：根据公式算出树脂内每个体素的声强。
+            % Q_heat_3d：算出声波在介质中因为被吸收而产生的单位体积发热功率。
         end
         
         total_time = t_exp + t_cool;
@@ -407,9 +412,10 @@ for phase = 1:2
         for step = 1:Nt_th
             chi_focal = 1.0 - exp(-Arrhenius_Omega_gpu);
             k_3d_gpu(:, :, best_idx_crop) = k_resin_liq * (1.0 + 0.6 * chi_focal);
+            %中心差分法求解傅里叶热传导偏微分方程
             
-            T_diff_x = diff(T_3d_gpu, 1, 1);
-            k_mid_x = (k_3d_gpu(1:end-1,:,:) + k_3d_gpu(2:end,:,:)) / 2;
+            T_diff_x = diff(T_3d_gpu, 1, 1);%相邻体素的温度差
+            k_mid_x = (k_3d_gpu(1:end-1,:,:) + k_3d_gpu(2:end,:,:)) / 2;%两体素交界面上的热通量
             div_flux_x = diff([zeros(1,Ny,z_crop_len,'single','gpuArray'); k_mid_x .* T_diff_x; zeros(1,Ny,z_crop_len,'single','gpuArray')], 1, 1);
             
             T_diff_y = diff(T_3d_gpu, 1, 2);
@@ -421,12 +427,12 @@ for phase = 1:2
             div_flux_z = diff(cat(3, zeros(Nx,Ny,1,'single','gpuArray'), k_mid_z .* T_diff_z, zeros(Nx,Ny,1,'single','gpuArray')), 1, 3);
 
             thermal_diffusion_term = (div_flux_x + div_flux_y + div_flux_z) ./ rho_Cp_3d_gpu * inv_dx2;
-
+            %最终加和除以 rho C_p*Delta x^2，得到单纯因为热传导造成的温度变化率
             if step <= step_exposure_end
-                abs_multiplier = 1.0 + 3.0 * chi_focal; 
+                abs_multiplier = 1.0 + 3.0 * chi_focal; %动态吸声率。树脂变硬后，其吸收声波的能力会发生剧变从而引发温度飙升
                 Q_dynamic = Q_heat_3d_gpu;
                 Q_dynamic(:, :, best_idx_crop) = Q_heat_3d_gpu(:, :, best_idx_crop) .* abs_multiplier;
-                T_3d_gpu = T_3d_gpu + dt_th * (thermal_diffusion_term + Q_dynamic ./ rho_Cp_3d_gpu);
+                T_3d_gpu = T_3d_gpu + dt_th * (thermal_diffusion_term + Q_dynamic ./ rho_Cp_3d_gpu);%新的温度=老温度+dt*(热扩散带来的变化+吸收声波带来的变化)
             else
                 T_3d_gpu = T_3d_gpu + dt_th * thermal_diffusion_term;
             end
@@ -435,16 +441,17 @@ for phase = 1:2
             T_max_history_tmp(step) = gather(max(T_focal_slice(:)));
             T_current_K = T_focal_slice + 273.15; 
             reaction_rate = A_freq .* exp(-E_a ./ (R_gas .* T_current_K));
+            %计算当前温度下的反应速率K
             Arrhenius_Omega_gpu = Arrhenius_Omega_gpu + reaction_rate .* dt_th;
         end
         
-        Omega_tmp = gather(double(Arrhenius_Omega_gpu));
+        Omega_tmp = gather(double(Arrhenius_Omega_gpu));%总累积热剂量
         cured_mask_tmp = (Omega_tmp >= 1.0);
         target_mask_2d = double(imag_target > 0.5);
         intersection = sum(cured_mask_tmp(:) & target_mask_2d(:));
         union_area = sum(cured_mask_tmp(:) | target_mask_2d(:));
         current_IoU = intersection / (union_area + 1e-10);
-        
+        %热剂量大于1的地方都被视为固化
         fprintf('  [%02d/%02d] P=%.2fMPa, 照=%.2fs, 冷=%.2fs | Max Temp: %4.1f°C | IoU: %.4f\n', ...
             i, num_tests, p_target/1e6, t_exp, t_cool, max(T_max_history_tmp), current_IoU);
             
@@ -463,10 +470,10 @@ for phase = 1:2
     end
 end
 
-fprintf('   👑 最优定标声压: %.2f MPa\n', best_record.p_target / 1e6);
-fprintf('   👑 最优照射时间: %.2f 秒\n', best_record.t_exp);
-fprintf('   👑 最优冷却时间: %.2f 秒\n', best_record.t_cool);
-fprintf('   🔥 极限压榨 IoU: %.4f\n', best_IoU_global);
+fprintf('最优定标声压: %.2f MPa\n', best_record.p_target / 1e6);
+fprintf('最优照射时间: %.2f 秒\n', best_record.t_exp);
+fprintf('最优冷却时间: %.2f 秒\n', best_record.t_cool);
+fprintf('最优IoU: %.4f\n', best_IoU_global);
 
 % 覆盖全局变量
 target_median_pressure = best_record.p_target;
@@ -672,8 +679,4 @@ set(gca, 'Color', 'w', 'XColor', 'k', 'YColor', 'k');
 title(sprintf('真实物理打印形貌预测 (连续介质还原)\n底层严格评估 IoU: %.4f', IoU), 'FontSize', 14, 'FontWeight', 'bold');
 xlabel('物理尺度 X (mm)'); ylabel('物理尺度 Y (mm)');
 grid off;
-
-fprintf('✅ 渲染完成！请查看 Figure 100。\n');
-fprintf('========================================\n');
-
 reset(gpuDevice); % 强制清空 GPU 显存底层垃圾
