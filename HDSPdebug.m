@@ -7,8 +7,8 @@ end
 %% 1. Grid and parameters
 Nx = 512;
 Lx = 65e-3;
-Ny = Nx; Ly = Lx; %#ok<NASGU>
-System_Offset = 2.03e-3; %#ok<NASGU>
+Ny = Nx; Ly = Lx; 
+System_Offset = 2.03e-3;
 z_target_dist = 16e-3;
 f0 = 4.5e6;
 c_water = 1480;
