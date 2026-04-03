@@ -4,7 +4,7 @@ try
 catch
 end
 
-%% 1. Grid and parameters
+%% 1. 参数设置
 Nx = 512;
 Lx = 65e-3;
 Ny = Nx; Ly = Lx; 
@@ -16,7 +16,7 @@ c_board = 2430;
 density_water = 997;
 density_board = 1100;
 lambda_water = c_water / f0;
-phase_refine_mode = 'python_iasa'; % 'python_only' or 'python_iasa'
+phase_refine_mode = 'python_iasa'; %相位叠加模式
 iasa_epoch = 150;
 iasa_anchor_eta = 1.0;
 
@@ -37,7 +37,7 @@ fprintf('PPW: %.2f\n', lambda_water / dx);
 fprintf('Grid size: %d x %d x %d (%.1f M cells)\n', Nx, Ny, Nz, (Nx * Ny * Nz) / 1e6);
 fprintf('==================================================\n');
 
-%% 2. Target pattern
+%% 2.目标图案
 [Y_grid, X_grid] = meshgrid(x, x);
 strut_width = 1.0e-3;
 pore_size = 3.0e-3;
@@ -51,7 +51,8 @@ circle_mask = (X_grid.^2 + Y_grid.^2) <= target_radius^2;
 imag_target_raw = scaffold_raw & circle_mask;
 imag_target = imgaussfilt(double(imag_target_raw), 0.5);
 imag_target = imag_target / max(imag_target(:));
-
+imag_target_design = imag_target;
+%热学固化估计，提前腐蚀目标
 thermal_alpha_guess = 0.15 / (1100 * 1800);
 thermal_exposure_guess = 0.35;
 thermal_diff_len = sqrt(4 * thermal_alpha_guess * thermal_exposure_guess);
@@ -61,7 +62,7 @@ design_blur = imgaussfilt(double(imag_target_raw), thermal_sigma_px);
 imag_target_design = double(design_blur > precomp_threshold);
 imag_target_design = imgaussfilt(imag_target_design, 0.45);
 imag_target_design = imag_target_design / max(imag_target_design(:));
-
+%%%%%%%%%%%%%%%%%%
 ROI_pixels = sum(imag_target(:) > 0.5);
 fprintf('Target ROI pixels: %d\n', ROI_pixels);
 
@@ -76,20 +77,20 @@ save(export_path, 'imag_target', 'imag_target_design', 'Nx', 'Ny', 'Lx', ...
     'c_board', 'thermal_sigma_px', 'min_base_layers');
 
 fprintf('\n==================================================\n');
-fprintf('Transport input written to: %s\n', export_path);
-fprintf('Run Python and then continue in MATLAB.\n');
+fprintf('目标图案导出地址: %s\n', export_path);
+fprintf('确保已在python算出初相\n');
 fprintf('==================================================\n\n');
 pause;
 
-%% 3. Load Python initialization and run original IASA
-fprintf('Running Python + IASA hybrid branch...\n');
+%% 3. 加载初相并用IASA复算
+fprintf('IASA...\n');
 import_path = fullfile(transport_dir, 'dl_phase_init.mat');
 if ~exist(import_path, 'file')
-    error('Cannot find dl_phase_init.mat. Confirm Python finished successfully.');
+    error('没有找到 dl_phase_init.mat. 请确保已经算出初相');
 end
 load(import_path, 'optimal_initial_phase', 'optimal_phase_bias', 'optimal_layer_map', ...
     'target_dose_design', 'line_target_mask', 'halo_target_mask');
-
+%padding
 pad_factor = 2;
 Nx_pad = Nx * pad_factor;
 Ny_pad = Ny * pad_factor;
@@ -99,6 +100,7 @@ kx_pad = (-Nx_pad/2 : Nx_pad/2-1) * dk_pad;
 [Kx_pad, Ky_pad] = meshgrid(kx_pad, kx_pad);
 k_water = 2 * pi / lambda_water;
 Kz_sq = k_water^2 - Kx_pad.^2 - Ky_pad.^2;
+%倏逝波处理
 propagating = (Kz_sq > 0);
 Kz = zeros(size(Kz_sq));
 Kz(propagating) = sqrt(Kz_sq(propagating));
@@ -156,7 +158,7 @@ for i = 1:epoch
         peak_val = max(rec_amp(:));
     end
     rec_amp_norm = rec_amp / peak_val;
-
+%乘性权重更新
     if i > 5
         beta = 0.6;
         correction = (target_pad(mask_line) ./ (rec_amp_norm(mask_line) + 1e-6)) .^ beta;
@@ -170,7 +172,7 @@ for i = 1:epoch
     A_target_cons = fftshift(fft2(ifftshift(U_target_constrained)));
     A_source_cons = A_target_cons .* H_backward;
     U_source_new = fftshift(ifft2(ifftshift(A_source_cons)));
-
+%离散网格预处理
     source_phase_candidate = angle(U_source_new(center_idx, center_idx));
     [phase_projected_iter_raw, ~, phase_bias_seed] = project_phase_to_board( ...
         source_phase_candidate, phase_step, min_base_layers, circle_mask_board, phase_bias_seed, true);
@@ -192,7 +194,7 @@ end
 
 holo_phase = mod(net_num_board * phase_step, 2 * pi);
 holo_phase(~circle_mask_board) = 0;
-
+%分别计算初相、迭代相经过asm的指标
 asm_python_amp = compute_asm_focus_field(phase_projected_init, circle_mask_board, Nx, Ny, H_forward);
 asm_iasa_amp = compute_asm_focus_field(holo_phase, circle_mask_board, Nx, Ny, H_forward);
 asm_python_norm = asm_python_amp / (max(asm_python_amp(:)) + eps);
@@ -205,7 +207,7 @@ asm_iasa_nmse = sum((target_norm_asm(:) - asm_iasa_norm(:)).^2) / sum(target_nor
 asm_python_ssim = ssim(double(asm_python_norm), double(target_norm_asm));
 asm_iasa_ssim = ssim(double(asm_iasa_norm), double(target_norm_asm));
 
-%% 4. Phase/thickness realization
+%% 4. 相位转厚度
 phase_wrapped = mod(holo_phase, 2 * pi);
 thickness_map = net_num_board * dz;
 actual_thickness = thickness_map;
@@ -218,13 +220,14 @@ phase_aligned_voxel = nan(size(phase_wrapped));
 phase_aligned_voxel(circle_mask_board) = angle(exp(1i * ...
     (actual_phase_imparted(circle_mask_board) - global_offset_voxel)));
 
-%% 5. Main k-Wave run
-fprintf('Building medium and running main k-Wave...\n');
+%% 5. KWAVE设置
+fprintf('构建空间并执行仿真\n');
 kgrid = kWaveGrid(Nx, dx, Ny, dy, Nz, dz);
 medium.sound_speed = c_water * ones(Nx, Ny, Nz);
 medium.density = density_water * ones(Nx, Ny, Nz);
 medium.alpha_coeff = 0.002 * ones(Nx, Ny, Nz);
 medium.alpha_power = 1.5;
+alpha_coeff_board = 1.5;
 pml_size = 10;
 source_z_idx = pml_size + 5;
 z_board_start_idx = source_z_idx + 2;
@@ -237,15 +240,16 @@ for i = 1:Nx
             z_end = z_board_start_idx + n_layers - 1;
             medium.sound_speed(i, j, z_start:z_end) = c_board;
             medium.density(i, j, z_start:z_end) = density_board;
+            medium.alpha_coeff(i, j, z_start:z_end) = alpha_coeff_board;
         end
     end
 end
 thickest = max(net_num_board(:)) * dz;
-
+%时间定义
 cfl = 0.3;
 t_end = (Lz * 1.5) / c_water;
 kgrid.makeTime(medium.sound_speed, cfl, t_end);
-
+%声源定义
 source.p_mask = zeros(Nx, Ny, Nz);
 source.p_mask(:, :, source_z_idx) = circle_mask_board;
 t_vec = kgrid.t_array;
@@ -254,7 +258,7 @@ ramp_pts = round(2 / f0 / kgrid.dt);
 window = [linspace(0, 1, ramp_pts), ones(1, kgrid.Nt - ramp_pts)];
 source.p = source_sig .* window;
 source.p_mode = 'dirichlet';
-
+%sensor定义
 sensor.mask = zeros(Nx, Ny, Nz);
 z_board_exit_idx = z_board_start_idx + round(thickest / dz);
 target_plane_idx = z_board_exit_idx + round(z_target_dist / dz);
@@ -264,15 +268,16 @@ z_scan_end = target_plane_idx + scan_range_idx;
 if z_scan_end > Nz - pml_size
     z_scan_end = Nz - pml_size;
 end
+%3mm扫描声场，寻找最佳焦平面
 sensor.mask(:, :, z_scan_start:z_scan_end) = 1;
 sensor.record = {'p_max'};
 sensor.record_start_index = kgrid.Nt - round(3 / f0 / kgrid.dt);
-
+%仿真
 input_args = {'PMLInside', true, 'PMLSize', 10, 'PlotPML', false, 'PlotSim', false, 'DataCast', 'gpuArray-single'};
 try
     sensor_data = kspaceFirstOrder3D(kgrid, medium, source, sensor, input_args{:});
 catch
-    disp('GPU run failed, retrying on CPU...');
+    disp('GPU调用失败,使用CPU仿真');
     sensor_data = kspaceFirstOrder3D(kgrid, medium, source, sensor, input_args{1:end-2});
 end
 
@@ -307,8 +312,9 @@ best_idx_global = z_scan_start + best_slice_idx - 1;
 actual_z_dist_idx = best_idx_global - z_board_exit_idx;
 actual_z_dist_mm = actual_z_dist_idx * dz * 1e3;
 
-%% 6. Exit-plane complex-field diagnostics
-fprintf('Running exit-plane complex-field diagnostic...\n');
+%% 6.相位板出口分析
+fprintf('执行出口平面声场分析\n');
+%记录出口平面声场
 exit_sensor.mask = zeros(Nx, Ny, Nz);
 exit_sensor.mask(:, :, z_board_exit_idx) = 1;
 exit_sensor.record = {'p'};
@@ -317,7 +323,7 @@ exit_sensor.record_start_index = kgrid.Nt - round(3 / f0 / kgrid.dt);
 try
     exit_sensor_data = kspaceFirstOrder3D(kgrid, medium, source, exit_sensor, input_args{:});
 catch
-    disp('GPU exit-plane diagnostic failed, retrying on CPU...');
+    disp('GPU调用失败,使用CPU仿真');
     exit_sensor_data = kspaceFirstOrder3D(kgrid, medium, source, exit_sensor, input_args{1:end-2});
 end
 
@@ -344,8 +350,8 @@ board_exit_kwave_corr = corr2(board_exit_asm_norm, ...
     (scan_vol(:, :, best_slice_idx) - min(scan_vol(:, :, best_slice_idx), [], 'all')) / ...
     (max(scan_vol(:, :, best_slice_idx), [], 'all') - min(scan_vol(:, :, best_slice_idx), [], 'all') + eps));
 
-%% 7. Thermal and curing
-fprintf('Running thermal / curing evaluation...\n');
+%% 7.热场与固化
+fprintf('热场分析与固化预测\n');
 p_3d_abs = abs(p_field_3d);
 focal_slice_abs = p_3d_abs(:, :, best_idx_global);
 roi_mask = (imag_target > 0.5);
@@ -375,10 +381,15 @@ best_coarse = struct('P', 1.5e6, 'E', 0.3, 'C', 0.2);
 
 for phase = 1:2
     if phase == 1
+        %曝光时间，声压与冷却时间粗查
+        fprintf('\n[第一阶段:粗扫]...\n');
         P_list = (1.2 : 0.2 : 1.8) * 1e6;
         E_list = 0.15 : 0.10 : 0.45;
         C_list = 0.10 : 0.10 : 0.30;
     else
+        %细查
+         fprintf('\n[第二阶段: 微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
+            best_coarse.P/1e6, best_coarse.E, best_coarse.C);
         P_list = (best_coarse.P - 0.1e6) : 0.05e6 : (best_coarse.P + 0.1e6);
         E_list = max(0.10, best_coarse.E - 0.05) : 0.02 : (best_coarse.E + 0.05);
         C_list = max(0.05, best_coarse.C - 0.05) : 0.05 : (best_coarse.C + 0.05);
@@ -494,6 +505,10 @@ for phase = 1:2
         end
     end
 end
+fprintf('定标声压: %.2f MPa\n', best_record.p_target / 1e6);
+fprintf('曝光时长: %.2f 秒\n', best_record.t_exp);
+fprintf('冷却时长: %.2f 秒\n', best_record.t_cool);
+fprintf('IoU: %.4f\n', best_IoU_global);
 
 target_median_pressure = best_record.p_target;
 exposure_time = best_record.t_exp;
@@ -507,7 +522,7 @@ p_3d_scaled = best_record.p_3d_scaled;
 t_axis = (1:Nt_th) * dt_th;
 T_max_real = max(T_max_history);
 
-%% 8. Final metrics
+%% 8.结果处理
 Thermal_Dose_Threshold = 1.0;
 cured_mask_2d = Omega_final_2d >= Thermal_Dose_Threshold;
 R_binary = imag_target > 0.5;
@@ -532,8 +547,8 @@ asm_kwave_nmse = sum((asm_iasa_norm(:) - p_focal_norm(:)).^2) / sum(asm_iasa_nor
 asm_python_kwave_corr = corr2(asm_python_norm, p_focal_norm);
 asm_python_kwave_nmse = sum((asm_python_norm(:) - p_focal_norm(:)).^2) / sum(asm_python_norm(:).^2);
 
-%% 9. Visualization
-figure(89); clf; set(gcf, 'Position', [120, 120, 1400, 420], 'Color', 'w');
+%% 9.可视化
+figure(1); clf; set(gcf, 'Position', [120, 120, 1400, 420], 'Color', 'w');
 subplot(1, 4, 1);
 imagesc(x * 1e3, y * 1e3, target_norm_asm); axis image; colormap(gca, gray);
 title('Target'); xlabel('mm'); ylabel('mm');
@@ -550,7 +565,7 @@ subplot(1, 4, 4);
 imagesc(x * 1e3, y * 1e3, p_focal_norm); axis image; colormap(gca, turbo); colorbar;
 title(sprintf('k-Wave Focal\nPCC %.4f | SSIM %.4f', best_corr, SSIM_val)); xlabel('mm'); ylabel('mm');
 
-figure(90); clf; set(gcf, 'Position', [100, 100, 1500, 420], 'Color', 'w');
+figure(2); clf; set(gcf, 'Position', [100, 100, 1500, 420], 'Color', 'w');
 subplot(1, 4, 1);
 imagesc(x * 1e3, y * 1e3, p_exit_amp_norm); axis image; colormap(gca, turbo); colorbar;
 title(sprintf('Exit Amp\nCV %.4f | min/max %.4f', exit_amp_cv, exit_amp_min_ratio)); xlabel('mm'); ylabel('mm');
@@ -574,85 +589,84 @@ title('Target'); xlabel('mm'); ylabel('mm');
 
 subplot(3, 5, 2);
 imagesc(x * 1e3, y * 1e3, phase_wrapped); axis image; colormap(gca, hsv); colorbar;
-title('Wrapped phase'); xlabel('mm'); ylabel('mm');
+title('理论相位'); xlabel('mm'); ylabel('mm');
 
 subplot(3, 5, 3);
 imagesc(x * 1e3, y * 1e3, phase_aligned_voxel); axis image; colormap(gca, hsv); colorbar;
-title('Voxel phase'); xlabel('mm'); ylabel('mm');
+title('实际相位'); xlabel('mm'); ylabel('mm');
 
 subplot(3, 5, 4);
 surf(x * 1e3, y * 1e3, actual_thickness * 1e3); view(2); shading interp; axis image; colorbar;
-title('Thickness (mm)'); xlabel('mm'); ylabel('mm');
+title('厚度 (mm)'); xlabel('mm'); ylabel('mm');
 
 subplot(3, 5, 5);
 imagesc(x * 1e3, y * 1e3, Omega_final_2d); axis image; colormap(gca, turbo); colorbar;
 clim([0, max(2.0, max(Omega_final_2d(:)))]);
-title('Thermal dose Omega'); xlabel('mm'); ylabel('mm');
+title('热剂量'); xlabel('mm'); ylabel('mm');
 
 subplot(3, 5, 6);
 imagesc(x * 1e3, y * 1e3, Q_focal_2d / 1e6); axis image; colormap(gca, hot); colorbar;
-title('Heat source (MW/m^3)'); xlabel('mm'); ylabel('mm');
+title('热源 (MW/m^3)'); xlabel('mm'); ylabel('mm');
 
 subplot(3, 5, 7);
 imagesc(x * 1e3, y * 1e3, p_focal_scaled / 1e6); axis image; colormap(gca, jet); colorbar;
-title('Focal pressure (MPa)'); xlabel('mm'); ylabel('mm');
+title('声压 (MPa)'); xlabel('mm'); ylabel('mm');
 
 subplot(3, 5, 8);
 imagesc(x * 1e3, y * 1e3, cured_mask_2d); axis image; colormap(gca, [1 1 1; 0.1 0.1 0.3]);
-title(sprintf('Cured mask (IoU %.4f)', IoU)); xlabel('mm'); ylabel('mm');
+title(sprintf('预测固化 (IoU %.4f)', IoU)); xlabel('mm'); ylabel('mm');
 
 subplot(3, 5, 9);
 imagesc(x * 1e3, y * 1e3, T_focal_2d); axis image; colormap(gca, hot); colorbar;
 clim([25, max(65, min(T_max_real, 80))]);
-title(sprintf('Peak temperature %.1f C', T_max_real)); xlabel('mm'); ylabel('mm');
+title(sprintf('峰值温度 %.1f C', T_max_real)); xlabel('mm'); ylabel('mm');
 
 subplot(3, 5, 10);
 plot(metrics_z, metrics_corr, 'b-', 'LineWidth', 1.5); hold on;
 plot(actual_z_dist_mm, best_corr, 'ro', 'MarkerSize', 10);
 grid on;
-title('Z-scan'); xlabel('Z offset (mm)'); ylabel('Correlation');
+title('Z-scan'); xlabel('Z轴偏移量(mm)'); ylabel('Correlation');
 
 subplot(3, 5, [11 12 13]);
 center = round(Nx / 2);
 plot(x * 1e3, imag_target(center, :), 'k--', 'LineWidth', 2); hold on;
 plot(x * 1e3, p_focal_scaled(center, :) / max(p_focal_scaled(:)), 'r-', 'LineWidth', 1.5);
 grid on;
-title('Center line'); xlabel('mm'); ylabel('Normalized amplitude'); legend('Target', 'Focal');
+title('中心剖面强度'); xlabel('mm'); ylabel('归一化幅值'); legend('目标', '饱和声压分布');
 
 subplot(3, 5, [14 15]);
 [X_surf, Y_surf] = meshgrid(x * 1e3, y * 1e3);
 surf(X_surf, Y_surf, p_focal_scaled / 1e6); shading interp; colormap(gca, jet); colorbar;
-title('3D focal pressure (MPa)'); xlabel('mm'); ylabel('mm'); zlabel('MPa');
+title('3D焦面声压场(MPa)'); xlabel('mm'); ylabel('mm'); zlabel('MPa');
 
 %% 10. Report
 fprintf('\n========================================\n');
-fprintf('[System]\n');
-fprintf('  Frequency: %.2f MHz | Lens OD: %.1f mm\n', f0 / 1e6, Lx * 1e3);
-fprintf('  Grid resolution: %.2f um | Nodes: %.1f M\n', dx * 1e6, (Nx * Ny * Nz) / 1e6);
+fprintf('系统参数\n');
+fprintf('频率: %.2f MHz | Lens OD: %.1f mm\n', f0 / 1e6, Lx * 1e3);
+fprintf('网格分辨率: %.2f um |节点总数: %.1f M\n', dx * 1e6, (Nx * Ny * Nz) / 1e6);
 fprintf('----------------------------------------\n');
-fprintf('[Acoustic]\n');
-fprintf('  Selected branch: %s\n', phase_refine_mode);
-fprintf('  Best focal offset: %.2f mm\n', actual_z_dist_mm);
-fprintf('  PCC: %.4f\n', best_corr);
-fprintf('  SSIM: %.4f\n', SSIM_val);
-fprintf('  NMSE: %.4f\n', NMSE);
-fprintf('  EE: %.2f%%\n', Energy_Efficiency * 100);
-fprintf('  Python ASM PCC/SSIM/NMSE: %.4f / %.4f / %.4f\n', asm_python_pcc, asm_python_ssim, asm_python_nmse);
-fprintf('  IASA ASM   PCC/SSIM/NMSE: %.4f / %.4f / %.4f\n', asm_iasa_pcc, asm_iasa_ssim, asm_iasa_nmse);
-fprintf('  ASM(IASA)-kWave PCC/NMSE: %.4f / %.4f\n', asm_kwave_corr, asm_kwave_nmse);
-fprintf('  ASM(Py)-kWave   PCC/NMSE: %.4f / %.4f\n', asm_python_kwave_corr, asm_python_kwave_nmse);
-fprintf('  Exit-plane amplitude CV: %.4f | min/max ratio: %.4f\n', exit_amp_cv, exit_amp_min_ratio);
-fprintf('  Exit-field ASM target PCC: %.4f | Exit-field ASM vs k-Wave PCC: %.4f\n', ...
+fprintf('声场质量评估\n');
+fprintf('最佳声场距离: %.2f mm\n', actual_z_dist_mm);
+fprintf('PCC: %.4f\n', best_corr);
+fprintf('SSIM: %.4f\n', SSIM_val);
+fprintf('NMSE: %.4f\n', NMSE);
+fprintf('EE: %.2f%%\n', Energy_Efficiency * 100);
+fprintf('Python ASM PCC/SSIM/NMSE: %.4f / %.4f / %.4f\n', asm_python_pcc, asm_python_ssim, asm_python_nmse);
+fprintf('IASA ASM   PCC/SSIM/NMSE: %.4f / %.4f / %.4f\n', asm_iasa_pcc, asm_iasa_ssim, asm_iasa_nmse);
+fprintf('ASM(IASA)-kWave PCC/NMSE: %.4f / %.4f\n', asm_kwave_corr, asm_kwave_nmse);
+fprintf('ASM(Py)-kWave   PCC/NMSE: %.4f / %.4f\n', asm_python_kwave_corr, asm_python_kwave_nmse);
+fprintf('出口平面最大幅值: %.4f | min/max ratio: %.4f\n', exit_amp_cv, exit_amp_min_ratio);
+fprintf('Exit-field ASM target PCC: %.4f | Exit-field ASM vs k-Wave PCC: %.4f\n', ...
     board_exit_asm_pcc, board_exit_kwave_corr);
 fprintf('----------------------------------------\n');
-fprintf('[Thermal & Curing]\n');
-fprintf('  Best exposure: %.2f MPa + %.2f s (cool %.2f s)\n', target_median_pressure / 1e6, exposure_time, cooling_time);
-fprintf('  Peak temperature: %.1f C\n', T_max_real);
-fprintf('  Effective coverage: %.1f%%\n', cured_coverage);
-fprintf('  IoU: %.4f\n', IoU);
-fprintf('  Dice: %.4f\n', Dice);
-fprintf('  Over-cure: %.1f%%\n', over_cure_ratio * 100);
-fprintf('  Under-cure: %.1f%%\n', under_cure_ratio * 100);
+fprintf('固化分析\n');
+fprintf('最佳固化指标出自: %.2f MPa + %.2f s曝光 ( %.2f s冷却)\n', target_median_pressure / 1e6, exposure_time, cooling_time);
+fprintf('峰值温度: %.1f C\n', T_max_real);
+fprintf('有效固化: %.1f%%\n', cured_coverage);
+fprintf('IoU: %.4f\n', IoU);
+fprintf('Dice: %.4f\n', Dice);
+fprintf('过固化: %.1f%%\n', over_cure_ratio * 100);
+fprintf('欠固化: %.1f%%\n', under_cure_ratio * 100);
 fprintf('----------------------------------------\n');
 
 try
