@@ -230,7 +230,7 @@ medium.alpha_power = 1.5;
 alpha_coeff_board = 1.5;
 pml_size = 10;
 source_z_idx = pml_size + 5;
-z_board_start_idx = source_z_idx + 2;
+z_board_start_idx = source_z_idx + 1;
 
 for i = 1:Nx
     for j = 1:Ny
@@ -338,6 +338,52 @@ p_exit_phase = angle(p_exit_complex);
 exit_vals = p_exit_amp(circle_mask_board);
 exit_amp_cv = std(exit_vals(:)) / (mean(exit_vals(:)) + eps);
 exit_amp_min_ratio = min(exit_vals(:)) / (max(exit_vals(:)) + eps);
+
+% 板致幅度调制规律统计：厚度、厚度梯度与出口振幅
+thickness_mm = thickness_map * 1e3;
+[thickness_grad_x, thickness_grad_y] = gradient(thickness_map);
+thickness_grad_norm = hypot(thickness_grad_x, thickness_grad_y) / (dz + eps);
+valid_exit_mask = circle_mask_board & isfinite(thickness_mm) & isfinite(p_exit_amp_norm);
+
+thickness_vals_mm = thickness_mm(valid_exit_mask);
+grad_vals = thickness_grad_norm(valid_exit_mask);
+exit_amp_vals = p_exit_amp_norm(valid_exit_mask);
+
+edge_mask = valid_exit_mask & (thickness_grad_norm > 0.25);
+flat_mask = valid_exit_mask & ~edge_mask;
+edge_amp_mean = mean(p_exit_amp_norm(edge_mask));
+flat_amp_mean = mean(p_exit_amp_norm(flat_mask));
+
+if numel(unique(thickness_vals_mm)) > 1
+    thickness_amp_corr = corr(thickness_vals_mm(:), exit_amp_vals(:), 'type', 'Pearson');
+else
+    thickness_amp_corr = NaN;
+end
+
+if numel(unique(grad_vals)) > 1
+    grad_amp_corr = corr(grad_vals(:), exit_amp_vals(:), 'type', 'Pearson');
+else
+    grad_amp_corr = NaN;
+end
+
+unique_layers = unique(net_num_board(valid_exit_mask));
+layer_mean_amp = zeros(numel(unique_layers), 1);
+layer_std_amp = zeros(numel(unique_layers), 1);
+layer_mean_thickness_mm = zeros(numel(unique_layers), 1);
+for layer_idx = 1:numel(unique_layers)
+    current_layer = unique_layers(layer_idx);
+    current_mask = valid_exit_mask & (net_num_board == current_layer);
+    current_vals = p_exit_amp_norm(current_mask);
+    layer_mean_amp(layer_idx) = mean(current_vals);
+    layer_std_amp(layer_idx) = std(current_vals);
+    layer_mean_thickness_mm(layer_idx) = mean(thickness_mm(current_mask));
+end
+
+scatter_stride = max(1, floor(numel(exit_amp_vals) / 4000));
+scatter_sample_idx = 1:scatter_stride:numel(exit_amp_vals);
+thickness_scatter_mm = thickness_vals_mm(scatter_sample_idx);
+grad_scatter = grad_vals(scatter_sample_idx);
+exit_amp_scatter = exit_amp_vals(scatter_sample_idx);
 
 U_exit_pad = zeros(Nx_pad, Ny_pad);
 U_exit_pad(center_idx, center_idx) = p_exit_complex ./ (max(p_exit_amp(:)) + eps);
@@ -582,6 +628,37 @@ subplot(1, 4, 4);
 imagesc(x * 1e3, y * 1e3, p_focal_norm); axis image; colormap(gca, turbo); colorbar;
 title(sprintf('k-Wave Focal\nExit-ASM PCC %.4f', board_exit_kwave_corr)); xlabel('mm'); ylabel('mm');
 
+figure(3); clf; set(gcf, 'Position', [80, 80, 1500, 820], 'Color', 'w');
+subplot(2, 3, 1);
+imagesc(x * 1e3, y * 1e3, thickness_mm); axis image; colormap(gca, parula); colorbar;
+title('Board Thickness (mm)'); xlabel('mm'); ylabel('mm');
+
+subplot(2, 3, 2);
+imagesc(x * 1e3, y * 1e3, thickness_grad_norm); axis image; colormap(gca, hot); colorbar;
+title('Thickness Gradient'); xlabel('mm'); ylabel('mm');
+
+subplot(2, 3, 3);
+imagesc(x * 1e3, y * 1e3, p_exit_amp_norm); axis image; colormap(gca, turbo); colorbar;
+title('Exit Amplitude'); xlabel('mm'); ylabel('mm');
+
+subplot(2, 3, 4);
+scatter(thickness_scatter_mm, exit_amp_scatter, 8, grad_scatter, 'filled');
+grid on; colorbar; colormap(gca, turbo);
+title(sprintf('Thickness vs Exit Amp\nCorr %.4f', thickness_amp_corr));
+xlabel('Thickness (mm)'); ylabel('Exit amplitude');
+
+subplot(2, 3, 5);
+scatter(grad_scatter, exit_amp_scatter, 8, thickness_scatter_mm, 'filled');
+grid on; colorbar; colormap(gca, turbo);
+title(sprintf('Gradient vs Exit Amp\nCorr %.4f', grad_amp_corr));
+xlabel('Thickness gradient'); ylabel('Exit amplitude');
+
+subplot(2, 3, 6);
+errorbar(layer_mean_thickness_mm, layer_mean_amp, layer_std_amp, 'o-', 'LineWidth', 1.2, 'MarkerSize', 5);
+grid on;
+title(sprintf('Layer-group Mean Exit Amp\nEdge %.4f | Flat %.4f', edge_amp_mean, flat_amp_mean));
+xlabel('Mean thickness (mm)'); ylabel('Mean exit amplitude');
+
 figure('Position', [30 30 1500 1000], 'Color', 'w');
 subplot(3, 5, 1);
 imagesc(x * 1e3, y * 1e3, imag_target); axis image; colormap(gca, gray);
@@ -658,6 +735,9 @@ fprintf('ASM(Py)-kWave   PCC/NMSE: %.4f / %.4f\n', asm_python_kwave_corr, asm_py
 fprintf('出口平面最大幅值: %.4f | min/max ratio: %.4f\n', exit_amp_cv, exit_amp_min_ratio);
 fprintf('Exit-field ASM target PCC: %.4f | Exit-field ASM vs k-Wave PCC: %.4f\n', ...
     board_exit_asm_pcc, board_exit_kwave_corr);
+fprintf('Thickness-ExitAmp Corr: %.4f | Gradient-ExitAmp Corr: %.4f\n', ...
+    thickness_amp_corr, grad_amp_corr);
+fprintf('Edge Mean ExitAmp: %.4f | Flat Mean ExitAmp: %.4f\n', edge_amp_mean, flat_amp_mean);
 fprintf('----------------------------------------\n');
 fprintf('固化分析\n');
 fprintf('最佳固化指标出自: %.2f MPa + %.2f s曝光 ( %.2f s冷却)\n', target_median_pressure / 1e6, exposure_time, cooling_time);
