@@ -18,12 +18,12 @@ lambda_water = c_water / f0;
 phase_refine_mode = 'python_iasa'; %相位叠加模式
 iasa_epoch = 150;
 iasa_anchor_eta = 1.0;
-research_mode.enabled = true;
+research_mode.enabled = 0;
 research_mode.export_dir = 'C:\Users\Zh89\Desktop\transport\exit_amp_surrogate';
 research_mode.patch_size = 9;
 research_mode.sample_stride = 1;
 research_mode.max_samples_per_run = 30000;
-research_mode.run_label = 'a1.5';
+research_mode.run_label = 'baseline';
 research_mode.enable_run_export = true;
 
 dx = Lx / Nx;
@@ -274,50 +274,50 @@ z_scan_end = target_plane_idx + scan_range_idx;
 if z_scan_end > Nz - pml_size
     z_scan_end = Nz - pml_size;
 end
-%3mm扫描声场，寻找最佳焦平面
-% sensor.mask(:, :, z_scan_start:z_scan_end) = 1;
-% sensor.record = {'p_max'};
-% sensor.record_start_index = kgrid.Nt - round(3 / f0 / kgrid.dt);
-%仿真
-% reset(gpuDevice);
+% 3mm扫描声场，寻找最佳焦平面
+sensor.mask(:, :, z_scan_start:z_scan_end) = 1;
+sensor.record = {'p_max'};
+sensor.record_start_index = kgrid.Nt - round(3 / f0 / kgrid.dt);
+% 仿真
+reset(gpuDevice);
 input_args = {'PMLInside', true, 'PMLSize', 10, 'PlotPML', false, 'PlotSim', false, 'DataCast', 'gpuArray-single'};
-% try
-%     sensor_data = kspaceFirstOrder3D(kgrid, medium, source, sensor, input_args{:});
-% catch
-%     disp('GPU调用失败,使用CPU仿真');
-%     sensor_data = kspaceFirstOrder3D(kgrid, medium, source, sensor, input_args{1:end-2});
-% end
-% 
-% p_amp = gather(sensor_data.p_max);
-% p_field_3d = zeros(Nx, Ny, Nz);
-% p_field_3d(sensor.mask ~= 0) = p_amp;
-% scan_vol = p_field_3d(:, :, z_scan_start:z_scan_end);
-% num_slices = size(scan_vol, 3);
-% R = double(imag_target);
-% R = (R - min(R(:))) / (max(R(:)) - min(R(:)));
-% R_mean = mean(R(:));
-% 
-% best_corr = -1;
-% best_slice_idx = 1;
-% metrics_z = zeros(num_slices, 1);
-% metrics_corr = zeros(num_slices, 1);
-% for k = 1:num_slices
-%     A = scan_vol(:, :, k);
-%     A = (A - min(A(:))) / (max(A(:)) - min(A(:)) + eps);
-%     A_mean = mean(A(:));
-%     numerator = sum(sum((R - R_mean) .* (A - A_mean)));
-%     denominator = sqrt(sum(sum((R - R_mean).^2)) * sum(sum((A - A_mean).^2)));
-%     val_corr = numerator / (denominator + eps);
-%     metrics_z(k) = (z_scan_start + k - 1 - z_board_exit_idx) * dz * 1e3;
-%     metrics_corr(k) = val_corr;
-%     if val_corr > best_corr
-%         best_corr = val_corr;
-%         best_slice_idx = k;
-%     end
-% end
-% best_idx_global = z_scan_start + best_slice_idx - 1;
-% actual_z_dist_idx = best_idx_global - z_board_exit_idx;
-% actual_z_dist_mm = actual_z_dist_idx * dz * 1e3;
+try
+    sensor_data = kspaceFirstOrder3D(kgrid, medium, source, sensor, input_args{:});
+catch
+    disp('GPU调用失败,使用CPU仿真');
+    sensor_data = kspaceFirstOrder3D(kgrid, medium, source, sensor, input_args{1:end-2});
+end
+
+p_amp = gather(sensor_data.p_max);
+p_field_3d = zeros(Nx, Ny, Nz);
+p_field_3d(sensor.mask ~= 0) = p_amp;
+scan_vol = p_field_3d(:, :, z_scan_start:z_scan_end);
+num_slices = size(scan_vol, 3);
+R = double(imag_target);
+R = (R - min(R(:))) / (max(R(:)) - min(R(:)));
+R_mean = mean(R(:));
+
+best_corr = -1;
+best_slice_idx = 1;
+metrics_z = zeros(num_slices, 1);
+metrics_corr = zeros(num_slices, 1);
+for k = 1:num_slices
+    A = scan_vol(:, :, k);
+    A = (A - min(A(:))) / (max(A(:)) - min(A(:)) + eps);
+    A_mean = mean(A(:));
+    numerator = sum(sum((R - R_mean) .* (A - A_mean)));
+    denominator = sqrt(sum(sum((R - R_mean).^2)) * sum(sum((A - A_mean).^2)));
+    val_corr = numerator / (denominator + eps);
+    metrics_z(k) = (z_scan_start + k - 1 - z_board_exit_idx) * dz * 1e3;
+    metrics_corr(k) = val_corr;
+    if val_corr > best_corr
+        best_corr = val_corr;
+        best_slice_idx = k;
+    end
+end
+best_idx_global = z_scan_start + best_slice_idx - 1;
+actual_z_dist_idx = best_idx_global - z_board_exit_idx;
+actual_z_dist_mm = actual_z_dist_idx * dz * 1e3;
 
 %% 6.相位板出口分析
 fprintf('执行出口平面声场分析\n');

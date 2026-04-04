@@ -28,6 +28,18 @@ def parse_args():
         default=None,
         help="Output directory for reports and figures. Defaults to <data-dir>/model_outputs.",
     )
+    parser.add_argument(
+        "--num-holdout-runs",
+        type=int,
+        default=1,
+        help="Number of runs to randomly hold out for evaluation. Use 1 or 2 for faster iteration.",
+    )
+    parser.add_argument(
+        "--random-seed",
+        type=int,
+        default=42,
+        help="Random seed for selecting holdout runs.",
+    )
     return parser.parse_args()
 
 
@@ -115,6 +127,19 @@ def build_dataset(data_dir: Path):
     groups = np.concatenate([[idx] * run["y"].shape[0] for idx, run in enumerate(runs)]).astype(np.int32)
     run_names = [run["run_name"] for run in runs]
     return runs, X_patch, y, groups, run_names
+
+
+def select_holdout_run_ids(groups, num_holdout_runs: int, random_seed: int):
+    unique_runs = np.unique(groups).astype(np.int32)
+    if unique_runs.size == 0:
+        raise ValueError("No runs available for evaluation.")
+    if unique_runs.size == 1:
+        return unique_runs
+
+    num_holdout = max(1, min(int(num_holdout_runs), unique_runs.size))
+    rng = np.random.default_rng(random_seed)
+    selected = np.sort(rng.choice(unique_runs, size=num_holdout, replace=False))
+    return selected
 
 
 def fit_rf_model(X_train, X_test, y_train, y_test):
@@ -219,14 +244,16 @@ def weighted_average(metrics_list, key, weights):
     return float(np.sum(values * weights) / np.sum(weights))
 
 
-def evaluate_leave_one_run_out(output_dir: Path, runs, X_patch, y, groups, run_names):
+def evaluate_holdout_runs(output_dir: Path, runs, X_patch, y, groups, run_names, holdout_run_ids):
     aggregate_true = []
     aggregate_pred = []
     per_run_report = {}
     per_run_metrics = []
     per_run_weights = []
 
-    for holdout_id in np.unique(groups):
+    print(f"[INFO] Evaluating {len(holdout_run_ids)} holdout run(s): " + ", ".join(run_names[int(idx)] for idx in holdout_run_ids), flush=True)
+
+    for eval_idx, holdout_id in enumerate(holdout_run_ids, start=1):
         holdout_id = int(holdout_id)
         train_idx = np.where(groups != holdout_id)[0]
         test_idx = np.where(groups == holdout_id)[0]
@@ -235,18 +262,31 @@ def evaluate_leave_one_run_out(output_dir: Path, runs, X_patch, y, groups, run_n
 
         run_output_dir = output_dir / f"holdout_{sanitize_run_name(run_name)}"
         run_output_dir.mkdir(parents=True, exist_ok=True)
+        print(
+            f"[{eval_idx}/{len(holdout_run_ids)}] Holdout run '{run_name}': "
+            f"train_samples={train_idx.size}, test_samples={test_idx.size}",
+            flush=True,
+        )
 
         if train_idx.size == 0:
+            print(f"[{eval_idx}/{len(holdout_run_ids)}] Self-eval mode: training and testing on '{run_name}'", flush=True)
             result = fit_rf_model(X_patch[test_idx], X_patch[test_idx], y[test_idx], y[test_idx])
             title_prefix = f"rf_patch_pca on self-eval run: {run_name}"
             split_mode = "self_eval"
         else:
+            print(f"[{eval_idx}/{len(holdout_run_ids)}] Training RF+PCA for holdout '{run_name}'...", flush=True)
             result = fit_rf_model(X_patch[train_idx], X_patch[test_idx], y[train_idx], y[test_idx])
             title_prefix = f"rf_patch_pca on holdout run: {run_name}"
-            split_mode = "leave_one_run_out"
+            split_mode = "random_holdout_run"
 
         y_true = y[test_idx]
         y_pred = result["pred"]
+        print(
+            f"[{eval_idx}/{len(holdout_run_ids)}] Metrics for '{run_name}': "
+            f"R2={result['metrics']['r2']:.4f}, MAE={result['metrics']['mae']:.4f}, RMSE={result['metrics']['rmse']:.4f}",
+            flush=True,
+        )
+        print(f"[{eval_idx}/{len(holdout_run_ids)}] Writing figures for '{run_name}'...", flush=True)
         plot_true_vs_pred(run_output_dir, y_true, y_pred, title_prefix)
         plot_prediction_maps(run_output_dir, run, y_true, y_pred, title_prefix)
         plot_grouped_errors(run_output_dir, run, y_true, y_pred, title_prefix)
@@ -267,6 +307,7 @@ def evaluate_leave_one_run_out(output_dir: Path, runs, X_patch, y, groups, run_n
 
     aggregate_true = np.concatenate(aggregate_true, axis=0)
     aggregate_pred = np.concatenate(aggregate_pred, axis=0)
+    print("[INFO] Writing aggregate held-out scatter plot...", flush=True)
     plot_true_vs_pred(output_dir, aggregate_true, aggregate_pred, "rf_patch_pca across held-out runs")
 
     aggregate_metrics = {
@@ -324,19 +365,35 @@ def main():
     output_dir = Path(args.output_dir) if args.output_dir else data_dir / "model_outputs"
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    print(f"[INFO] Loading runs from: {data_dir}", flush=True)
     runs, X_patch, y, groups, run_names = build_dataset(data_dir)
-    per_run_report, aggregate_metrics = evaluate_leave_one_run_out(output_dir, runs, X_patch, y, groups, run_names)
+    print(
+        f"[INFO] Loaded {len(runs)} run(s), total samples={y.shape[0]}: " + ", ".join(run_names),
+        flush=True,
+    )
+    holdout_run_ids = select_holdout_run_ids(groups, args.num_holdout_runs, args.random_seed)
+    print(
+        f"[INFO] Randomly selected holdout run(s): " + ", ".join(run_names[int(idx)] for idx in holdout_run_ids),
+        flush=True,
+    )
+    per_run_report, aggregate_metrics = evaluate_holdout_runs(
+        output_dir, runs, X_patch, y, groups, run_names, holdout_run_ids
+    )
 
     report = {
         "data_dir": str(data_dir),
         "num_runs": len(runs),
         "num_samples_total": int(y.shape[0]),
-        "evaluation_mode": "leave_one_run_out" if len(runs) > 1 else "self_eval_single_run",
+        "evaluation_mode": "random_holdout_runs" if len(runs) > 1 else "self_eval_single_run",
+        "selected_holdout_runs": [run_names[int(idx)] for idx in holdout_run_ids],
+        "num_holdout_runs": int(len(holdout_run_ids)),
+        "random_seed": int(args.random_seed),
         "best_model": "rf_patch_pca",
         "aggregate_metrics": aggregate_metrics,
         "per_run_metrics": per_run_report,
         "stage1_gate_pass": bool(aggregate_metrics["r2_mean"] >= 0.30),
     }
+    print("[INFO] Writing report...", flush=True)
     write_report(output_dir, report)
 
     print("[OK] Exit-amplitude surrogate training complete")
