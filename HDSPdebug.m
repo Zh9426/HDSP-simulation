@@ -69,7 +69,7 @@ imag_target_design = double(design_blur > precomp_threshold);
 imag_target_design = imgaussfilt(imag_target_design, 0.45);
 imag_target_design = imag_target_design / max(imag_target_design(:));
 %%%%%%%%%%%%%%%%%%
-ROI_pixels = sum(imag_target(:) > 0.5);
+ROI_pixels = nnz(imag_target(:) > 0.5);
 fprintf('Target ROI pixels: %d\n', ROI_pixels);
 
 transport_dir = 'C:\Users\Zh89\Desktop\transport';
