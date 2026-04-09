@@ -136,6 +136,7 @@ phase_bias_seed = 0;
 if exist('optimal_phase_bias', 'var')
     phase_bias_seed = optimal_phase_bias;
 end
+%引入离散化处理相位
 [phase_projected_init, net_num_board, phase_bias_seed] = project_phase_to_board( ...
     optimal_initial_phase, phase_step, min_base_layers, circle_mask_board, phase_bias_seed, true);
 board_phase_pad(center_idx, center_idx) = exp(1i * phase_projected_init);
