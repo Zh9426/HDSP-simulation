@@ -14,6 +14,21 @@ c_water = 1480;
 c_board = 2430;
 density_water = 997;
 density_board = 1100;
+alpha_coeff_water = 0.002;
+alpha_power_water = 1.5;
+Cp_water = 4180;
+k_water = 0.6;
+c_couplant = c_water;
+density_couplant = density_water;
+alpha_coeff_couplant = alpha_coeff_water;
+alpha_power_couplant = alpha_power_water;
+c_pdms = 1070;
+density_pdms = 965;
+alpha_coeff_pdms = 5.0;
+alpha_power_pdms = 1.5;
+Cp_pdms = 1460;
+k_pdms = 0.15;
+pdms_thickness = 7e-3;
 lambda_water = c_water / f0;
 phase_refine_mode = 'python_iasa'; %相位叠加模式
 iasa_epoch = 150;
@@ -80,7 +95,8 @@ export_path = fullfile(transport_dir, 'target_for_python.mat');
 min_base_layers = 2;
 save(export_path, 'imag_target', 'imag_target_design', 'Nx', 'Ny', 'Lx', ...
     'lambda_water', 'z_target_dist', 'dx', 'dz', 'f0', 'c_water', ...
-    'c_board', 'thermal_sigma_px', 'min_base_layers');
+    'c_board', 'density_water', 'density_board', 'alpha_coeff_water', ...
+    'thermal_sigma_px', 'min_base_layers');
 
 fprintf('\n==================================================\n');
 fprintf('目标图案导出地址: %s\n', export_path);
@@ -104,8 +120,8 @@ Lx_pad = Lx * pad_factor;
 dk_pad = 2 * pi / Lx_pad;
 kx_pad = (-Nx_pad/2 : Nx_pad/2-1) * dk_pad;
 [Kx_pad, Ky_pad] = meshgrid(kx_pad, kx_pad);
-k_water = 2 * pi / lambda_water;
-Kz_sq = k_water^2 - Kx_pad.^2 - Ky_pad.^2;
+k_water_wave = 2 * pi / lambda_water;
+Kz_sq = k_water_wave^2 - Kx_pad.^2 - Ky_pad.^2;
 %倏逝波处理
 propagating = (Kz_sq > 0);
 Kz = zeros(size(Kz_sq));
@@ -232,8 +248,8 @@ fprintf('构建空间并执行仿真\n');
 kgrid = kWaveGrid(Nx, dx, Ny, dy, Nz, dz);
 medium.sound_speed = c_water * ones(Nx, Ny, Nz);
 medium.density = density_water * ones(Nx, Ny, Nz);
-medium.alpha_coeff = 0.002 * ones(Nx, Ny, Nz);
-medium.alpha_power = 1.5;
+medium.alpha_coeff = alpha_coeff_water * ones(Nx, Ny, Nz);
+medium.alpha_power = alpha_power_water;
 alpha_coeff_board = 1.5;
 pml_size = 10;
 source_z_idx = pml_size + 5;
@@ -252,6 +268,7 @@ for i = 1:Nx
     end
 end
 thickest = max(net_num_board(:)) * dz;
+pdms_half_idx = round((pdms_thickness / 2) / dz);
 %时间定义
 cfl = 0.3;
 t_end = (Lz * 1.5) / c_water;
@@ -269,6 +286,11 @@ source.p_mode = 'dirichlet';
 sensor.mask = zeros(Nx, Ny, Nz);
 z_board_exit_idx = z_board_start_idx + round(thickest / dz);
 target_plane_idx = z_board_exit_idx + round(z_target_dist / dz);
+pdms_z_start_idx = max(z_board_exit_idx + 1, target_plane_idx - pdms_half_idx);
+pdms_z_end_idx = min(Nz - pml_size, pdms_z_start_idx + round(pdms_thickness / dz) - 1);
+medium.sound_speed(:, :, pdms_z_start_idx:pdms_z_end_idx) = c_pdms;
+medium.density(:, :, pdms_z_start_idx:pdms_z_end_idx) = density_pdms;
+medium.alpha_coeff(:, :, pdms_z_start_idx:pdms_z_end_idx) = alpha_coeff_pdms;
 scan_range_idx = round(3e-3 / dz);
 z_scan_start = target_plane_idx - scan_range_idx;
 z_scan_end = target_plane_idx + scan_range_idx;
@@ -473,9 +495,10 @@ if research_mode.enabled && research_mode.enable_run_export
         'max_samples_per_run', research_mode.max_samples_per_run, ...
         'Nx', Nx, 'Ny', Ny, 'dx', dx, 'dz', dz, ...
         'f0', f0, 'Lx', Lx, 'z_target_dist', z_target_dist, ...
-        'c_water', c_water, 'c_board', c_board, ...
-        'density_water', density_water, 'density_board', density_board, ...
-        'alpha_coeff_board', alpha_coeff_board, ...
+        'c_water', c_water, 'c_board', c_board, 'c_pdms', c_pdms, ...
+        'density_water', density_water, 'density_board', density_board, 'density_pdms', density_pdms, ...
+        'alpha_coeff_water', alpha_coeff_water, 'alpha_coeff_board', alpha_coeff_board, 'alpha_coeff_pdms', alpha_coeff_pdms, ...
+        'pdms_thickness_mm', pdms_thickness * 1e3, ...
         'actual_z_dist_mm', actual_z_dist_mm);
     export_exit_amp_surrogate_run( ...
         research_mode.export_dir, run_meta, run_metrics, ...
@@ -491,16 +514,15 @@ focal_slice_abs = p_3d_abs(:, :, best_idx_global);
 roi_mask = (imag_target > 0.5);
 median_roi_p = median(focal_slice_abs(roi_mask));
 
-rho_resin = 1100; c_resin = 2500; Cp_resin_liq = 1800; k_resin_liq = 0.15;
-rho_water = 997;  c_water_heat = 1480; Cp_water = 4180; k_water_heat = 0.6;
-alpha_np_resin_liq = (1.5 / 8.686) * 100 * (f0 / 1e6)^1.5;
-alpha_np_water = 0.02;
-resin_z_start = z_board_exit_idx + 1;
+rho_pdms = density_pdms;  c_pdms_heat = c_pdms; Cp_pdms_heat = Cp_pdms; k_pdms_heat = k_pdms;
+rho_water_heat = density_water;  c_water_heat = c_water; Cp_water_heat = Cp_water; k_water_heat = k_water;
+alpha_np_pdms = (alpha_coeff_pdms / 8.686) * 100 * (f0 / 1e6)^alpha_power_pdms;
+alpha_np_water = (alpha_coeff_water / 8.686) * 100 * (f0 / 1e6)^alpha_power_water;
 cavitation_limit = 2.0e6;
 
 E_a = 9.5e4; A_freq = 8.0e15; R_gas = 8.314;
 inv_dx2 = 1 / (dx^2);
-max_diff = max(k_water_heat / (rho_water * Cp_water), k_resin_liq / (rho_resin * Cp_resin_liq));
+max_diff = max(k_water_heat / (rho_water_heat * Cp_water_heat), k_pdms_heat / (rho_pdms * Cp_pdms_heat));
 dt_th = (dx^2 / (6 * max_diff)) * 0.8;
 
 z_crop_radius = round(1.5e-3 / dz);
@@ -548,15 +570,21 @@ for phase = 1:2
             p_3d_scaled(p_3d_scaled > cavitation_limit) = cavitation_limit;
 
             k_3d = k_water_heat * ones(Nx, Ny, Nz, 'single');
-            k_3d(:, :, resin_z_start:end) = k_resin_liq;
-            rho_Cp_3d = (rho_water * Cp_water) * ones(Nx, Ny, Nz, 'single');
-            rho_Cp_3d(:, :, resin_z_start:end) = rho_resin * Cp_resin_liq;
+            k_3d(:, :, pdms_z_start_idx:pdms_z_end_idx) = k_pdms_heat;
+            rho_Cp_3d = (rho_water_heat * Cp_water_heat) * ones(Nx, Ny, Nz, 'single');
+            rho_Cp_3d(:, :, pdms_z_start_idx:pdms_z_end_idx) = rho_pdms * Cp_pdms_heat;
 
             Q_heat_3d = zeros(Nx, Ny, Nz, 'single');
-            I_3d_resin = single((p_3d_scaled(:, :, resin_z_start:end).^2) ./ (2 * rho_resin * c_resin));
-            Q_heat_3d(:, :, resin_z_start:end) = 2 * alpha_np_resin_liq * I_3d_resin;
-            I_3d_water = single((p_3d_scaled(:, :, 1:resin_z_start-1).^2) ./ (2 * rho_water * c_water_heat));
-            Q_heat_3d(:, :, 1:resin_z_start-1) = 2 * alpha_np_water * I_3d_water;
+            I_3d_pdms = single((p_3d_scaled(:, :, pdms_z_start_idx:pdms_z_end_idx).^2) ./ (2 * rho_pdms * c_pdms_heat));
+            Q_heat_3d(:, :, pdms_z_start_idx:pdms_z_end_idx) = 2 * alpha_np_pdms * I_3d_pdms;
+            if pdms_z_start_idx > 1
+                I_3d_water_lower = single((p_3d_scaled(:, :, 1:pdms_z_start_idx-1).^2) ./ (2 * rho_water_heat * c_water_heat));
+                Q_heat_3d(:, :, 1:pdms_z_start_idx-1) = 2 * alpha_np_water * I_3d_water_lower;
+            end
+            if pdms_z_end_idx < Nz
+                I_3d_water_upper = single((p_3d_scaled(:, :, pdms_z_end_idx+1:end).^2) ./ (2 * rho_water_heat * c_water_heat));
+                Q_heat_3d(:, :, pdms_z_end_idx+1:end) = 2 * alpha_np_water * I_3d_water_upper;
+            end
 
             k_3d_base_gpu = gpuArray(k_3d(:, :, z_crop_start:z_crop_end));
             rho_Cp_3d_gpu = gpuArray(rho_Cp_3d(:, :, z_crop_start:z_crop_end));
@@ -575,7 +603,7 @@ for phase = 1:2
 
         for step = 1:Nt_th
             chi_focal = 1.0 - exp(-Arrhenius_Omega_gpu);
-            k_3d_gpu(:, :, best_idx_crop) = k_resin_liq * (1.0 + 0.6 * chi_focal);
+            k_3d_gpu(:, :, best_idx_crop) = k_pdms_heat * (1.0 + 0.6 * chi_focal);
 
             T_diff_x = diff(T_3d_gpu, 1, 1);
             k_mid_x = (k_3d_gpu(1:end-1, :, :) + k_3d_gpu(2:end, :, :)) / 2;
