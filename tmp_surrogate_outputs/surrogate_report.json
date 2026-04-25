@@ -1,0 +1,33 @@
+{
+  "data_dir": "C:\\Users\\Zh89\\Desktop\\transport\\exit_amp_surrogate",
+  "num_runs": 4,
+  "num_samples_total": 120000,
+  "train_runs": [
+    "a_1.0",
+    "baseline"
+  ],
+  "test_runs": [
+    "a_2.0",
+    "c2000"
+  ],
+  "split_by_run": true,
+  "model_metrics": {
+    "linear_features": {
+      "r2": 0.008908331394195557,
+      "mae": 0.11075881868600845,
+      "rmse": 0.13894967340162961
+    },
+    "rf_patch_pca": {
+      "r2": 0.42334612007031114,
+      "mae": 0.07970339922265658,
+      "rmse": 0.10598837016950405
+    },
+    "mlp_patch": {
+      "r2": -1.2761492729187012,
+      "mae": 0.13759292662143707,
+      "rmse": 0.21057217362812394
+    }
+  },
+  "best_model": "rf_patch_pca",
+  "stage1_gate_pass": true
+}

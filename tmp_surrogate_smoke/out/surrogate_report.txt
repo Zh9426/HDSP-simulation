@@ -1,0 +1,11 @@
+HDSP Exit Amplitude Surrogate Report
+train_runs: run1
+test_runs: run2
+split_by_run: True
+
+linear_features: R2=0.8787, MAE=0.0343, RMSE=0.0390
+rf_patch_pca: R2=0.1014, MAE=0.0860, RMSE=0.1060
+mlp_patch: R2=-10.5927, MAE=0.3340, RMSE=0.3808
+
+best_model: linear_features
+stage1_gate_pass: True

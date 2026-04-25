@@ -1,0 +1,765 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-04-25T02:59:14.458119+00:00",
+  "project_root": "F:\\GitHub\\HDSP-simulation",
+  "entrypoints": {
+    "matlab_main": "HDSPdebug.m",
+    "python_phase_optimizer": "PANN_Holography.py",
+    "matlab_main_sections": [
+      {
+        "start": 6,
+        "end": 60,
+        "title": "1. 参数设置"
+      },
+      {
+        "start": 61,
+        "end": 85,
+        "title": "2.目标图案"
+      },
+      {
+        "start": 86,
+        "end": 106,
+        "title": ""
+      },
+      {
+        "start": 107,
+        "end": 232,
+        "title": "3. 加载初相并用IASA复算"
+      },
+      {
+        "start": 233,
+        "end": 245,
+        "title": "4. 相位转厚度"
+      },
+      {
+        "start": 246,
+        "end": 344,
+        "title": "5. KWAVE设置"
+      },
+      {
+        "start": 345,
+        "end": 509,
+        "title": "6.相位板出口分析"
+      },
+      {
+        "start": 510,
+        "end": 686,
+        "title": "7.热场与固化"
+      },
+      {
+        "start": 687,
+        "end": 711,
+        "title": "8.结果处理"
+      },
+      {
+        "start": 712,
+        "end": 854,
+        "title": "9.可视化"
+      },
+      {
+        "start": 855,
+        "end": 895,
+        "title": "10. Report"
+      }
+    ],
+    "important_parameters": {
+      "Nx": "512",
+      "Lx": "65e-3",
+      "z_target_dist": "16e-3",
+      "f0": "4.5e6",
+      "phase_refine_mode": "python_iasa",
+      "iasa_epoch": "150",
+      "pdms_thickness": "7e-3",
+      "cavitation_limit": "2.0e6"
+    },
+    "python_optimizer_parameters": {
+      "transport_dir": "r\"C:\\Users\\Zh89\\Desktop\\transport\"",
+      "epochs": "5000",
+      "pad_factor": "2",
+      "min_base_layers": "int(data[\"min_base_layers\"].item()) if \"min_base_layers\" in data else 2"
+    }
+  },
+  "files": {
+    "by_path": {
+      "build_midterm_speech.py": {
+        "role": "python_tool_or_experiment",
+        "suffix": ".py",
+        "bytes": 9522,
+        "line_count": 109,
+        "last_modified": "2026-04-21T09:53:12.926076+00:00"
+      },
+      "build_ppt_reference_plan.py": {
+        "role": "python_tool_or_experiment",
+        "suffix": ".py",
+        "bytes": 11310,
+        "line_count": 199,
+        "last_modified": "2026-04-22T10:02:35.987996+00:00"
+      },
+      "codex_handoff.md": {
+        "role": "document_or_extracted_text",
+        "suffix": ".md",
+        "bytes": 1605,
+        "line_count": 44,
+        "last_modified": "2026-04-19T14:34:16.205981+00:00"
+      },
+      "compute_asm_focus_field.m": {
+        "role": "matlab_helper",
+        "suffix": ".m",
+        "bytes": 561,
+        "line_count": 16,
+        "last_modified": "2026-04-19T14:34:16.206978+00:00"
+      },
+      "doc_text_extract/赵鑫煜_2225113536_中期检查.txt": {
+        "role": "document_or_extracted_text",
+        "suffix": ".txt",
+        "bytes": 1403,
+        "line_count": 50,
+        "last_modified": "2026-04-22T13:02:29.046574+00:00"
+      },
+      "doc_text_extract/赵鑫煜_2225113536_任务书.txt": {
+        "role": "document_or_extracted_text",
+        "suffix": ".txt",
+        "bytes": 6942,
+        "line_count": 56,
+        "last_modified": "2026-04-22T13:02:28.894327+00:00"
+      },
+      "doc_text_extract/赵鑫煜_2225113536_工作进展情况记录 (1).txt": {
+        "role": "document_or_extracted_text",
+        "suffix": ".txt",
+        "bytes": 9909,
+        "line_count": 64,
+        "last_modified": "2026-04-22T13:02:28.602815+00:00"
+      },
+      "error_diffuse_quantize_layers.m": {
+        "role": "matlab_helper",
+        "suffix": ".m",
+        "bytes": 1251,
+        "line_count": 35,
+        "last_modified": "2026-04-19T14:34:16.206978+00:00"
+      },
+      "export_exit_amp_surrogate_run.m": {
+        "role": "matlab_helper",
+        "suffix": ".m",
+        "bytes": 4332,
+        "line_count": 95,
+        "last_modified": "2026-04-19T14:34:16.207979+00:00"
+      },
+      "extract_doc_text.ps1": {
+        "role": "powershell_tool",
+        "suffix": ".ps1",
+        "bytes": 868,
+        "line_count": 31,
+        "last_modified": "2026-04-22T13:01:26.303869+00:00"
+      },
+      "extract_doc_text.py": {
+        "role": "python_tool_or_experiment",
+        "suffix": ".py",
+        "bytes": 869,
+        "line_count": 31,
+        "last_modified": "2026-04-22T13:02:11.248809+00:00"
+      },
+      "extract_ppt_text.py": {
+        "role": "python_tool_or_experiment",
+        "suffix": ".py",
+        "bytes": 806,
+        "line_count": 28,
+        "last_modified": "2026-04-22T13:00:50.679517+00:00"
+      },
+      "HDSPdebug.m": {
+        "role": "matlab_main",
+        "suffix": ".m",
+        "bytes": 39426,
+        "line_count": 896,
+        "last_modified": "2026-04-19T14:34:16.202996+00:00"
+      },
+      "PANN_Holography.py": {
+        "role": "python_phase_optimizer",
+        "suffix": ".py",
+        "bytes": 10985,
+        "line_count": 264,
+        "last_modified": "2026-04-19T14:34:16.203989+00:00"
+      },
+      "ppt0421_2_text.txt": {
+        "role": "document_or_extracted_text",
+        "suffix": ".txt",
+        "bytes": 6608,
+        "line_count": 680,
+        "last_modified": "2026-04-22T09:58:09.658763+00:00"
+      },
+      "ppt0422_text.txt": {
+        "role": "document_or_extracted_text",
+        "suffix": ".txt",
+        "bytes": 11982,
+        "line_count": 752,
+        "last_modified": "2026-04-22T13:01:06.355199+00:00"
+      },
+      "project_phase_to_board.m": {
+        "role": "matlab_helper",
+        "suffix": ".m",
+        "bytes": 1500,
+        "line_count": 46,
+        "last_modified": "2026-04-19T14:34:16.207979+00:00"
+      },
+      "tests/test_generate_codex_context.py": {
+        "role": "python_tool_or_experiment",
+        "suffix": ".py",
+        "bytes": 1745,
+        "line_count": 42,
+        "last_modified": "2026-04-25T02:56:57.085932+00:00"
+      },
+      "tmp_paper_extracts.txt": {
+        "role": "document_or_extracted_text",
+        "suffix": ".txt",
+        "bytes": 126652,
+        "line_count": 634,
+        "last_modified": "2026-04-20T13:30:50.828968+00:00"
+      },
+      "tools/generate_codex_context.py": {
+        "role": "python_tool_or_experiment",
+        "suffix": ".py",
+        "bytes": 25305,
+        "line_count": 598,
+        "last_modified": "2026-04-25T02:58:36.750168+00:00"
+      },
+      "train_exit_amp_surrogate.py": {
+        "role": "python_tool_or_experiment",
+        "suffix": ".py",
+        "bytes": 16972,
+        "line_count": 415,
+        "last_modified": "2026-04-19T14:34:16.339292+00:00"
+      },
+      "verify_midterm_speech.py": {
+        "role": "python_tool_or_experiment",
+        "suffix": ".py",
+        "bytes": 532,
+        "line_count": 23,
+        "last_modified": "2026-04-21T09:54:35.183332+00:00"
+      },
+      "verify_ppt_reference_plan.py": {
+        "role": "python_tool_or_experiment",
+        "suffix": ".py",
+        "bytes": 486,
+        "line_count": 19,
+        "last_modified": "2026-04-22T10:02:58.894501+00:00"
+      }
+    },
+    "by_role": {
+      "python_tool_or_experiment": [
+        "build_midterm_speech.py",
+        "build_ppt_reference_plan.py",
+        "extract_doc_text.py",
+        "extract_ppt_text.py",
+        "tests/test_generate_codex_context.py",
+        "tools/generate_codex_context.py",
+        "train_exit_amp_surrogate.py",
+        "verify_midterm_speech.py",
+        "verify_ppt_reference_plan.py"
+      ],
+      "document_or_extracted_text": [
+        "codex_handoff.md",
+        "doc_text_extract/赵鑫煜_2225113536_中期检查.txt",
+        "doc_text_extract/赵鑫煜_2225113536_任务书.txt",
+        "doc_text_extract/赵鑫煜_2225113536_工作进展情况记录 (1).txt",
+        "ppt0421_2_text.txt",
+        "ppt0422_text.txt",
+        "tmp_paper_extracts.txt"
+      ],
+      "matlab_helper": [
+        "compute_asm_focus_field.m",
+        "error_diffuse_quantize_layers.m",
+        "export_exit_amp_surrogate_run.m",
+        "project_phase_to_board.m"
+      ],
+      "powershell_tool": [
+        "extract_doc_text.ps1"
+      ],
+      "matlab_main": [
+        "HDSPdebug.m"
+      ],
+      "python_phase_optimizer": [
+        "PANN_Holography.py"
+      ]
+    }
+  },
+  "repository_summary": {
+    "file_count": 23,
+    "suffix_counts": {
+      ".m": 5,
+      ".md": 1,
+      ".ps1": 1,
+      ".py": 10,
+      ".txt": 6
+    },
+    "role_counts": {
+      "document_or_extracted_text": 7,
+      "matlab_helper": 4,
+      "matlab_main": 1,
+      "powershell_tool": 1,
+      "python_phase_optimizer": 1,
+      "python_tool_or_experiment": 9
+    }
+  },
+  "pipeline": {
+    "summary": "target -> Python phase initialization -> MATLAB IASA refinement -> discrete thickness board -> k-Wave propagation -> exit/thermal/curing metrics",
+    "stages": [
+      {
+        "id": "target_definition",
+        "title": "Target pattern and design precompensation",
+        "status": "present",
+        "evidence_markers": {
+          "imag_target": 30,
+          "imag_target_design": 10
+        }
+      },
+      {
+        "id": "python_optimizer",
+        "title": "Python PAPO or PANN phase initialization",
+        "status": "present",
+        "evidence_markers": {
+          "PANN_Holography.py": 4,
+          "dl_phase_init.mat": 3
+        }
+      },
+      {
+        "id": "iasa_refinement",
+        "title": "MATLAB IASA refinement on projected board phase",
+        "status": "present",
+        "evidence_markers": {
+          "IASA": 84,
+          "project_phase_to_board": 5
+        }
+      },
+      {
+        "id": "thickness_quantization",
+        "title": "Discrete layer and thickness construction",
+        "status": "present",
+        "evidence_markers": {
+          "net_num_board": 13,
+          "thickness_map": 10
+        }
+      },
+      {
+        "id": "kwave_forward",
+        "title": "k-Wave 3D propagation through discrete board",
+        "status": "present",
+        "evidence_markers": {
+          "kWaveGrid": 1,
+          "kspaceFirstOrder3D": 4
+        }
+      },
+      {
+        "id": "exit_plane_diagnosis",
+        "title": "Exit-plane ASM and k-Wave domain-gap diagnosis",
+        "status": "present",
+        "evidence_markers": {
+          "Exit-field": 3,
+          "board_exit": 23
+        }
+      },
+      {
+        "id": "thermal_curing",
+        "title": "Thermal diffusion and Arrhenius curing prediction",
+        "status": "present",
+        "evidence_markers": {
+          "Arrhenius": 10,
+          "Omega": 15,
+          "IoU": 54
+        }
+      },
+      {
+        "id": "reporting",
+        "title": "Metric reporting and visual diagnostics",
+        "status": "present",
+        "evidence_markers": {
+          "PCC": 25,
+          "SSIM": 20,
+          "NMSE": 20,
+          "Dice": 7
+        }
+      }
+    ]
+  },
+  "metric_line_hits": {
+    "PCC": [
+      226,
+      227,
+      471,
+      489,
+      720,
+      724,
+      728,
+      741,
+      745,
+      863,
+      867,
+      868,
+      869,
+      870,
+      872,
+      873
+    ],
+    "SSIM": [
+      230,
+      231,
+      705,
+      720,
+      724,
+      728,
+      864,
+      867,
+      868
+    ],
+    "NMSE": [
+      228,
+      229,
+      704,
+      708,
+      710,
+      865,
+      867,
+      868,
+      869,
+      870
+    ],
+    "IoU": [
+      534,
+      646,
+      648,
+      649,
+      651,
+      652,
+      673,
+      697,
+      830,
+      886
+    ],
+    "Dice": [
+      698,
+      887
+    ],
+    "over_cure_ratio": [
+      699,
+      888
+    ],
+    "under_cure_ratio": [
+      700,
+      889
+    ],
+    "cavitation_limit": [
+      521,
+      570
+    ]
+  },
+  "task_alignment": {
+    "objectives": [
+      {
+        "id": "objective_full_chain",
+        "title": "Run a full HDSP simulation chain",
+        "coverage": 1.0,
+        "implementation_coverage": 0.8,
+        "status": "covered",
+        "marker_hits": {
+          "imag_target": 30,
+          "PANN_Holography.py": 4,
+          "project_phase_to_board": 5,
+          "kWaveGrid": 1,
+          "Arrhenius": 10
+        },
+        "implementation_hits": {
+          "imag_target": 30,
+          "PANN_Holography.py": 0,
+          "project_phase_to_board": 4,
+          "kWaveGrid": 1,
+          "Arrhenius": 10
+        }
+      },
+      {
+        "id": "objective_metrics",
+        "title": "Expose quantitative evaluation metrics",
+        "coverage": 1.0,
+        "implementation_coverage": 1.0,
+        "status": "covered",
+        "marker_hits": {
+          "PCC": 25,
+          "SSIM": 20,
+          "NMSE": 20,
+          "EE": 242,
+          "IoU": 54,
+          "Dice": 7,
+          "over_cure_ratio": 2,
+          "under_cure_ratio": 2
+        },
+        "implementation_hits": {
+          "PCC": 24,
+          "SSIM": 19,
+          "NMSE": 16,
+          "EE": 61,
+          "IoU": 17,
+          "Dice": 5,
+          "over_cure_ratio": 2,
+          "under_cure_ratio": 2
+        }
+      },
+      {
+        "id": "objective_domain_gap",
+        "title": "Diagnose ASM or design-model to k-Wave domain gap",
+        "coverage": 1.0,
+        "implementation_coverage": 1.0,
+        "status": "covered",
+        "marker_hits": {
+          "Python ASM": 3,
+          "IASA ASM": 3,
+          "k-Wave Focal": 3,
+          "Exit-field ASM": 3
+        },
+        "implementation_hits": {
+          "Python ASM": 2,
+          "IASA ASM": 2,
+          "k-Wave Focal": 2,
+          "Exit-field ASM": 3
+        }
+      },
+      {
+        "id": "objective_curing",
+        "title": "Connect acoustic pressure to curing result",
+        "coverage": 1.0,
+        "implementation_coverage": 0.8,
+        "status": "covered",
+        "marker_hits": {
+          "Arrhenius": 10,
+          "Omega": 15,
+          "temperature": 53,
+          "IoU": 54,
+          "Dice": 7
+        },
+        "implementation_hits": {
+          "Arrhenius": 10,
+          "Omega": 15,
+          "temperature": 0,
+          "IoU": 17,
+          "Dice": 5
+        }
+      },
+      {
+        "id": "objective_future_cavitation",
+        "title": "Prepare for cavitation-aware HDSP curing model",
+        "coverage": 1.0,
+        "implementation_coverage": 0.5,
+        "status": "planned_not_implemented",
+        "marker_hits": {
+          "cavitation": 170,
+          "sonochemical": 58,
+          "2 MPa": 4,
+          "threshold": 21
+        },
+        "implementation_hits": {
+          "cavitation": 3,
+          "sonochemical": 0,
+          "2 MPa": 0,
+          "threshold": 6
+        }
+      }
+    ],
+    "gaps": [
+      {
+        "id": "gap_machine_readable_run_outputs",
+        "severity": "high",
+        "task_relation": "Metrics exist in script output, but Codex needs stable JSON snapshots to compare runs.",
+        "current_evidence": "HDSPdebug.m prints PCC/SSIM/NMSE/IoU/Dice/over/under values, but no stable run manifest is detected.",
+        "target_state": "Every run writes one JSON result with parameters, metric values, artifact paths, git revision, and timestamp.",
+        "next_action": "Add a non-invasive MATLAB result export block after reporting, guarded by a flag so the main logic remains unchanged."
+      },
+      {
+        "id": "gap_effective_transmission_model",
+        "severity": "high",
+        "task_relation": "The task goal depends on reducing forward-design to k-Wave domain mismatch.",
+        "current_evidence": "Existing handoff identifies ASM/ideal phase to 3D discrete k-Wave mismatch as the main problem.",
+        "target_state": "Use exported exit-plane samples to fit or validate an effective transmission model for discrete thickness voxels.",
+        "next_action": "Use current exit-plane diagnostics and surrogate data to map thickness, local gradient, and edge distance to exit amplitude/phase correction."
+      },
+      {
+        "id": "gap_cavitation_branch_not_dynamic",
+        "severity": "medium",
+        "task_relation": "HDSP/DSP literature points to cavitation-driven sonochemistry, while current implementation is thermal-dose dominant.",
+        "current_evidence": "cavitation_limit is detected as a static pressure cap before heat-source and Arrhenius curing calculations.",
+        "target_state": "Introduce a threshold-triggered cavitation activation field with saturation/penalty, fused with the existing thermal dose.",
+        "next_action": "Prototype a sidecar cavitation score from p_3d_scaled, then compare pure thermal versus thermal+cavitation metrics."
+      },
+      {
+        "id": "gap_metric_decision_rule",
+        "severity": "medium",
+        "task_relation": "Task materials mention multiple target metrics but no single optimization decision rule.",
+        "current_evidence": "PCC/SSIM/NMSE/EE/IoU/Dice/Over-cure/Under-cure are present, but tradeoff priority is not machine-readable.",
+        "target_state": "Define a weighted score or Pareto rule for model selection by experiment type.",
+        "next_action": "Create a score profile that prioritizes IoU/Dice and penalizes over-cure for curing prediction, while keeping ASM/k-Wave mismatch metrics for diagnosis."
+      }
+    ],
+    "source_documents": [
+      "codex_handoff.md",
+      "doc_text_extract/赵鑫煜_2225113536_中期检查.txt",
+      "doc_text_extract/赵鑫煜_2225113536_任务书.txt",
+      "doc_text_extract/赵鑫煜_2225113536_工作进展情况记录 (1).txt",
+      "ppt0421_2_text.txt",
+      "ppt0422_text.txt",
+      "tmp_paper_extracts.txt"
+    ]
+  },
+  "machine_readability": {
+    "analysis_directory": "codex_analysis",
+    "expected_outputs": [
+      "project_manifest.json",
+      "task_alignment.json",
+      "optimization_backlog.json",
+      "pipeline_map.json",
+      "metric_profiles.json",
+      "analysis_index.md"
+    ],
+    "consumer_contract": {
+      "project_manifest.json": "Static repo inventory, entrypoints, parameters, and pipeline summary.",
+      "task_alignment.json": "Task objective coverage, detected evidence, and actionable gaps.",
+      "optimization_backlog.json": "Prioritized next iterations tied to detected gaps.",
+      "pipeline_map.json": "Stage-by-stage flow readable without opening the main script.",
+      "metric_profiles.json": "Machine-readable scoring profiles for targeted iteration.",
+      "analysis_index.md": "Human-readable index for the generated machine-readable files."
+    },
+    "regeneration_command": "python tools/generate_codex_context.py",
+    "non_intrusive_policy": "Generated analysis artifacts must not change HDSPdebug.m, PANN_Holography.py, or MATLAB helper logic."
+  },
+  "optimization_backlog": [
+    {
+      "id": "opt_001_run_result_json",
+      "priority": 1,
+      "purpose": "Make each simulation result directly readable by Codex without scraping console output.",
+      "linked_gaps": [
+        "gap_machine_readable_run_outputs",
+        "gap_metric_decision_rule"
+      ],
+      "type": "instrumentation",
+      "suggested_scope": "Add sidecar result export after the existing final metric reporting block.",
+      "acceptance_criteria": [
+        "A JSON file contains phase_refine_mode, pressure/exposure/cooling choice, PCC, SSIM, NMSE, EE, IoU, Dice, over_cure, under_cure.",
+        "Export can be disabled and does not alter the numerical path."
+      ]
+    },
+    {
+      "id": "opt_002_metric_score_profile",
+      "priority": 2,
+      "purpose": "Turn many metrics into explicit optimization targets for task-aligned iteration.",
+      "linked_gaps": [
+        "gap_metric_decision_rule"
+      ],
+      "type": "analysis_policy",
+      "suggested_scope": "Create codex_analysis/metric_profiles.json and use it when comparing run_result JSON files.",
+      "acceptance_criteria": [
+        "Curing profile rewards IoU/Dice and penalizes over-cure/under-cure.",
+        "Propagation profile rewards ASM-kWave agreement and target PCC/SSIM while penalizing NMSE."
+      ]
+    },
+    {
+      "id": "opt_003_effective_transmission_dataset",
+      "priority": 3,
+      "purpose": "Attack the current highest-value domain gap without changing the main algorithm first.",
+      "linked_gaps": [
+        "gap_effective_transmission_model"
+      ],
+      "type": "model_diagnosis",
+      "suggested_scope": "Standardize exit-plane sample export into a dataset manifest with feature definitions.",
+      "acceptance_criteria": [
+        "Each sample records local thickness, layer count, thickness gradient, board mask distance, exit amplitude, and exit phase residual.",
+        "Dataset summary reports sample count, feature ranges, and held-out validation split."
+      ]
+    },
+    {
+      "id": "opt_004_cavitation_sidecar_score",
+      "priority": 4,
+      "purpose": "Prepare the future cavitation module as an analyzable branch before integrating it into curing.",
+      "linked_gaps": [
+        "gap_cavitation_branch_not_dynamic"
+      ],
+      "type": "physics_extension",
+      "suggested_scope": "Compute cavitation activation from pressure threshold and saturation parameters as a sidecar map.",
+      "acceptance_criteria": [
+        "Sidecar map is exported separately from thermal Omega.",
+        "Comparison report shows thermal-only versus thermal+cavitation IoU/Dice/over/under deltas."
+      ]
+    }
+  ],
+  "metric_profiles": {
+    "schema_version": "1.0",
+    "profiles": [
+      {
+        "id": "curing_prediction",
+        "purpose": "Select changes that improve printed/solidified shape against the target.",
+        "maximize": [
+          "IoU",
+          "Dice",
+          "cured_coverage"
+        ],
+        "minimize": [
+          "over_cure_ratio",
+          "under_cure_ratio",
+          "NMSE"
+        ],
+        "primary_score": {
+          "formula": "0.40*IoU + 0.30*Dice - 0.15*over_cure_ratio - 0.15*under_cure_ratio",
+          "required_inputs": [
+            "IoU",
+            "Dice",
+            "over_cure_ratio",
+            "under_cure_ratio"
+          ]
+        },
+        "decision_rule": "Prefer higher primary_score. Reject runs that improve IoU only by expanding over_cure_ratio."
+      },
+      {
+        "id": "propagation_domain_gap",
+        "purpose": "Select changes that reduce ASM/design-model to k-Wave mismatch before changing curing physics.",
+        "maximize": [
+          "asm_kwave_corr",
+          "board_exit_kwave_corr",
+          "best_corr",
+          "SSIM_val"
+        ],
+        "minimize": [
+          "asm_kwave_nmse",
+          "asm_python_kwave_nmse",
+          "NMSE"
+        ],
+        "primary_score": {
+          "formula": "0.35*asm_kwave_corr + 0.25*board_exit_kwave_corr + 0.20*best_corr + 0.20*SSIM_val - 0.20*asm_kwave_nmse",
+          "required_inputs": [
+            "asm_kwave_corr",
+            "board_exit_kwave_corr",
+            "best_corr",
+            "SSIM_val",
+            "asm_kwave_nmse"
+          ]
+        },
+        "decision_rule": "Prefer changes that improve k-Wave agreement without lowering Python/IASA ASM target quality."
+      },
+      {
+        "id": "cavitation_extension",
+        "purpose": "Compare thermal-only curing with future threshold-triggered cavitation-assisted curing.",
+        "maximize": [
+          "IoU_delta",
+          "Dice_delta"
+        ],
+        "minimize": [
+          "over_cure_delta",
+          "under_cure_delta",
+          "activation_outside_target"
+        ],
+        "primary_score": {
+          "formula": "0.35*IoU_delta + 0.25*Dice_delta - 0.20*over_cure_delta - 0.20*activation_outside_target",
+          "required_inputs": [
+            "IoU_delta",
+            "Dice_delta",
+            "over_cure_delta",
+            "activation_outside_target"
+          ]
+        },
+        "decision_rule": "Accept only if cavitation improves target curing without large outside-target activation."
+      }
+    ]
+  }
+}

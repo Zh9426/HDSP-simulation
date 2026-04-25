@@ -1,0 +1,45 @@
+　　　　　　　　　　　　　　　　　　　　　　　　　
+								系  （专业） 1201生物医学工程  
+　　　　　　　　　　　　　　　　　　　　　系 (专业) 主任  周秦武  
+　　批 准 日 期  2025年12月09日  
+毕业设计(论文)任务书
+  生命科学与技术学院   1201生物医学工程专业  医电2201班    学生  赵鑫煜  
+毕业设计(论文)课题  用于超声3D打印的全息超声调制相位板仿真                                                         
+毕业设计(论文)工作自  2025  年 9 月  29  日起至  2026  年  6  月  5  日止                                          
+
+课题的背景、意义及培养目标
+ 1.课题背景传统超声3D打印依赖点阵聚焦扫描，存在设备体积大、成本高、聚焦精度受限制等问题，难以实现复杂微观结构的高精度成型，亟需新型超声场调控方案。全息超声调制通过相位板对超声波相位进行精准调控，可生成任意预设的聚焦声场（如点阵列、面阵、复杂三维形貌声场），为突破传统阵列局限提供技术路径。相位板的结构设计直接决定声场调控效果，而物理实验迭代设计周期长、成本高，通过数值仿真实现相位板结构与声场分布的精准匹配，成为课题开展的关键前提。2.课题意义建立全息超声调制相位板的多物理场仿真模型，完善超声全息调控的理论体系，为相位板设计提供量化指导。攻克相位板结构参数与3D打印所需声场的映射关系，缩短相位板研发周期，降低超声3D打印设备的设计成本，推动高精度超声3D打印技术的小型化。为生物医用微结构等领域的高精度3D打印提供核心技术支撑，拓展超声3D打印的应用场景，助力高端制造领域技术升级。3.培养目标掌握超声传播理论、全息调制原理、3D打印技术基础；熟悉常用超声仿真工具的操作与建模方法；理解相位板结构与声场调控的耦合机制。具备相位板结构设计与仿真模型构建能力；能够分析仿真结果并优化相位板参数；培养多物理场耦合问题的分析与解决能力，以及研究论文撰写和成果展示能力。                                                                                        
+                                                                           
+
+设计(论文)的原始数据与资料
+ 1.超声3D打印的实验数据2.超声掩模板模型的Matlab相关代码3.超声全息调控的最新参考文献                                                                                                   
+                                                                           
+
+课题的主要任务
+ 1.课题基础理论与技术调研系统梳理超声3D打印技术的核心原理、研究现状及技术瓶颈；深入调研全息超声调制技术的理论基础，包括声波全息原理、相位调制机制、声场重构算法；分析相位板在超声场调控中的作用机理，对比不同类型相位板的结构特性与调制性能。2.全息超声调制相位板的设计与优化根据目标打印精度、成型区域大小、声波频率，确定全息声场的目标参数；采用迭代相位恢复算法，将目标声场的相位信息映射为相位板的微观结构参数；以"声场调控精度最大化、能量损耗最小化、结构复杂度最低化"为目标，通过参数迭代优化相位板设计方案。3.超声场与相位板相互作用的仿真建模构建相位板、超声换能器、打印区域的三维几何模型；基于声学理论，定义超声换能器的激励条件、介质的声学参数、相位板与声波的相互作用边界条件；参考已发表文献或实验数据，校准仿真模型中的关键参数，确保模型的可靠性。4.仿真结果分析与性能评估定量分析打印区域内的声压分布、相位分布、声强聚焦效果，验证相位板是否能实现目标全息声场；分析声波在相位板微结构中的传播规律，识别影响声场调控性能的关键因素；结合超声3D打印的成型原理，分析仿真声场对打印材料的驱动效果。5.课题成果整理与总结整理仿真数据、设计图纸、算法代码等核心资料，形成标准化的仿真流程文档；分析课题研究的创新点与局限性，提出未来研究方向；撰写课题研究报告，清晰呈现研究思路、技术方案、仿真结果及性能结论。                                                                                               
+                                                                           
+
+课题的基本要求(工程设计类题应有技术经济分析要求) 
+ 1.知识要求理解声波传播规律、声辐射力原理、超声场聚焦与调制机制；明晰声波相位恢复算法的数学原理及实现逻辑，理解相位板对超声场的调控机理；熟悉声学仿真的核心流程，理解几何建模、物理场耦合、边界条件设置；熟练使用至少1种主流声学/多物理场仿真工具，具备复杂几何模型构建、多物理场参数设置、网格优化、仿真结果后处理与可视化分析能力；掌握MATLAB编程语言，能够实现相位恢复算法、参数优化算法的编程实现与迭代改进，具备数据处理与统计分析能力。2.研究内容与目标要求基于超声3D打印需求，确定打印区域的声压分布、聚焦精度、声辐射力阈值等关键指标；选择或改进合适的相位恢复算法，确保相位板能够精准映射目标声场的相位信息。物理场设置需符合声学理论，边界条件、材料参数需参考实验数据或权威文献；完成至少1轮"设计-仿真-分析-优化"的闭环迭代，确保最终相位板方案满足超声3D打印的核心需求。3.合规性要求遵守学术诚信规范，不抄袭、不伪造文献资料与仿真数据，引用他人成果需注明来源；尊重知识产权，使用仿真软件、算法代码等需符合相关授权要求，不得擅自使用未授权的商业软件或侵权代码。                                                                                               
+                                                                           
+               
+完成任务后提交的书面材料要求(图纸规格、数量，论文字数，外文翻译字数等) 
+ 课题完成后需提交一套完整、规范的论文，核心包括研究总报告、论文结构严谨，论据充分，系统性强，观点鲜明，字数不少于1万字；支撑材料汇编以及按需提交的附件，所有材料需格式统一、标注规范，严格遵守学术诚信要求，确保内容真实可追溯，能够全面反映课题研究过程、技术细节与核心成果。                                                                                               
+                                                                           
+          
+主要参考文献
+ [1]EmadDavoodi,HosseinMontazerian,MostafaZhianmanesh,RezaAbbasgholizadeh,RezaHaghniaz,AlirezaBaidya,HosseinPourmohammadali,NasimAnnabi,PaulS.Weiss,EhsanToyserkani,AliKhademhosseini,Imaging-guideddeeptissueinvivosoundprinting,Science,2025,388,616-623.[2]XiaoKuang,QirongRong,SherifBelal,TuanVu,AnaMariaL.López,NanWang,MertO.Ar?can,CarlosE.Garciamendez-Mijares,MingChen,JunYao,YuShrikeZhang,Self-enhancingsono-inksenabledeep-penetrationacousticvolumetricprinting,Science,2023,382,1148-1155.[3]BingyunXue,ZainabBashir,YiranGuo,WeiweiYu,WenmingSun,YutingLi,YiwenZhang,MengQin,WeiWang,YiwenCao,Strong,tough,rapid-recovery,andfatigue-resistanthydrogelsmadeofpicotpeptidefibres,NatureCommunications,2023,14,2583.[4]BingyunXue,ZiqiuXu,LiyuanLi,KaiGuo,JianMi,HaoWu,YutingLi,ChenXie,JianJin,JingLiu,XinGu,MengQin,QiqingJiang,YiwenCao,WeiWang,Hydrogelswithprogrammedspatiotemporalmechanicalcuesforstemcell-assistedboneregeneration,NatureCommunications,2025,16,3633.[5]MengWu,ZhimingMa,ZhongweiTian,JordanT.Rich,XinHe,JingXia,YimingHe,KaiYang,ShanshanYang,KamW.Leong,LukeP.Lee,TonyJ.Huang,Soundinnovationsforbiofabricationandtissueengineering,MicrosystemsNanoengineering,2024,10,170.[6]CharlotteVidler,MarkHalwes,KaterynaKolesnik,PatriciaSegeritz,MihirMail,AlexanderJ.Barlow,EllenM.Koehl,AnanyaRamakrishnan,LauraM.CaballeroAguilar,DavidR.Nisbet,DanielM.Collins,Dynamicinterfaceprinting,Nature,2024,634,1096-1102.                                                                                               
+　　　                                                                          
+
+指导教师荣强周接受设计(论文)任务日期2025年12月09日（注：由指导教师填写）学生签名赵鑫煜　　　　　
+西安交通大学本科毕业设计（论文）
+
+毕业设计（论文）任务书
+
+
+
+
+
+
+　　
+
