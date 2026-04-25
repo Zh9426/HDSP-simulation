@@ -1,0 +1,59 @@
+[
+  {
+    "id": "opt_001_run_result_json",
+    "priority": 1,
+    "purpose": "Make each simulation result directly readable by Codex without scraping console output.",
+    "linked_gaps": [
+      "gap_machine_readable_run_outputs",
+      "gap_metric_decision_rule"
+    ],
+    "type": "instrumentation",
+    "suggested_scope": "Add sidecar result export after the existing final metric reporting block.",
+    "acceptance_criteria": [
+      "A JSON file contains phase_refine_mode, pressure/exposure/cooling choice, PCC, SSIM, NMSE, EE, IoU, Dice, over_cure, under_cure.",
+      "Export can be disabled and does not alter the numerical path."
+    ]
+  },
+  {
+    "id": "opt_002_metric_score_profile",
+    "priority": 2,
+    "purpose": "Turn many metrics into explicit optimization targets for task-aligned iteration.",
+    "linked_gaps": [
+      "gap_metric_decision_rule"
+    ],
+    "type": "analysis_policy",
+    "suggested_scope": "Create codex_analysis/metric_profiles.json and use it when comparing run_result JSON files.",
+    "acceptance_criteria": [
+      "Curing profile rewards IoU/Dice and penalizes over-cure/under-cure.",
+      "Propagation profile rewards ASM-kWave agreement and target PCC/SSIM while penalizing NMSE."
+    ]
+  },
+  {
+    "id": "opt_003_effective_transmission_dataset",
+    "priority": 3,
+    "purpose": "Attack the current highest-value domain gap without changing the main algorithm first.",
+    "linked_gaps": [
+      "gap_effective_transmission_model"
+    ],
+    "type": "model_diagnosis",
+    "suggested_scope": "Standardize exit-plane sample export into a dataset manifest with feature definitions.",
+    "acceptance_criteria": [
+      "Each sample records local thickness, layer count, thickness gradient, board mask distance, exit amplitude, and exit phase residual.",
+      "Dataset summary reports sample count, feature ranges, and held-out validation split."
+    ]
+  },
+  {
+    "id": "opt_004_cavitation_sidecar_score",
+    "priority": 4,
+    "purpose": "Prepare the future cavitation module as an analyzable branch before integrating it into curing.",
+    "linked_gaps": [
+      "gap_cavitation_branch_not_dynamic"
+    ],
+    "type": "physics_extension",
+    "suggested_scope": "Compute cavitation activation from pressure threshold and saturation parameters as a sidecar map.",
+    "acceptance_criteria": [
+      "Sidecar map is exported separately from thermal Omega.",
+      "Comparison report shows thermal-only versus thermal+cavitation IoU/Dice/over/under deltas."
+    ]
+  }
+]

@@ -1,0 +1,154 @@
+{
+  "objectives": [
+    {
+      "id": "objective_full_chain",
+      "title": "Run a full HDSP simulation chain",
+      "coverage": 1.0,
+      "implementation_coverage": 0.8,
+      "status": "covered",
+      "marker_hits": {
+        "imag_target": 30,
+        "PANN_Holography.py": 4,
+        "project_phase_to_board": 5,
+        "kWaveGrid": 1,
+        "Arrhenius": 10
+      },
+      "implementation_hits": {
+        "imag_target": 30,
+        "PANN_Holography.py": 0,
+        "project_phase_to_board": 4,
+        "kWaveGrid": 1,
+        "Arrhenius": 10
+      }
+    },
+    {
+      "id": "objective_metrics",
+      "title": "Expose quantitative evaluation metrics",
+      "coverage": 1.0,
+      "implementation_coverage": 1.0,
+      "status": "covered",
+      "marker_hits": {
+        "PCC": 25,
+        "SSIM": 20,
+        "NMSE": 20,
+        "EE": 242,
+        "IoU": 54,
+        "Dice": 7,
+        "over_cure_ratio": 2,
+        "under_cure_ratio": 2
+      },
+      "implementation_hits": {
+        "PCC": 24,
+        "SSIM": 19,
+        "NMSE": 16,
+        "EE": 61,
+        "IoU": 17,
+        "Dice": 5,
+        "over_cure_ratio": 2,
+        "under_cure_ratio": 2
+      }
+    },
+    {
+      "id": "objective_domain_gap",
+      "title": "Diagnose ASM or design-model to k-Wave domain gap",
+      "coverage": 1.0,
+      "implementation_coverage": 1.0,
+      "status": "covered",
+      "marker_hits": {
+        "Python ASM": 3,
+        "IASA ASM": 3,
+        "k-Wave Focal": 3,
+        "Exit-field ASM": 3
+      },
+      "implementation_hits": {
+        "Python ASM": 2,
+        "IASA ASM": 2,
+        "k-Wave Focal": 2,
+        "Exit-field ASM": 3
+      }
+    },
+    {
+      "id": "objective_curing",
+      "title": "Connect acoustic pressure to curing result",
+      "coverage": 1.0,
+      "implementation_coverage": 0.8,
+      "status": "covered",
+      "marker_hits": {
+        "Arrhenius": 10,
+        "Omega": 15,
+        "temperature": 53,
+        "IoU": 54,
+        "Dice": 7
+      },
+      "implementation_hits": {
+        "Arrhenius": 10,
+        "Omega": 15,
+        "temperature": 0,
+        "IoU": 17,
+        "Dice": 5
+      }
+    },
+    {
+      "id": "objective_future_cavitation",
+      "title": "Prepare for cavitation-aware HDSP curing model",
+      "coverage": 1.0,
+      "implementation_coverage": 0.5,
+      "status": "planned_not_implemented",
+      "marker_hits": {
+        "cavitation": 170,
+        "sonochemical": 58,
+        "2 MPa": 4,
+        "threshold": 21
+      },
+      "implementation_hits": {
+        "cavitation": 3,
+        "sonochemical": 0,
+        "2 MPa": 0,
+        "threshold": 6
+      }
+    }
+  ],
+  "gaps": [
+    {
+      "id": "gap_machine_readable_run_outputs",
+      "severity": "high",
+      "task_relation": "Metrics exist in script output, but Codex needs stable JSON snapshots to compare runs.",
+      "current_evidence": "HDSPdebug.m prints PCC/SSIM/NMSE/IoU/Dice/over/under values, but no stable run manifest is detected.",
+      "target_state": "Every run writes one JSON result with parameters, metric values, artifact paths, git revision, and timestamp.",
+      "next_action": "Add a non-invasive MATLAB result export block after reporting, guarded by a flag so the main logic remains unchanged."
+    },
+    {
+      "id": "gap_effective_transmission_model",
+      "severity": "high",
+      "task_relation": "The task goal depends on reducing forward-design to k-Wave domain mismatch.",
+      "current_evidence": "Existing handoff identifies ASM/ideal phase to 3D discrete k-Wave mismatch as the main problem.",
+      "target_state": "Use exported exit-plane samples to fit or validate an effective transmission model for discrete thickness voxels.",
+      "next_action": "Use current exit-plane diagnostics and surrogate data to map thickness, local gradient, and edge distance to exit amplitude/phase correction."
+    },
+    {
+      "id": "gap_cavitation_branch_not_dynamic",
+      "severity": "medium",
+      "task_relation": "HDSP/DSP literature points to cavitation-driven sonochemistry, while current implementation is thermal-dose dominant.",
+      "current_evidence": "cavitation_limit is detected as a static pressure cap before heat-source and Arrhenius curing calculations.",
+      "target_state": "Introduce a threshold-triggered cavitation activation field with saturation/penalty, fused with the existing thermal dose.",
+      "next_action": "Prototype a sidecar cavitation score from p_3d_scaled, then compare pure thermal versus thermal+cavitation metrics."
+    },
+    {
+      "id": "gap_metric_decision_rule",
+      "severity": "medium",
+      "task_relation": "Task materials mention multiple target metrics but no single optimization decision rule.",
+      "current_evidence": "PCC/SSIM/NMSE/EE/IoU/Dice/Over-cure/Under-cure are present, but tradeoff priority is not machine-readable.",
+      "target_state": "Define a weighted score or Pareto rule for model selection by experiment type.",
+      "next_action": "Create a score profile that prioritizes IoU/Dice and penalizes over-cure for curing prediction, while keeping ASM/k-Wave mismatch metrics for diagnosis."
+    }
+  ],
+  "source_documents": [
+    "codex_handoff.md",
+    "doc_text_extract/赵鑫煜_2225113536_中期检查.txt",
+    "doc_text_extract/赵鑫煜_2225113536_任务书.txt",
+    "doc_text_extract/赵鑫煜_2225113536_工作进展情况记录 (1).txt",
+    "ppt0421_2_text.txt",
+    "ppt0422_text.txt",
+    "tmp_paper_extracts.txt"
+  ]
+}

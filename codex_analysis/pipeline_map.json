@@ -1,0 +1,80 @@
+{
+  "summary": "target -> Python phase initialization -> MATLAB IASA refinement -> discrete thickness board -> k-Wave propagation -> exit/thermal/curing metrics",
+  "stages": [
+    {
+      "id": "target_definition",
+      "title": "Target pattern and design precompensation",
+      "status": "present",
+      "evidence_markers": {
+        "imag_target": 30,
+        "imag_target_design": 10
+      }
+    },
+    {
+      "id": "python_optimizer",
+      "title": "Python PAPO or PANN phase initialization",
+      "status": "present",
+      "evidence_markers": {
+        "PANN_Holography.py": 4,
+        "dl_phase_init.mat": 3
+      }
+    },
+    {
+      "id": "iasa_refinement",
+      "title": "MATLAB IASA refinement on projected board phase",
+      "status": "present",
+      "evidence_markers": {
+        "IASA": 84,
+        "project_phase_to_board": 5
+      }
+    },
+    {
+      "id": "thickness_quantization",
+      "title": "Discrete layer and thickness construction",
+      "status": "present",
+      "evidence_markers": {
+        "net_num_board": 13,
+        "thickness_map": 10
+      }
+    },
+    {
+      "id": "kwave_forward",
+      "title": "k-Wave 3D propagation through discrete board",
+      "status": "present",
+      "evidence_markers": {
+        "kWaveGrid": 1,
+        "kspaceFirstOrder3D": 4
+      }
+    },
+    {
+      "id": "exit_plane_diagnosis",
+      "title": "Exit-plane ASM and k-Wave domain-gap diagnosis",
+      "status": "present",
+      "evidence_markers": {
+        "Exit-field": 3,
+        "board_exit": 23
+      }
+    },
+    {
+      "id": "thermal_curing",
+      "title": "Thermal diffusion and Arrhenius curing prediction",
+      "status": "present",
+      "evidence_markers": {
+        "Arrhenius": 10,
+        "Omega": 15,
+        "IoU": 54
+      }
+    },
+    {
+      "id": "reporting",
+      "title": "Metric reporting and visual diagnostics",
+      "status": "present",
+      "evidence_markers": {
+        "PCC": 25,
+        "SSIM": 20,
+        "NMSE": 20,
+        "Dice": 7
+      }
+    }
+  ]
+}

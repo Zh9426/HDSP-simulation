@@ -1,0 +1,78 @@
+{
+  "schema_version": "1.0",
+  "profiles": [
+    {
+      "id": "curing_prediction",
+      "purpose": "Select changes that improve printed/solidified shape against the target.",
+      "maximize": [
+        "IoU",
+        "Dice",
+        "cured_coverage"
+      ],
+      "minimize": [
+        "over_cure_ratio",
+        "under_cure_ratio",
+        "NMSE"
+      ],
+      "primary_score": {
+        "formula": "0.40*IoU + 0.30*Dice - 0.15*over_cure_ratio - 0.15*under_cure_ratio",
+        "required_inputs": [
+          "IoU",
+          "Dice",
+          "over_cure_ratio",
+          "under_cure_ratio"
+        ]
+      },
+      "decision_rule": "Prefer higher primary_score. Reject runs that improve IoU only by expanding over_cure_ratio."
+    },
+    {
+      "id": "propagation_domain_gap",
+      "purpose": "Select changes that reduce ASM/design-model to k-Wave mismatch before changing curing physics.",
+      "maximize": [
+        "asm_kwave_corr",
+        "board_exit_kwave_corr",
+        "best_corr",
+        "SSIM_val"
+      ],
+      "minimize": [
+        "asm_kwave_nmse",
+        "asm_python_kwave_nmse",
+        "NMSE"
+      ],
+      "primary_score": {
+        "formula": "0.35*asm_kwave_corr + 0.25*board_exit_kwave_corr + 0.20*best_corr + 0.20*SSIM_val - 0.20*asm_kwave_nmse",
+        "required_inputs": [
+          "asm_kwave_corr",
+          "board_exit_kwave_corr",
+          "best_corr",
+          "SSIM_val",
+          "asm_kwave_nmse"
+        ]
+      },
+      "decision_rule": "Prefer changes that improve k-Wave agreement without lowering Python/IASA ASM target quality."
+    },
+    {
+      "id": "cavitation_extension",
+      "purpose": "Compare thermal-only curing with future threshold-triggered cavitation-assisted curing.",
+      "maximize": [
+        "IoU_delta",
+        "Dice_delta"
+      ],
+      "minimize": [
+        "over_cure_delta",
+        "under_cure_delta",
+        "activation_outside_target"
+      ],
+      "primary_score": {
+        "formula": "0.35*IoU_delta + 0.25*Dice_delta - 0.20*over_cure_delta - 0.20*activation_outside_target",
+        "required_inputs": [
+          "IoU_delta",
+          "Dice_delta",
+          "over_cure_delta",
+          "activation_outside_target"
+        ]
+      },
+      "decision_rule": "Accept only if cavitation improves target curing without large outside-target activation."
+    }
+  ]
+}
