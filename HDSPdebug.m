@@ -52,9 +52,9 @@ cavitation_model.streaming_penalty_strength = 0.75;
 cavitation_model.streaming_penalty_power = 1.5;
 cavitation_model.smooth_sigma_px = 0.8;
 cavitation_model.z_sigma_mm = 0.8;
-cavitation_model.heat_gain = 0.30;
-cavitation_model.trigger_gain = 10.0;
-cavitation_model.growth_gain = 1.5;
+cavitation_model.heat_gain = 0.10;
+cavitation_model.trigger_gain = 6;
+cavitation_model.growth_gain = 0.6;
 
 dx = Lx / Nx;
 dy = dx;
@@ -599,16 +599,16 @@ for phase = 1:2
     if phase == 1
         %曝光时间，声压与冷却时间粗查
         fprintf('\n[第一阶段:粗扫]...\n');
-        P_list = (1.6 : 0.15 : 2.5) * 1e6;
-        E_list = 0.06 : 0.06 : 0.30;
-        C_list = 0.10 : 0.10 : 0.30;
+        P_list = (1.95 : 0.05 : 2.15) * 1e6;
+        E_list = 0.02 : 0.01 : 0.06;
+        C_list = 0.02 : 0.04 : 0.14;
     else
         %细查
          fprintf('\n[第二阶段: 微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
             best_coarse.P/1e6, best_coarse.E, best_coarse.C);
-        P_list = max(1.4e6, best_coarse.P - 0.10e6) : 0.04e6 : (best_coarse.P + 0.10e6);
-        E_list = max(0.04, best_coarse.E - 0.04) : 0.02 : (best_coarse.E + 0.04);
-        C_list = max(0.05, best_coarse.C - 0.05) : 0.05 : (best_coarse.C + 0.05);
+        P_list = max(1.90e6, best_coarse.P - 0.06e6) : 0.02e6 : (best_coarse.P + 0.06e6);
+        E_list = max(0.02, best_coarse.E - 0.02) : 0.01 : (best_coarse.E + 0.02);
+        C_list = max(0.02, best_coarse.C - 0.02) : 0.02 : (best_coarse.C + 0.02);
     end
 
     [Pg, Eg, Cg] = ndgrid(P_list, E_list, C_list);
