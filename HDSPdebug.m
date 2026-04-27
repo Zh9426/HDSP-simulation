@@ -40,6 +40,21 @@ research_mode.sample_stride = 1;
 research_mode.max_samples_per_run = 30000;
 research_mode.run_label = 'baseline';
 research_mode.enable_run_export = true;
+exit_plane_analysis.enabled = false;
+cavitation_model.enabled = true;
+cavitation_model.pressure_on = 1.8e6;
+cavitation_model.pressure_full = 2.2e6;
+cavitation_model.pressure_stream = 2.7e6;
+cavitation_model.pressure_damage = 3.2e6;
+cavitation_model.saturation_shape = 4.0;
+cavitation_model.trigger_sharpness = 3.0;
+cavitation_model.streaming_penalty_strength = 0.75;
+cavitation_model.streaming_penalty_power = 1.5;
+cavitation_model.smooth_sigma_px = 0.8;
+cavitation_model.z_sigma_mm = 0.8;
+cavitation_model.heat_gain = 0.30;
+cavitation_model.trigger_gain = 10.0;
+cavitation_model.growth_gain = 1.5;
 
 dx = Lx / Nx;
 dy = dx;
@@ -344,6 +359,7 @@ actual_z_dist_mm = actual_z_dist_idx * dz * 1e3;
 
 %% 6.相位板出口分析
 fprintf('执行出口平面声场分析\n');
+if exit_plane_analysis.enabled
 %记录出口平面声场
 exit_sensor.mask = zeros(Nx, Ny, Nz);
 exit_sensor.mask(:, :, z_board_exit_idx) = 1;
@@ -473,7 +489,51 @@ board_exit_kwave_corr = corr2(board_exit_asm_norm, ...
     (scan_vol(:, :, best_slice_idx) - min(scan_vol(:, :, best_slice_idx), [], 'all')) / ...
     (max(scan_vol(:, :, best_slice_idx), [], 'all') - min(scan_vol(:, :, best_slice_idx), [], 'all') + eps));
 
-if research_mode.enabled && research_mode.enable_run_export
+else
+    disp('Skipping exit-plane second simulation and using safe defaults.');
+    exit_defaults = build_exit_plane_analysis_defaults(Nx, Ny, thickness_map, circle_mask_board, dx, dz, net_num_board);
+    p_exit_complex = exit_defaults.p_exit_complex;
+    p_exit_amp = exit_defaults.p_exit_amp;
+    p_exit_amp_norm = exit_defaults.p_exit_amp_norm;
+    p_exit_phase = exit_defaults.p_exit_phase;
+    exit_amp_cv = exit_defaults.exit_amp_cv;
+    exit_amp_min_ratio = exit_defaults.exit_amp_min_ratio;
+    thickness_mm = exit_defaults.thickness_mm;
+    thickness_grad_norm = exit_defaults.thickness_grad_norm;
+    local_thickness_mean = exit_defaults.local_thickness_mean;
+    local_thickness_std = exit_defaults.local_thickness_std;
+    aperture_edge_distance_mm = exit_defaults.aperture_edge_distance_mm;
+    valid_exit_mask = exit_defaults.valid_exit_mask;
+    thickness_vals_mm = exit_defaults.thickness_vals_mm;
+    grad_vals = exit_defaults.grad_vals;
+    exit_amp_vals = exit_defaults.exit_amp_vals;
+    local_mean_vals_mm = exit_defaults.local_mean_vals_mm;
+    local_std_vals_mm = exit_defaults.local_std_vals_mm;
+    edge_dist_vals_mm = exit_defaults.edge_dist_vals_mm;
+    edge_amp_mean = exit_defaults.edge_amp_mean;
+    flat_amp_mean = exit_defaults.flat_amp_mean;
+    thickness_amp_corr = exit_defaults.thickness_amp_corr;
+    grad_amp_corr = exit_defaults.grad_amp_corr;
+    local_mean_amp_corr = exit_defaults.local_mean_amp_corr;
+    local_std_amp_corr = exit_defaults.local_std_amp_corr;
+    edge_dist_amp_corr = exit_defaults.edge_dist_amp_corr;
+    exit_amp_model_r2 = exit_defaults.exit_amp_model_r2;
+    unique_layers = exit_defaults.unique_layers;
+    layer_mean_amp = exit_defaults.layer_mean_amp;
+    layer_std_amp = exit_defaults.layer_std_amp;
+    layer_mean_thickness_mm = exit_defaults.layer_mean_thickness_mm;
+    thickness_scatter_mm = exit_defaults.thickness_scatter_mm;
+    grad_scatter = exit_defaults.grad_scatter;
+    exit_amp_scatter = exit_defaults.exit_amp_scatter;
+    local_std_scatter_mm = exit_defaults.local_std_scatter_mm;
+    edge_dist_scatter_mm = exit_defaults.edge_dist_scatter_mm;
+    model_pred_scatter = exit_defaults.model_pred_scatter;
+    board_exit_asm_amp = exit_defaults.board_exit_asm_amp;
+    board_exit_asm_norm = exit_defaults.board_exit_asm_norm;
+    board_exit_asm_pcc = exit_defaults.board_exit_asm_pcc;
+    board_exit_kwave_corr = exit_defaults.board_exit_kwave_corr;
+end
+if research_mode.enabled && research_mode.enable_run_export && exit_plane_analysis.enabled
     if ~exist(research_mode.export_dir, 'dir')
         mkdir(research_mode.export_dir);
     end
@@ -518,7 +578,7 @@ rho_pdms = density_pdms;  c_pdms_heat = c_pdms; Cp_pdms_heat = Cp_pdms; k_pdms_h
 rho_water_heat = density_water;  c_water_heat = c_water; Cp_water_heat = Cp_water; k_water_heat = k_water;
 alpha_np_pdms = (alpha_coeff_pdms / 8.686) * 100 * (f0 / 1e6)^alpha_power_pdms;
 alpha_np_water = (alpha_coeff_water / 8.686) * 100 * (f0 / 1e6)^alpha_power_water;
-cavitation_limit = 2.0e6;
+pressure_cap = cavitation_model.pressure_damage * 1.05;
 
 E_a = 9.5e4; A_freq = 8.0e15; R_gas = 8.314;
 inv_dx2 = 1 / (dx^2);
@@ -539,22 +599,22 @@ for phase = 1:2
     if phase == 1
         %曝光时间，声压与冷却时间粗查
         fprintf('\n[第一阶段:粗扫]...\n');
-        P_list = (1.2 : 0.2 : 1.8) * 1e6;
-        E_list = 0.15 : 0.10 : 0.45;
+        P_list = (1.6 : 0.15 : 2.5) * 1e6;
+        E_list = 0.06 : 0.06 : 0.30;
         C_list = 0.10 : 0.10 : 0.30;
     else
         %细查
          fprintf('\n[第二阶段: 微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
             best_coarse.P/1e6, best_coarse.E, best_coarse.C);
-        P_list = (best_coarse.P - 0.1e6) : 0.05e6 : (best_coarse.P + 0.1e6);
-        E_list = max(0.10, best_coarse.E - 0.05) : 0.02 : (best_coarse.E + 0.05);
+        P_list = max(1.4e6, best_coarse.P - 0.10e6) : 0.04e6 : (best_coarse.P + 0.10e6);
+        E_list = max(0.04, best_coarse.E - 0.04) : 0.02 : (best_coarse.E + 0.04);
         C_list = max(0.05, best_coarse.C - 0.05) : 0.05 : (best_coarse.C + 0.05);
     end
 
     [Pg, Eg, Cg] = ndgrid(P_list, E_list, C_list);
     params_all = [Pg(:), Eg(:), Cg(:)];
     energy_index = (params_all(:, 1) / 1e6).^2 .* params_all(:, 2);
-    valid_mask = (energy_index >= 0.3) & (energy_index <= 1.2);
+    valid_mask = (energy_index >= 0.25) & (energy_index <= 2.4);
     params_valid = sortrows(params_all(valid_mask, :), 1);
     num_tests = size(params_valid, 1);
     current_P = -1;
@@ -567,7 +627,7 @@ for phase = 1:2
         if p_target ~= current_P
             scale_factor = p_target / median_roi_p;
             p_3d_scaled = p_3d_abs * scale_factor;
-            p_3d_scaled(p_3d_scaled > cavitation_limit) = cavitation_limit;
+            p_3d_scaled(p_3d_scaled > pressure_cap) = pressure_cap;
 
             k_3d = k_water_heat * ones(Nx, Ny, Nz, 'single');
             k_3d(:, :, pdms_z_start_idx:pdms_z_end_idx) = k_pdms_heat;
@@ -586,8 +646,35 @@ for phase = 1:2
                 Q_heat_3d(:, :, pdms_z_end_idx+1:end) = 2 * alpha_np_water * I_3d_water_upper;
             end
 
+            cavitation_trigger_crop = zeros(Nx, Ny, z_crop_len, 'single');
+            cavitation_growth_crop = zeros(Nx, Ny, z_crop_len, 'single');
+            cavitation_reaction_slice = zeros(Nx, Ny, 'single');
+            cavitation_heat_gain_crop = ones(Nx, Ny, z_crop_len, 'single');
+            if cavitation_model.enabled
+                pdms_mask_full = false(Nx, Ny, Nz);
+                pdms_mask_full(:, :, pdms_z_start_idx:pdms_z_end_idx) = true;
+                pdms_mask_crop = pdms_mask_full(:, :, z_crop_start:z_crop_end);
+                cavitation_params = cavitation_model;
+                cavitation_params.mask = pdms_mask_crop;
+                cavitation_base = compute_cavitation_activity_map( ...
+                    p_3d_scaled(:, :, z_crop_start:z_crop_end), cavitation_params);
+                z_dist_mm = abs(((z_crop_start:z_crop_end) - best_idx_global) * dz * 1e3);
+                z_focus_weight = exp(-0.5 * (z_dist_mm / cavitation_model.z_sigma_mm).^2);
+                z_focus_weight = reshape(single(z_focus_weight), 1, 1, []);
+                cavitation_trigger_crop = single(cavitation_base.trigger) .* z_focus_weight;
+                cavitation_growth_crop = single(cavitation_base.growth) .* z_focus_weight;
+                cavitation_trigger_crop(~pdms_mask_crop) = 0;
+                cavitation_growth_crop(~pdms_mask_crop) = 0;
+                cavitation_heat_gain_crop = 1 + cavitation_model.heat_gain .* cavitation_growth_crop;
+                cavitation_reaction_slice = cavitation_trigger_crop(:, :, best_idx_crop);
+            end
+
+
             k_3d_base_gpu = gpuArray(k_3d(:, :, z_crop_start:z_crop_end));
             rho_Cp_3d_gpu = gpuArray(rho_Cp_3d(:, :, z_crop_start:z_crop_end));
+            cavitation_heat_gain_gpu = gpuArray(cavitation_heat_gain_crop);
+            cavitation_trigger_gpu = gpuArray(cavitation_reaction_slice);
+            cavitation_growth_gpu = gpuArray(cavitation_growth_crop(:, :, best_idx_crop));
             Q_heat_3d_gpu = gpuArray(Q_heat_3d(:, :, z_crop_start:z_crop_end));
             current_P = p_target;
         end
@@ -626,6 +713,7 @@ for phase = 1:2
                 abs_multiplier = 1.0 + 3.0 * chi_focal;
                 Q_dynamic = Q_heat_3d_gpu;
                 Q_dynamic(:, :, best_idx_crop) = Q_heat_3d_gpu(:, :, best_idx_crop) .* abs_multiplier;
+                Q_dynamic = Q_dynamic .* cavitation_heat_gain_gpu;
                 T_3d_gpu = T_3d_gpu + dt_th * (thermal_diffusion_term + Q_dynamic ./ rho_Cp_3d_gpu);
             else
                 T_3d_gpu = T_3d_gpu + dt_th * thermal_diffusion_term;
@@ -635,6 +723,10 @@ for phase = 1:2
             T_max_history_tmp(step) = gather(max(T_focal_slice(:)));
             T_current_K = T_focal_slice + 273.15;
             reaction_rate = A_freq .* exp(-E_a ./ (R_gas .* T_current_K));
+            reaction_multiplier = 1 ...
+                + cavitation_model.trigger_gain .* cavitation_trigger_gpu ...
+                + cavitation_model.growth_gain .* cavitation_growth_gpu .* chi_focal;
+            reaction_rate = reaction_rate .* reaction_multiplier;
             Arrhenius_Omega_gpu = Arrhenius_Omega_gpu + reaction_rate .* dt_th;
         end
 
@@ -659,6 +751,10 @@ for phase = 1:2
             best_record.T_max_history = T_max_history_tmp;
             best_record.Nt_th = Nt_th;
             best_record.p_3d_scaled = p_3d_scaled;
+            best_record.cavitation_activity_2d = double(cavitation_reaction_slice);
+            best_record.cavitation_heat_gain_2d = double(cavitation_heat_gain_crop(:, :, best_idx_crop));
+            best_record.cavitation_peak = max(double(cavitation_reaction_slice(:)));
+            best_record.cavitation_roi_mean = mean(double(cavitation_reaction_slice(roi_mask)));
             if phase == 1
                 best_coarse.P = p_target;
                 best_coarse.E = t_exp;
@@ -681,6 +777,10 @@ Omega_final_2d = best_record.Omega_final_2d;
 T_max_history = best_record.T_max_history;
 Nt_th = best_record.Nt_th;
 p_3d_scaled = best_record.p_3d_scaled;
+cavitation_activity_2d = best_record.cavitation_activity_2d;
+cavitation_heat_gain_2d = best_record.cavitation_heat_gain_2d;
+cavitation_peak = best_record.cavitation_peak;
+cavitation_roi_mean = best_record.cavitation_roi_mean;
 t_axis = (1:Nt_th) * dt_th;
 T_max_real = max(T_max_history);
 
@@ -878,6 +978,7 @@ fprintf('LocalMean-ExitAmp Corr: %.4f | LocalStd-ExitAmp Corr: %.4f\n', ...
 fprintf('EdgeDist-ExitAmp Corr: %.4f | Multi-factor R^2: %.4f\n', ...
     edge_dist_amp_corr, exit_amp_model_r2);
 fprintf('Edge Mean ExitAmp: %.4f | Flat Mean ExitAmp: %.4f\n', edge_amp_mean, flat_amp_mean);
+fprintf('Cavitation peak/ROI mean: %.4f / %.4f\n', cavitation_peak, cavitation_roi_mean);
 fprintf('----------------------------------------\n');
 fprintf('固化分析\n');
 fprintf('最佳固化指标出自: %.2f MPa + %.2f s曝光 ( %.2f s冷却)\n', target_median_pressure / 1e6, exposure_time, cooling_time);
