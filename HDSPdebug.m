@@ -63,7 +63,7 @@ cavitation_model.growth_gain = 0.0;
 thermal_feedback.trigger_gain = cavitation_model.trigger_gain;
 thermal_feedback.growth_gain = cavitation_model.growth_gain;
 cure_model.threshold = 1.0;
-cure_model.threshold_candidates = 0.90 : 0.05 : 1.60;
+cure_model.threshold_candidates = 1.00 : 0.05 : 1.40;
 cure_model.cavitation_dose_time = 0.04;
 cure_model.thermal_dose_time = 0.12;
 cure_model.thermal_delta_ref = 20.0;
@@ -629,14 +629,14 @@ for phase = 1:2
         %曝光时间，声压与冷却时间粗查
         fprintf('\n[第一阶段:粗扫]...\n');
         P_list = (1.44 : 0.02 : 1.52) * 1e6;
-        E_list = 0.41 : 0.02 : 0.49;
+        E_list = 0.39 : 0.02 : 0.47;
         C_list = 0.42 : 0.04 : 0.54;
     else
         %细查
          fprintf('\n[第二阶段: 微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
             best_coarse.P/1e6, best_coarse.E, best_coarse.C);
         P_list = max(1.40e6, best_coarse.P - 0.04e6) : 0.01e6 : (best_coarse.P + 0.04e6);
-        E_list = max(0.38, best_coarse.E - 0.02) : 0.01 : (best_coarse.E + 0.02);
+        E_list = max(0.38, best_coarse.E - 0.02) : 0.01 : min(0.49, best_coarse.E + 0.02);
         C_list = max(0.38, best_coarse.C - 0.04) : 0.02 : (best_coarse.C + 0.04);
     end
 
