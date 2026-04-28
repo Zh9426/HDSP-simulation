@@ -61,12 +61,14 @@ cavitation_model.growth_gain = 0.0;
 thermal_feedback.trigger_gain = cavitation_model.trigger_gain;
 thermal_feedback.growth_gain = cavitation_model.growth_gain;
 cure_model.threshold = 1.0;
-cure_model.cavitation_dose_time = 0.08;
+cure_model.cavitation_dose_time = 0.06;
 cure_model.thermal_dose_time = 0.12;
 cure_model.thermal_delta_ref = 20.0;
 cure_model.thermal_weight = 0.15;
 cure_model.penalty_weight = 0.60;
 cure_model.bulk_ref_temp = 25.0;
+cure_model.dose_growth_floor = 0.60;
+cure_model.dose_trigger_weight = 0.40;
 
 dx = Lx / Nx;
 dy = dx;
@@ -612,14 +614,14 @@ for phase = 1:2
         %曝光时间，声压与冷却时间粗查
         fprintf('\n[第一阶段:粗扫]...\n');
         P_list = (1.70 : 0.02 : 1.90) * 1e6;
-        E_list = 0.11 : 0.01 : 0.14;
+        E_list = 0.12 : 0.01 : 0.18;
         C_list = 0.24 : 0.02 : 0.40;
     else
         %细查
          fprintf('\n[第二阶段: 微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
             best_coarse.P/1e6, best_coarse.E, best_coarse.C);
         P_list = max(1.66e6, best_coarse.P - 0.04e6) : 0.01e6 : (best_coarse.P + 0.04e6);
-        E_list = max(0.10, best_coarse.E - 0.02) : 0.01 : (best_coarse.E + 0.02);
+        E_list = max(0.10, best_coarse.E - 0.03) : 0.01 : (best_coarse.E + 0.03);
         C_list = max(0.20, best_coarse.C - 0.04) : 0.02 : (best_coarse.C + 0.04);
     end
 
@@ -736,7 +738,8 @@ for phase = 1:2
                 Q_dynamic(:, :, best_idx_crop) = Q_heat_3d_gpu(:, :, best_idx_crop) .* absorption_multiplier;
                 Q_dynamic = Q_dynamic .* cavitation_heat_gain_gpu;
                 T_3d_gpu = T_3d_gpu + dt_th * (thermal_diffusion_term + Q_dynamic ./ rho_Cp_3d_gpu);
-                cavitation_rate = cavitation_trigger_gpu .* (0.35 + 0.65 .* cavitation_growth_gpu);
+                cavitation_rate = single(compute_cavitation_dose_rate( ...
+                    cavitation_trigger_gpu, cavitation_growth_gpu, cure_model));
                 cavitation_dose_gpu = cavitation_dose_gpu ...
                     + cavitation_rate .* single(dt_th / cure_model.cavitation_dose_time);
             else
