@@ -52,11 +52,11 @@ cavitation_model.streaming_penalty_strength = 0.75;
 cavitation_model.streaming_penalty_power = 1.5;
 cavitation_model.smooth_sigma_px = 0.8;
 cavitation_model.z_sigma_mm = 0.8;
-thermal_feedback.source_scale = 0.18;
-thermal_feedback.absorption_gain = 0.35;
+thermal_feedback.source_scale = 0.15;
+thermal_feedback.absorption_gain = 0.28;
 thermal_feedback.conductivity_gain = 0.2;
 cavitation_model.heat_gain = 0.0;
-cavitation_model.trigger_gain = 5.2;
+cavitation_model.trigger_gain = 5.6;
 cavitation_model.growth_gain = 0.0;
 thermal_feedback.trigger_gain = cavitation_model.trigger_gain;
 thermal_feedback.growth_gain = cavitation_model.growth_gain;
@@ -604,16 +604,16 @@ for phase = 1:2
     if phase == 1
         %曝光时间，声压与冷却时间粗查
         fprintf('\n[第一阶段:粗扫]...\n');
-        P_list = (1.94 : 0.03 : 2.10) * 1e6;
-        E_list = 0.10 : 0.01 : 0.14;
-        C_list = 0.14 : 0.02 : 0.24;
+        P_list = (1.82 : 0.02 : 1.98) * 1e6;
+        E_list = 0.11 : 0.01 : 0.15;
+        C_list = 0.20 : 0.02 : 0.32;
     else
         %细查
          fprintf('\n[第二阶段: 微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
             best_coarse.P/1e6, best_coarse.E, best_coarse.C);
-        P_list = max(1.90e6, best_coarse.P - 0.05e6) : 0.01e6 : (best_coarse.P + 0.05e6);
-        E_list = max(0.08, best_coarse.E - 0.02) : 0.01 : (best_coarse.E + 0.02);
-        C_list = max(0.12, best_coarse.C - 0.04) : 0.02 : (best_coarse.C + 0.04);
+        P_list = max(1.78e6, best_coarse.P - 0.04e6) : 0.01e6 : (best_coarse.P + 0.04e6);
+        E_list = max(0.10, best_coarse.E - 0.02) : 0.01 : (best_coarse.E + 0.02);
+        C_list = max(0.18, best_coarse.C - 0.04) : 0.02 : (best_coarse.C + 0.04);
     end
 
     [Pg, Eg, Cg] = ndgrid(P_list, E_list, C_list);
