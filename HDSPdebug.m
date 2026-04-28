@@ -52,9 +52,14 @@ cavitation_model.streaming_penalty_strength = 0.75;
 cavitation_model.streaming_penalty_power = 1.5;
 cavitation_model.smooth_sigma_px = 0.8;
 cavitation_model.z_sigma_mm = 0.8;
-cavitation_model.heat_gain = 0.10;
-cavitation_model.trigger_gain = 6;
-cavitation_model.growth_gain = 0.6;
+thermal_feedback.source_scale = 0.24;
+thermal_feedback.absorption_gain = 0.5;
+thermal_feedback.conductivity_gain = 0.2;
+cavitation_model.heat_gain = 0.0;
+cavitation_model.trigger_gain = 4.8;
+cavitation_model.growth_gain = 0.0;
+thermal_feedback.trigger_gain = cavitation_model.trigger_gain;
+thermal_feedback.growth_gain = cavitation_model.growth_gain;
 
 dx = Lx / Nx;
 dy = dx;
@@ -599,16 +604,16 @@ for phase = 1:2
     if phase == 1
         %曝光时间，声压与冷却时间粗查
         fprintf('\n[第一阶段:粗扫]...\n');
-        P_list = (1.95 : 0.05 : 2.15) * 1e6;
-        E_list = 0.02 : 0.01 : 0.06;
-        C_list = 0.02 : 0.04 : 0.14;
+        P_list = (2.10 : 0.04 : 2.32) * 1e6;
+        E_list = 0.06 : 0.01 : 0.10;
+        C_list = 0.08 : 0.02 : 0.16;
     else
         %细查
          fprintf('\n[第二阶段: 微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
             best_coarse.P/1e6, best_coarse.E, best_coarse.C);
-        P_list = max(1.90e6, best_coarse.P - 0.06e6) : 0.02e6 : (best_coarse.P + 0.06e6);
-        E_list = max(0.02, best_coarse.E - 0.02) : 0.01 : (best_coarse.E + 0.02);
-        C_list = max(0.02, best_coarse.C - 0.02) : 0.02 : (best_coarse.C + 0.02);
+        P_list = max(2.04e6, best_coarse.P - 0.06e6) : 0.02e6 : (best_coarse.P + 0.06e6);
+        E_list = max(0.05, best_coarse.E - 0.02) : 0.01 : (best_coarse.E + 0.02);
+        C_list = max(0.06, best_coarse.C - 0.04) : 0.02 : (best_coarse.C + 0.02);
     end
 
     [Pg, Eg, Cg] = ndgrid(P_list, E_list, C_list);
@@ -645,6 +650,7 @@ for phase = 1:2
                 I_3d_water_upper = single((p_3d_scaled(:, :, pdms_z_end_idx+1:end).^2) ./ (2 * rho_water_heat * c_water_heat));
                 Q_heat_3d(:, :, pdms_z_end_idx+1:end) = 2 * alpha_np_water * I_3d_water_upper;
             end
+            Q_heat_3d = single(thermal_feedback.source_scale) .* Q_heat_3d;
 
             cavitation_trigger_crop = zeros(Nx, Ny, z_crop_len, 'single');
             cavitation_growth_crop = zeros(Nx, Ny, z_crop_len, 'single');
@@ -690,7 +696,10 @@ for phase = 1:2
 
         for step = 1:Nt_th
             chi_focal = 1.0 - exp(-Arrhenius_Omega_gpu);
-            k_3d_gpu(:, :, best_idx_crop) = k_pdms_heat * (1.0 + 0.6 * chi_focal);
+            [conductivity_multiplier, absorption_multiplier, reaction_multiplier] = ...
+                compute_cure_feedback_terms(thermal_feedback, chi_focal, ...
+                cavitation_trigger_gpu, cavitation_growth_gpu);
+            k_3d_gpu(:, :, best_idx_crop) = k_pdms_heat .* conductivity_multiplier;
 
             T_diff_x = diff(T_3d_gpu, 1, 1);
             k_mid_x = (k_3d_gpu(1:end-1, :, :) + k_3d_gpu(2:end, :, :)) / 2;
@@ -710,9 +719,8 @@ for phase = 1:2
             thermal_diffusion_term = (div_flux_x + div_flux_y + div_flux_z) ./ rho_Cp_3d_gpu * inv_dx2;
 
             if step <= step_exposure_end
-                abs_multiplier = 1.0 + 3.0 * chi_focal;
                 Q_dynamic = Q_heat_3d_gpu;
-                Q_dynamic(:, :, best_idx_crop) = Q_heat_3d_gpu(:, :, best_idx_crop) .* abs_multiplier;
+                Q_dynamic(:, :, best_idx_crop) = Q_heat_3d_gpu(:, :, best_idx_crop) .* absorption_multiplier;
                 Q_dynamic = Q_dynamic .* cavitation_heat_gain_gpu;
                 T_3d_gpu = T_3d_gpu + dt_th * (thermal_diffusion_term + Q_dynamic ./ rho_Cp_3d_gpu);
             else
@@ -723,9 +731,6 @@ for phase = 1:2
             T_max_history_tmp(step) = gather(max(T_focal_slice(:)));
             T_current_K = T_focal_slice + 273.15;
             reaction_rate = A_freq .* exp(-E_a ./ (R_gas .* T_current_K));
-            reaction_multiplier = 1 ...
-                + cavitation_model.trigger_gain .* cavitation_trigger_gpu ...
-                + cavitation_model.growth_gain .* cavitation_growth_gpu .* chi_focal;
             reaction_rate = reaction_rate .* reaction_multiplier;
             Arrhenius_Omega_gpu = Arrhenius_Omega_gpu + reaction_rate .* dt_th;
         end
@@ -784,7 +789,7 @@ cavitation_roi_mean = best_record.cavitation_roi_mean;
 t_axis = (1:Nt_th) * dt_th;
 T_max_real = max(T_max_history);
 
-%% 8.结果处理
+% 8.结果处理
 Thermal_Dose_Threshold = 1.0;
 cured_mask_2d = Omega_final_2d >= Thermal_Dose_Threshold;
 R_binary = imag_target > 0.5;
@@ -809,7 +814,7 @@ asm_kwave_nmse = sum((asm_iasa_norm(:) - p_focal_norm(:)).^2) / sum(asm_iasa_nor
 asm_python_kwave_corr = corr2(asm_python_norm, p_focal_norm);
 asm_python_kwave_nmse = sum((asm_python_norm(:) - p_focal_norm(:)).^2) / sum(asm_python_norm(:).^2);
 
-%% 9.可视化
+% 9.可视化
 figure(1); clf; set(gcf, 'Position', [120, 120, 1400, 420], 'Color', 'w');
 subplot(1, 4, 1);
 imagesc(x * 1e3, y * 1e3, target_norm_asm); axis image; colormap(gca, gray);
@@ -952,7 +957,7 @@ subplot(3, 5, [14 15]);
 surf(X_surf, Y_surf, p_focal_scaled / 1e6); shading interp; colormap(gca, jet); colorbar;
 title('3D焦面声压场(MPa)'); xlabel('mm'); ylabel('mm'); zlabel('MPa');
 
-%% 10. Report
+% 10. Report
 fprintf('\n========================================\n');
 fprintf('系统参数\n');
 fprintf('频率: %.2f MHz | Lens OD: %.1f mm\n', f0 / 1e6, Lx * 1e3);
