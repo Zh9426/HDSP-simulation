@@ -52,14 +52,21 @@ cavitation_model.streaming_penalty_strength = 0.75;
 cavitation_model.streaming_penalty_power = 1.5;
 cavitation_model.smooth_sigma_px = 0.8;
 cavitation_model.z_sigma_mm = 0.8;
-thermal_feedback.source_scale = 0.13;
-thermal_feedback.absorption_gain = 0.22;
-thermal_feedback.conductivity_gain = 0.2;
+thermal_feedback.source_scale = 0.02;
+thermal_feedback.absorption_gain = 0.05;
+thermal_feedback.conductivity_gain = 0.05;
 cavitation_model.heat_gain = 0.0;
 cavitation_model.trigger_gain = 5.6;
 cavitation_model.growth_gain = 0.0;
 thermal_feedback.trigger_gain = cavitation_model.trigger_gain;
 thermal_feedback.growth_gain = cavitation_model.growth_gain;
+cure_model.threshold = 1.0;
+cure_model.cavitation_dose_time = 0.08;
+cure_model.thermal_dose_time = 0.12;
+cure_model.thermal_delta_ref = 20.0;
+cure_model.thermal_weight = 0.15;
+cure_model.penalty_weight = 0.60;
+cure_model.bulk_ref_temp = 25.0;
 
 dx = Lx / Nx;
 dy = dx;
@@ -654,6 +661,7 @@ for phase = 1:2
 
             cavitation_trigger_crop = zeros(Nx, Ny, z_crop_len, 'single');
             cavitation_growth_crop = zeros(Nx, Ny, z_crop_len, 'single');
+            cavitation_penalty_crop = zeros(Nx, Ny, z_crop_len, 'single');
             cavitation_reaction_slice = zeros(Nx, Ny, 'single');
             cavitation_heat_gain_crop = ones(Nx, Ny, z_crop_len, 'single');
             if cavitation_model.enabled
@@ -669,8 +677,10 @@ for phase = 1:2
                 z_focus_weight = reshape(single(z_focus_weight), 1, 1, []);
                 cavitation_trigger_crop = single(cavitation_base.trigger) .* z_focus_weight;
                 cavitation_growth_crop = single(cavitation_base.growth) .* z_focus_weight;
+                cavitation_penalty_crop = single(cavitation_base.penalty) .* z_focus_weight;
                 cavitation_trigger_crop(~pdms_mask_crop) = 0;
                 cavitation_growth_crop(~pdms_mask_crop) = 0;
+                cavitation_penalty_crop(~pdms_mask_crop) = 0;
                 cavitation_heat_gain_crop = 1 + cavitation_model.heat_gain .* cavitation_growth_crop;
                 cavitation_reaction_slice = cavitation_trigger_crop(:, :, best_idx_crop);
             end
@@ -681,6 +691,7 @@ for phase = 1:2
             cavitation_heat_gain_gpu = gpuArray(cavitation_heat_gain_crop);
             cavitation_trigger_gpu = gpuArray(cavitation_reaction_slice);
             cavitation_growth_gpu = gpuArray(cavitation_growth_crop(:, :, best_idx_crop));
+            cavitation_penalty_gpu = gpuArray(cavitation_penalty_crop(:, :, best_idx_crop));
             Q_heat_3d_gpu = gpuArray(Q_heat_3d(:, :, z_crop_start:z_crop_end));
             current_P = p_target;
         end
@@ -692,10 +703,12 @@ for phase = 1:2
         T_3d_gpu = 25 * ones(Nx, Ny, z_crop_len, 'single', 'gpuArray');
         k_3d_gpu = k_3d_base_gpu;
         Arrhenius_Omega_gpu = zeros(Nx, Ny, 'single', 'gpuArray');
+        cavitation_dose_gpu = zeros(Nx, Ny, 'single', 'gpuArray');
+        thermal_dose_gpu = zeros(Nx, Ny, 'single', 'gpuArray');
         T_max_history_tmp = zeros(Nt_th, 1);
 
         for step = 1:Nt_th
-            chi_focal = 1.0 - exp(-Arrhenius_Omega_gpu);
+            chi_focal = min(cavitation_dose_gpu, 1.0);
             [conductivity_multiplier, absorption_multiplier, reaction_multiplier] = ...
                 compute_cure_feedback_terms(thermal_feedback, chi_focal, ...
                 cavitation_trigger_gpu, cavitation_growth_gpu);
@@ -723,20 +736,33 @@ for phase = 1:2
                 Q_dynamic(:, :, best_idx_crop) = Q_heat_3d_gpu(:, :, best_idx_crop) .* absorption_multiplier;
                 Q_dynamic = Q_dynamic .* cavitation_heat_gain_gpu;
                 T_3d_gpu = T_3d_gpu + dt_th * (thermal_diffusion_term + Q_dynamic ./ rho_Cp_3d_gpu);
+                cavitation_rate = cavitation_trigger_gpu .* (0.35 + 0.65 .* cavitation_growth_gpu);
+                cavitation_dose_gpu = cavitation_dose_gpu ...
+                    + cavitation_rate .* single(dt_th / cure_model.cavitation_dose_time);
             else
                 T_3d_gpu = T_3d_gpu + dt_th * thermal_diffusion_term;
             end
 
             T_focal_slice = T_3d_gpu(:, :, best_idx_crop);
             T_max_history_tmp(step) = gather(max(T_focal_slice(:)));
+            bulk_temp_rise = max(T_focal_slice - single(cure_model.bulk_ref_temp), 0);
+            thermal_dose_gpu = thermal_dose_gpu ...
+                + (bulk_temp_rise ./ single(cure_model.thermal_delta_ref)) ...
+                .* single(dt_th / cure_model.thermal_dose_time);
             T_current_K = T_focal_slice + 273.15;
             reaction_rate = A_freq .* exp(-E_a ./ (R_gas .* T_current_K));
             reaction_rate = reaction_rate .* reaction_multiplier;
             Arrhenius_Omega_gpu = Arrhenius_Omega_gpu + reaction_rate .* dt_th;
         end
 
-        Omega_tmp = gather(double(Arrhenius_Omega_gpu));
-        cured_mask_tmp = (Omega_tmp >= 1.0);
+        cavitation_dose_tmp = gather(double(cavitation_dose_gpu));
+        thermal_dose_tmp = gather(double(thermal_dose_gpu));
+        penalty_tmp = gather(double(cavitation_penalty_gpu));
+        arrhenius_omega_tmp = gather(double(Arrhenius_Omega_gpu));
+        [cure_score_tmp, cured_mask_tmp, cure_components_tmp] = ...
+            compute_cavitation_cure_score(cavitation_dose_tmp, thermal_dose_tmp, ...
+            penalty_tmp, cure_model);
+        Omega_tmp = cure_score_tmp;
         target_mask_2d = double(imag_target > 0.5);
         intersection = sum(cured_mask_tmp(:) & target_mask_2d(:));
         union_area = sum(cured_mask_tmp(:) | target_mask_2d(:));
@@ -753,6 +779,12 @@ for phase = 1:2
             best_record.T_focal_2d = gather(double(T_3d_gpu(:, :, best_idx_crop)));
             best_record.Q_focal_2d = gather(double(Q_heat_3d_gpu(:, :, best_idx_crop)));
             best_record.Omega_final_2d = Omega_tmp;
+            best_record.Arrhenius_Omega_thermal_2d = arrhenius_omega_tmp;
+            best_record.cavitation_dose_2d = cure_components_tmp.cavitation_dose;
+            best_record.thermal_aux_dose_2d = cure_components_tmp.thermal_dose;
+            best_record.thermal_aux_contribution_2d = cure_components_tmp.thermal_contribution;
+            best_record.overdrive_penalty_2d = cure_components_tmp.penalty;
+            best_record.overdrive_penalty_contribution_2d = cure_components_tmp.penalty_contribution;
             best_record.T_max_history = T_max_history_tmp;
             best_record.Nt_th = Nt_th;
             best_record.p_3d_scaled = p_3d_scaled;
@@ -779,6 +811,12 @@ cooling_time = best_record.t_cool;
 T_focal_2d = best_record.T_focal_2d;
 Q_focal_2d = best_record.Q_focal_2d;
 Omega_final_2d = best_record.Omega_final_2d;
+Arrhenius_Omega_thermal_2d = best_record.Arrhenius_Omega_thermal_2d;
+cavitation_dose_2d = best_record.cavitation_dose_2d;
+thermal_aux_dose_2d = best_record.thermal_aux_dose_2d;
+thermal_aux_contribution_2d = best_record.thermal_aux_contribution_2d;
+overdrive_penalty_2d = best_record.overdrive_penalty_2d;
+overdrive_penalty_contribution_2d = best_record.overdrive_penalty_contribution_2d;
 T_max_history = best_record.T_max_history;
 Nt_th = best_record.Nt_th;
 p_3d_scaled = best_record.p_3d_scaled;
@@ -790,10 +828,16 @@ t_axis = (1:Nt_th) * dt_th;
 T_max_real = max(T_max_history);
 
 % 8.结果处理
-Thermal_Dose_Threshold = 1.0;
-cured_mask_2d = Omega_final_2d >= Thermal_Dose_Threshold;
+Cure_Score_Threshold = cure_model.threshold;
+cured_mask_2d = Omega_final_2d >= Cure_Score_Threshold;
 R_binary = imag_target > 0.5;
 ROI_pixels = sum(R_binary(:));
+cavitation_dose_peak = max(cavitation_dose_2d(:));
+cavitation_dose_roi_mean = mean(cavitation_dose_2d(R_binary));
+thermal_aux_roi_mean = mean(thermal_aux_contribution_2d(R_binary));
+overdrive_penalty_roi_mean = mean(overdrive_penalty_contribution_2d(R_binary));
+arrhenius_thermal_roi_mean = mean(Arrhenius_Omega_thermal_2d(R_binary));
+bulk_deltaT_max = T_max_real - cure_model.bulk_ref_temp;
 
 cured_coverage = (sum(cured_mask_2d(:) & R_binary(:)) / ROI_pixels) * 100;
 if cured_coverage > 100, cured_coverage = 100; end
@@ -920,7 +964,7 @@ title('厚度 (mm)'); xlabel('mm'); ylabel('mm');
 subplot(3, 5, 5);
 imagesc(x * 1e3, y * 1e3, Omega_final_2d); axis image; colormap(gca, turbo); colorbar;
 clim([0, max(2.0, max(Omega_final_2d(:)))]);
-title('热剂量'); xlabel('mm'); ylabel('mm');
+title('固化评分'); xlabel('mm'); ylabel('mm');
 
 subplot(3, 5, 6);
 imagesc(x * 1e3, y * 1e3, Q_focal_2d / 1e6); axis image; colormap(gca, hot); colorbar;
@@ -987,7 +1031,12 @@ fprintf('Cavitation peak/ROI mean: %.4f / %.4f\n', cavitation_peak, cavitation_r
 fprintf('----------------------------------------\n');
 fprintf('固化分析\n');
 fprintf('最佳固化指标出自: %.2f MPa + %.2f s曝光 ( %.2f s冷却)\n', target_median_pressure / 1e6, exposure_time, cooling_time);
-fprintf('峰值温度: %.1f C\n', T_max_real);
+fprintf('Bulk Tmax / DeltaT: %.1f C / %.1f C\n', T_max_real, bulk_deltaT_max);
+fprintf('Cure score threshold: %.2f\n', Cure_Score_Threshold);
+fprintf('Cavitation dose peak/ROI mean: %.4f / %.4f\n', cavitation_dose_peak, cavitation_dose_roi_mean);
+fprintf('Thermal aux ROI mean: %.4f\n', thermal_aux_roi_mean);
+fprintf('Overdrive penalty ROI mean: %.4f\n', overdrive_penalty_roi_mean);
+fprintf('Arrhenius thermal diagnostic ROI mean: %.4f\n', arrhenius_thermal_roi_mean);
 fprintf('有效固化: %.1f%%\n', cured_coverage);
 fprintf('IoU: %.4f\n', IoU);
 fprintf('Dice: %.4f\n', Dice);
