@@ -63,6 +63,7 @@ cavitation_model.growth_gain = 0.0;
 thermal_feedback.trigger_gain = cavitation_model.trigger_gain;
 thermal_feedback.growth_gain = cavitation_model.growth_gain;
 cure_model.threshold = 1.0;
+cure_model.threshold_candidates = 0.90 : 0.05 : 1.60;
 cure_model.cavitation_dose_time = 0.04;
 cure_model.thermal_dose_time = 0.12;
 cure_model.thermal_delta_ref = 20.0;
@@ -620,7 +621,7 @@ best_IoU_global = 0;
 best_record = struct();
 best_coarse = struct('P', 1.5e6, 'E', 0.3, 'C', 0.2);
 near_best_iou_tol = 0.01;
-scan_records = zeros(10000, 5);
+scan_records = zeros(10000, 6);
 scan_record_count = 0;
 
 for phase = 1:2
@@ -776,25 +777,29 @@ for phase = 1:2
         thermal_dose_tmp = gather(double(thermal_dose_gpu));
         penalty_tmp = gather(double(cavitation_penalty_gpu));
         arrhenius_omega_tmp = gather(double(Arrhenius_Omega_gpu));
-        [cure_score_tmp, cured_mask_tmp, cure_components_tmp] = ...
+        [cure_score_tmp, ~, cure_components_tmp] = ...
             compute_cavitation_cure_score(cavitation_dose_tmp, thermal_dose_tmp, ...
             penalty_tmp, cure_model);
         Omega_tmp = cure_score_tmp;
-        target_mask_2d = double(imag_target > 0.5);
-        intersection = sum(cured_mask_tmp(:) & target_mask_2d(:));
-        union_area = sum(cured_mask_tmp(:) | target_mask_2d(:));
-        current_IoU = intersection / (union_area + 1e-10);
+        target_mask_2d = imag_target > 0.5;
+        threshold_result_tmp = select_cure_threshold( ...
+            Omega_tmp, target_mask_2d, cure_model.threshold_candidates);
+        cured_mask_tmp = threshold_result_tmp.cured_mask;
+        current_IoU = threshold_result_tmp.IoU;
         scan_record_count = scan_record_count + 1;
-        scan_records(scan_record_count, :) = [phase, p_target / 1e6, t_exp, t_cool, current_IoU];
+        scan_records(scan_record_count, :) = [phase, p_target / 1e6, t_exp, ...
+            t_cool, threshold_result_tmp.threshold, current_IoU];
 
-        fprintf('  [%02d/%02d] P=%.2f MPa, Exp=%.2f s, Cool=%.2f s | Tmax: %4.1f C | IoU: %.4f\n', ...
-            i, num_tests, p_target / 1e6, t_exp, t_cool, max(T_max_history_tmp), current_IoU);
+        fprintf('  [%02d/%02d] P=%.2f MPa, Exp=%.2f s, Cool=%.2f s, Thr=%.2f | Tmax: %4.1f C | IoU: %.4f\n', ...
+            i, num_tests, p_target / 1e6, t_exp, t_cool, threshold_result_tmp.threshold, ...
+            max(T_max_history_tmp), current_IoU);
 
         if current_IoU > best_IoU_global
             best_IoU_global = current_IoU;
             best_record.p_target = p_target;
             best_record.t_exp = t_exp;
             best_record.t_cool = t_cool;
+            best_record.cure_threshold = threshold_result_tmp.threshold;
             best_record.T_focal_2d = gather(double(T_3d_gpu(:, :, best_idx_crop)));
             best_record.Q_focal_2d = gather(double(Q_heat_3d_gpu(:, :, best_idx_crop)));
             best_record.Omega_final_2d = Omega_tmp;
@@ -824,15 +829,16 @@ fprintf('曝光时长: %.2f 秒\n', best_record.t_exp);
 fprintf('冷却时长: %.2f 秒\n', best_record.t_cool);
 fprintf('IoU: %.4f\n', best_IoU_global);
 scan_records = scan_records(1:scan_record_count, :);
-near_best_mask = scan_records(:, 5) >= best_IoU_global - near_best_iou_tol;
+near_best_mask = scan_records(:, 6) >= best_IoU_global - near_best_iou_tol;
 near_best_records = scan_records(near_best_mask, :);
 fprintf('Near-best 参数组数(IoU within %.3f): %d / %d\n', ...
     near_best_iou_tol, size(near_best_records, 1), size(scan_records, 1));
 if ~isempty(near_best_records)
-    fprintf('Near-best P/E/C范围: %.2f-%.2f MPa | %.2f-%.2f s | %.2f-%.2f s\n', ...
+    fprintf('Near-best P/E/C/Thr范围: %.2f-%.2f MPa | %.2f-%.2f s | %.2f-%.2f s | %.2f-%.2f\n', ...
         min(near_best_records(:, 2)), max(near_best_records(:, 2)), ...
         min(near_best_records(:, 3)), max(near_best_records(:, 3)), ...
-        min(near_best_records(:, 4)), max(near_best_records(:, 4)));
+        min(near_best_records(:, 4)), max(near_best_records(:, 4)), ...
+        min(near_best_records(:, 5)), max(near_best_records(:, 5)));
 end
 
 target_median_pressure = best_record.p_target;
@@ -858,7 +864,7 @@ t_axis = (1:Nt_th) * dt_th;
 T_max_real = max(T_max_history);
 
 % 8.结果处理
-Cure_Score_Threshold = cure_model.threshold;
+Cure_Score_Threshold = best_record.cure_threshold;
 cured_mask_2d = Omega_final_2d >= Cure_Score_Threshold;
 R_binary = imag_target > 0.5;
 ROI_pixels = sum(R_binary(:));
