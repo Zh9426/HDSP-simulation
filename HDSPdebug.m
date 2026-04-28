@@ -50,7 +50,7 @@ cavitation_model.saturation_shape = 4.0;
 cavitation_model.trigger_sharpness = 3.0;
 cavitation_model.streaming_penalty_strength = 0.75;
 cavitation_model.streaming_penalty_power = 1.5;
-cavitation_model.smooth_sigma_px = 0.8;
+cavitation_model.smooth_sigma_px = 1.1;
 cavitation_model.z_sigma_mm = 0.8;
 thermal_feedback.source_scale = 0.02;
 thermal_feedback.absorption_gain = 0.05;
@@ -61,15 +61,15 @@ cavitation_model.growth_gain = 0.0;
 thermal_feedback.trigger_gain = cavitation_model.trigger_gain;
 thermal_feedback.growth_gain = cavitation_model.growth_gain;
 cure_model.threshold = 1.0;
-cure_model.cavitation_dose_time = 0.05;
+cure_model.cavitation_dose_time = 0.04;
 cure_model.thermal_dose_time = 0.12;
 cure_model.thermal_delta_ref = 20.0;
 cure_model.thermal_weight = 0.15;
 cure_model.penalty_weight = 0.60;
 cure_model.bulk_ref_temp = 25.0;
-cure_model.dose_growth_floor = 0.60;
-cure_model.dose_trigger_weight = 0.40;
-cure_model.cooling_thermal_weight = 0.15;
+cure_model.dose_growth_floor = 0.70;
+cure_model.dose_trigger_weight = 0.30;
+cure_model.cooling_thermal_weight = 0.05;
 
 dx = Lx / Nx;
 dy = dx;
@@ -618,16 +618,16 @@ for phase = 1:2
     if phase == 1
         %曝光时间，声压与冷却时间粗查
         fprintf('\n[第一阶段:粗扫]...\n');
-        P_list = (1.80 : 0.05 : 2.10) * 1e6;
-        E_list = 0.18 : 0.02 : 0.34;
-        C_list = 0.20 : 0.05 : 0.60;
+        P_list = (1.85 : 0.05 : 2.10) * 1e6;
+        E_list = 0.24 : 0.02 : 0.44;
+        C_list = 0.10 : 0.05 : 0.45;
     else
         %细查
          fprintf('\n[第二阶段: 微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
             best_coarse.P/1e6, best_coarse.E, best_coarse.C);
         P_list = max(1.70e6, best_coarse.P - 0.08e6) : 0.02e6 : (best_coarse.P + 0.08e6);
         E_list = max(0.14, best_coarse.E - 0.04) : 0.01 : (best_coarse.E + 0.04);
-        C_list = max(0.10, best_coarse.C - 0.08) : 0.02 : (best_coarse.C + 0.08);
+        C_list = max(0.05, best_coarse.C - 0.08) : 0.02 : (best_coarse.C + 0.08);
     end
 
     [Pg, Eg, Cg] = ndgrid(P_list, E_list, C_list);
