@@ -29,6 +29,8 @@ alpha_power_pdms = 1.5;
 Cp_pdms = 1460;
 k_pdms = 0.15;
 pdms_thickness = 7e-3;
+focus_scan_radius = 6e-3;
+focus_edge_warn_mm = 0.5;
 lambda_water = c_water / f0;
 phase_refine_mode = 'python_iasa'; %相位叠加模式
 iasa_epoch = 150;
@@ -321,9 +323,12 @@ pdms_z_end_idx = min(Nz - pml_size, pdms_z_start_idx + round(pdms_thickness / dz
 medium.sound_speed(:, :, pdms_z_start_idx:pdms_z_end_idx) = c_pdms;
 medium.density(:, :, pdms_z_start_idx:pdms_z_end_idx) = density_pdms;
 medium.alpha_coeff(:, :, pdms_z_start_idx:pdms_z_end_idx) = alpha_coeff_pdms;
-scan_range_idx = round(3e-3 / dz);
+scan_range_idx = round(focus_scan_radius / dz);
 z_scan_start = target_plane_idx - scan_range_idx;
 z_scan_end = target_plane_idx + scan_range_idx;
+if z_scan_start < 1 + pml_size
+    z_scan_start = 1 + pml_size;
+end
 if z_scan_end > Nz - pml_size
     z_scan_end = Nz - pml_size;
 end
@@ -375,6 +380,7 @@ design_z_dist_mm = z_target_dist * 1e3;
 focus_shift_mm = actual_z_dist_mm - design_z_dist_mm;
 focus_search_edge_margin_idx = min(best_slice_idx - 1, num_slices - best_slice_idx);
 focus_search_edge_margin_mm = focus_search_edge_margin_idx * dz * 1e3;
+focus_search_near_edge = focus_search_edge_margin_mm < focus_edge_warn_mm;
 
 %% 6.相位板出口分析
 fprintf('执行出口平面声场分析\n');
@@ -1019,6 +1025,9 @@ fprintf('声场质量评估\n');
 fprintf('设计/最佳声场距离: %.2f / %.2f mm (shift %.2f mm)\n', ...
     design_z_dist_mm, actual_z_dist_mm, focus_shift_mm);
 fprintf('焦面搜索边界余量: %.2f mm\n', focus_search_edge_margin_mm);
+if focus_search_near_edge
+    fprintf('警告: 最佳声场平面接近z扫描边界，建议扩大focus_scan_radius后重跑k-Wave。\n');
+end
 fprintf('PCC: %.4f\n', best_corr);
 fprintf('SSIM: %.4f\n', SSIM_val);
 fprintf('NMSE: %.4f\n', NMSE);
