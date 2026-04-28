@@ -61,7 +61,7 @@ cavitation_model.growth_gain = 0.0;
 thermal_feedback.trigger_gain = cavitation_model.trigger_gain;
 thermal_feedback.growth_gain = cavitation_model.growth_gain;
 cure_model.threshold = 1.0;
-cure_model.cavitation_dose_time = 0.06;
+cure_model.cavitation_dose_time = 0.05;
 cure_model.thermal_dose_time = 0.12;
 cure_model.thermal_delta_ref = 20.0;
 cure_model.thermal_weight = 0.15;
@@ -69,6 +69,7 @@ cure_model.penalty_weight = 0.60;
 cure_model.bulk_ref_temp = 25.0;
 cure_model.dose_growth_floor = 0.60;
 cure_model.dose_trigger_weight = 0.40;
+cure_model.cooling_thermal_weight = 0.15;
 
 dx = Lx / Nx;
 dy = dx;
@@ -370,6 +371,10 @@ end
 best_idx_global = z_scan_start + best_slice_idx - 1;
 actual_z_dist_idx = best_idx_global - z_board_exit_idx;
 actual_z_dist_mm = actual_z_dist_idx * dz * 1e3;
+design_z_dist_mm = z_target_dist * 1e3;
+focus_shift_mm = actual_z_dist_mm - design_z_dist_mm;
+focus_search_edge_margin_idx = min(best_slice_idx - 1, num_slices - best_slice_idx);
+focus_search_edge_margin_mm = focus_search_edge_margin_idx * dz * 1e3;
 
 %% 6.相位板出口分析
 fprintf('执行出口平面声场分析\n');
@@ -613,16 +618,16 @@ for phase = 1:2
     if phase == 1
         %曝光时间，声压与冷却时间粗查
         fprintf('\n[第一阶段:粗扫]...\n');
-        P_list = (1.60 : 0.05 : 2.10) * 1e6;
-        E_list = 0.08 : 0.02 : 0.24;
-        C_list = 0.10 : 0.05 : 0.50;
+        P_list = (1.80 : 0.05 : 2.10) * 1e6;
+        E_list = 0.18 : 0.02 : 0.34;
+        C_list = 0.20 : 0.05 : 0.60;
     else
         %细查
          fprintf('\n[第二阶段: 微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
             best_coarse.P/1e6, best_coarse.E, best_coarse.C);
-        P_list = max(1.50e6, best_coarse.P - 0.10e6) : 0.02e6 : (best_coarse.P + 0.10e6);
-        E_list = max(0.04, best_coarse.E - 0.04) : 0.01 : (best_coarse.E + 0.04);
-        C_list = max(0.05, best_coarse.C - 0.10) : 0.02 : (best_coarse.C + 0.10);
+        P_list = max(1.70e6, best_coarse.P - 0.08e6) : 0.02e6 : (best_coarse.P + 0.08e6);
+        E_list = max(0.14, best_coarse.E - 0.04) : 0.01 : (best_coarse.E + 0.04);
+        C_list = max(0.10, best_coarse.C - 0.08) : 0.02 : (best_coarse.C + 0.08);
     end
 
     [Pg, Eg, Cg] = ndgrid(P_list, E_list, C_list);
@@ -750,8 +755,8 @@ for phase = 1:2
             T_max_history_tmp(step) = gather(max(T_focal_slice(:)));
             bulk_temp_rise = max(T_focal_slice - single(cure_model.bulk_ref_temp), 0);
             thermal_dose_gpu = thermal_dose_gpu ...
-                + (bulk_temp_rise ./ single(cure_model.thermal_delta_ref)) ...
-                .* single(dt_th / cure_model.thermal_dose_time);
+                + single(compute_thermal_aux_increment(bulk_temp_rise, ...
+                dt_th, step <= step_exposure_end, cure_model));
             T_current_K = T_focal_slice + 273.15;
             reaction_rate = A_freq .* exp(-E_a ./ (R_gas .* T_current_K));
             reaction_rate = reaction_rate .* reaction_multiplier;
@@ -1011,7 +1016,9 @@ fprintf('频率: %.2f MHz | Lens OD: %.1f mm\n', f0 / 1e6, Lx * 1e3);
 fprintf('网格分辨率: %.2f um |节点总数: %.1f M\n', dx * 1e6, (Nx * Ny * Nz) / 1e6);
 fprintf('----------------------------------------\n');
 fprintf('声场质量评估\n');
-fprintf('最佳声场距离: %.2f mm\n', actual_z_dist_mm);
+fprintf('设计/最佳声场距离: %.2f / %.2f mm (shift %.2f mm)\n', ...
+    design_z_dist_mm, actual_z_dist_mm, focus_shift_mm);
+fprintf('焦面搜索边界余量: %.2f mm\n', focus_search_edge_margin_mm);
 fprintf('PCC: %.4f\n', best_corr);
 fprintf('SSIM: %.4f\n', SSIM_val);
 fprintf('NMSE: %.4f\n', NMSE);
