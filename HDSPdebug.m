@@ -619,21 +619,24 @@ z_crop_len = z_crop_end - z_crop_start + 1;
 best_IoU_global = 0;
 best_record = struct();
 best_coarse = struct('P', 1.5e6, 'E', 0.3, 'C', 0.2);
+near_best_iou_tol = 0.01;
+scan_records = zeros(10000, 5);
+scan_record_count = 0;
 
 for phase = 1:2
     if phase == 1
         %曝光时间，声压与冷却时间粗查
         fprintf('\n[第一阶段:粗扫]...\n');
-        P_list = (1.50 : 0.04 : 1.78) * 1e6;
-        E_list = 0.28 : 0.02 : 0.42;
-        C_list = 0.25 : 0.05 : 0.55;
+        P_list = (1.44 : 0.04 : 1.60) * 1e6;
+        E_list = 0.36 : 0.02 : 0.48;
+        C_list = 0.46 : 0.04 : 0.66;
     else
         %细查
          fprintf('\n[第二阶段: 微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
             best_coarse.P/1e6, best_coarse.E, best_coarse.C);
-        P_list = max(1.42e6, best_coarse.P - 0.08e6) : 0.02e6 : (best_coarse.P + 0.08e6);
-        E_list = max(0.24, best_coarse.E - 0.04) : 0.01 : (best_coarse.E + 0.04);
-        C_list = max(0.20, best_coarse.C - 0.08) : 0.02 : (best_coarse.C + 0.08);
+        P_list = max(1.38e6, best_coarse.P - 0.06e6) : 0.02e6 : (best_coarse.P + 0.06e6);
+        E_list = max(0.32, best_coarse.E - 0.03) : 0.01 : (best_coarse.E + 0.03);
+        C_list = max(0.38, best_coarse.C - 0.06) : 0.02 : (best_coarse.C + 0.06);
     end
 
     [Pg, Eg, Cg] = ndgrid(P_list, E_list, C_list);
@@ -781,6 +784,8 @@ for phase = 1:2
         intersection = sum(cured_mask_tmp(:) & target_mask_2d(:));
         union_area = sum(cured_mask_tmp(:) | target_mask_2d(:));
         current_IoU = intersection / (union_area + 1e-10);
+        scan_record_count = scan_record_count + 1;
+        scan_records(scan_record_count, :) = [phase, p_target / 1e6, t_exp, t_cool, current_IoU];
 
         fprintf('  [%02d/%02d] P=%.2f MPa, Exp=%.2f s, Cool=%.2f s | Tmax: %4.1f C | IoU: %.4f\n', ...
             i, num_tests, p_target / 1e6, t_exp, t_cool, max(T_max_history_tmp), current_IoU);
@@ -818,6 +823,17 @@ fprintf('定标声压: %.2f MPa\n', best_record.p_target / 1e6);
 fprintf('曝光时长: %.2f 秒\n', best_record.t_exp);
 fprintf('冷却时长: %.2f 秒\n', best_record.t_cool);
 fprintf('IoU: %.4f\n', best_IoU_global);
+scan_records = scan_records(1:scan_record_count, :);
+near_best_mask = scan_records(:, 5) >= best_IoU_global - near_best_iou_tol;
+near_best_records = scan_records(near_best_mask, :);
+fprintf('Near-best 参数组数(IoU within %.3f): %d / %d\n', ...
+    near_best_iou_tol, size(near_best_records, 1), size(scan_records, 1));
+if ~isempty(near_best_records)
+    fprintf('Near-best P/E/C范围: %.2f-%.2f MPa | %.2f-%.2f s | %.2f-%.2f s\n', ...
+        min(near_best_records(:, 2)), max(near_best_records(:, 2)), ...
+        min(near_best_records(:, 3)), max(near_best_records(:, 3)), ...
+        min(near_best_records(:, 4)), max(near_best_records(:, 4)));
+end
 
 target_median_pressure = best_record.p_target;
 exposure_time = best_record.t_exp;
