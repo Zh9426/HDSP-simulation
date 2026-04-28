@@ -67,7 +67,7 @@ cure_model.cavitation_dose_time = 0.04;
 cure_model.thermal_dose_time = 0.12;
 cure_model.thermal_delta_ref = 20.0;
 cure_model.thermal_weight = 0.15;
-cure_model.penalty_weight = 0.80;
+cure_model.penalty_weight = 0.90;
 cure_model.bulk_ref_temp = 25.0;
 cure_model.dose_growth_floor = 0.65;
 cure_model.dose_trigger_weight = 0.35;
@@ -627,16 +627,16 @@ for phase = 1:2
     if phase == 1
         %曝光时间，声压与冷却时间粗查
         fprintf('\n[第一阶段:粗扫]...\n');
-        P_list = (1.44 : 0.04 : 1.60) * 1e6;
-        E_list = 0.36 : 0.02 : 0.48;
-        C_list = 0.46 : 0.04 : 0.66;
+        P_list = (1.44 : 0.02 : 1.52) * 1e6;
+        E_list = 0.41 : 0.02 : 0.49;
+        C_list = 0.42 : 0.04 : 0.54;
     else
         %细查
          fprintf('\n[第二阶段: 微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
             best_coarse.P/1e6, best_coarse.E, best_coarse.C);
-        P_list = max(1.38e6, best_coarse.P - 0.06e6) : 0.02e6 : (best_coarse.P + 0.06e6);
-        E_list = max(0.32, best_coarse.E - 0.03) : 0.01 : (best_coarse.E + 0.03);
-        C_list = max(0.38, best_coarse.C - 0.06) : 0.02 : (best_coarse.C + 0.06);
+        P_list = max(1.40e6, best_coarse.P - 0.04e6) : 0.01e6 : (best_coarse.P + 0.04e6);
+        E_list = max(0.38, best_coarse.E - 0.02) : 0.01 : (best_coarse.E + 0.02);
+        C_list = max(0.38, best_coarse.C - 0.04) : 0.02 : (best_coarse.C + 0.04);
     end
 
     [Pg, Eg, Cg] = ndgrid(P_list, E_list, C_list);
