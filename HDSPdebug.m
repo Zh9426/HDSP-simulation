@@ -42,18 +42,18 @@ research_mode.run_label = 'baseline';
 research_mode.enable_run_export = true;
 exit_plane_analysis.enabled = false;
 cavitation_model.enabled = true;
-cavitation_model.pressure_on = 1.8e6;
-cavitation_model.pressure_full = 2.2e6;
-cavitation_model.pressure_stream = 2.7e6;
-cavitation_model.pressure_damage = 3.2e6;
+cavitation_model.pressure_on = 1.72e6;
+cavitation_model.pressure_full = 1.98e6;
+cavitation_model.pressure_stream = 2.35e6;
+cavitation_model.pressure_damage = 2.80e6;
 cavitation_model.saturation_shape = 4.0;
 cavitation_model.trigger_sharpness = 3.0;
 cavitation_model.streaming_penalty_strength = 0.75;
 cavitation_model.streaming_penalty_power = 1.5;
 cavitation_model.smooth_sigma_px = 0.8;
 cavitation_model.z_sigma_mm = 0.8;
-thermal_feedback.source_scale = 0.15;
-thermal_feedback.absorption_gain = 0.28;
+thermal_feedback.source_scale = 0.13;
+thermal_feedback.absorption_gain = 0.22;
 thermal_feedback.conductivity_gain = 0.2;
 cavitation_model.heat_gain = 0.0;
 cavitation_model.trigger_gain = 5.6;
@@ -604,16 +604,16 @@ for phase = 1:2
     if phase == 1
         %曝光时间，声压与冷却时间粗查
         fprintf('\n[第一阶段:粗扫]...\n');
-        P_list = (1.82 : 0.02 : 1.98) * 1e6;
-        E_list = 0.11 : 0.01 : 0.15;
-        C_list = 0.20 : 0.02 : 0.32;
+        P_list = (1.70 : 0.02 : 1.90) * 1e6;
+        E_list = 0.11 : 0.01 : 0.14;
+        C_list = 0.24 : 0.02 : 0.40;
     else
         %细查
          fprintf('\n[第二阶段: 微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
             best_coarse.P/1e6, best_coarse.E, best_coarse.C);
-        P_list = max(1.78e6, best_coarse.P - 0.04e6) : 0.01e6 : (best_coarse.P + 0.04e6);
+        P_list = max(1.66e6, best_coarse.P - 0.04e6) : 0.01e6 : (best_coarse.P + 0.04e6);
         E_list = max(0.10, best_coarse.E - 0.02) : 0.01 : (best_coarse.E + 0.02);
-        C_list = max(0.18, best_coarse.C - 0.04) : 0.02 : (best_coarse.C + 0.04);
+        C_list = max(0.20, best_coarse.C - 0.04) : 0.02 : (best_coarse.C + 0.04);
     end
 
     [Pg, Eg, Cg] = ndgrid(P_list, E_list, C_list);
