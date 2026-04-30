@@ -75,10 +75,11 @@ growth(3, 3) = 0.2;
 params_without_fill = params;
 params_without_fill.dose_fill_weight = 0.0;
 rate_without_fill = compute_cavitation_dose_rate(trigger, growth, params_without_fill);
-rate_with_fill = compute_cavitation_dose_rate(trigger, growth, params);
+[rate_with_fill, components] = compute_cavitation_dose_rate(trigger, growth, params);
 
 verifyGreaterThan(testCase, rate_with_fill(3, 3), rate_without_fill(3, 3) * 2.0);
 verifyLessThanOrEqual(testCase, max(rate_with_fill(:)), 1.0);
+verifyGreaterThan(testCase, components.fill_gain(3, 3), 0.0);
 end
 
 function params = baseParams()

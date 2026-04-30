@@ -729,8 +729,11 @@ for phase = 1:2
             cavitation_trigger_gpu = gpuArray(cavitation_reaction_slice);
             cavitation_growth_gpu = gpuArray(cavitation_growth_crop(:, :, best_idx_crop));
             cavitation_penalty_gpu = gpuArray(cavitation_penalty_crop(:, :, best_idx_crop));
-            cavitation_dose_rate_gpu = single(compute_cavitation_dose_rate( ...
-                cavitation_trigger_gpu, cavitation_growth_gpu, cure_model));
+            [cavitation_dose_rate_tmp, cavitation_dose_components] = ...
+                compute_cavitation_dose_rate(cavitation_trigger_gpu, ...
+                cavitation_growth_gpu, cure_model);
+            cavitation_dose_rate_gpu = single(cavitation_dose_rate_tmp);
+            cavitation_fill_gain_gpu = single(cavitation_dose_components.fill_gain);
             Q_heat_3d_gpu = gpuArray(Q_heat_3d(:, :, z_crop_start:z_crop_end));
             current_P = p_target;
         end
@@ -852,6 +855,8 @@ for phase = 1:2
             best_record.p_3d_scaled = p_3d_scaled;
             best_record.cavitation_activity_2d = double(cavitation_reaction_slice);
             best_record.cavitation_heat_gain_2d = double(cavitation_heat_gain_crop(:, :, best_idx_crop));
+            best_record.cavitation_dose_rate_2d = gather(double(cavitation_dose_rate_gpu));
+            best_record.cavitation_fill_gain_2d = gather(double(cavitation_fill_gain_gpu));
             best_record.cavitation_peak = max(double(cavitation_reaction_slice(:)));
             best_record.cavitation_roi_mean = mean(double(cavitation_reaction_slice(roi_mask)));
             if phase == 1
@@ -906,6 +911,8 @@ Nt_th = best_record.Nt_th;
 p_3d_scaled = best_record.p_3d_scaled;
 cavitation_activity_2d = best_record.cavitation_activity_2d;
 cavitation_heat_gain_2d = best_record.cavitation_heat_gain_2d;
+cavitation_dose_rate_2d = best_record.cavitation_dose_rate_2d;
+cavitation_fill_gain_2d = best_record.cavitation_fill_gain_2d;
 cavitation_peak = best_record.cavitation_peak;
 cavitation_roi_mean = best_record.cavitation_roi_mean;
 t_axis = (1:Nt_th) * dt_th;
@@ -918,6 +925,10 @@ R_binary = imag_target > 0.5;
 ROI_pixels = sum(R_binary(:));
 cavitation_dose_peak = max(cavitation_dose_2d(:));
 cavitation_dose_roi_mean = mean(cavitation_dose_2d(R_binary));
+cavitation_dose_rate_roi_mean = mean(cavitation_dose_rate_2d(R_binary));
+cavitation_fill_gain_peak = max(cavitation_fill_gain_2d(:));
+cavitation_fill_gain_roi_mean = mean(cavitation_fill_gain_2d(R_binary));
+cavitation_fill_gain_roi_max = max(cavitation_fill_gain_2d(R_binary));
 thermal_aux_roi_mean = mean(thermal_aux_contribution_2d(R_binary));
 overdrive_penalty_roi_mean = mean(overdrive_penalty_contribution_2d(R_binary));
 arrhenius_thermal_roi_mean = mean(Arrhenius_Omega_thermal_2d(R_binary));
@@ -1122,7 +1133,13 @@ fprintf('固化分析\n');
 fprintf('最佳固化指标出自: %.2f MPa + %.2f s曝光 ( %.2f s冷却)\n', target_median_pressure / 1e6, exposure_time, cooling_time);
 fprintf('Bulk Tmax / DeltaT: %.1f C / %.1f C\n', T_max_real, bulk_deltaT_max);
 fprintf('Cure score threshold: %.2f\n', Cure_Score_Threshold);
+fprintf('Dose cloud/fill: radius %d/%d px | fill weight %.2f | growth ref %.2f\n', ...
+    cure_model.dose_cloud_radius_px, cure_model.dose_fill_radius_px, ...
+    cure_model.dose_fill_weight, cure_model.dose_fill_growth_ref);
 fprintf('Cavitation dose peak/ROI mean: %.4f / %.4f\n', cavitation_dose_peak, cavitation_dose_roi_mean);
+fprintf('Cavitation dose-rate ROI mean: %.4f\n', cavitation_dose_rate_roi_mean);
+fprintf('Cavitation fill gain peak/ROI mean/ROI max: %.4f / %.4f / %.4f\n', ...
+    cavitation_fill_gain_peak, cavitation_fill_gain_roi_mean, cavitation_fill_gain_roi_max);
 fprintf('Thermal aux ROI mean: %.4f\n', thermal_aux_roi_mean);
 fprintf('Overdrive penalty ROI mean: %.4f\n', overdrive_penalty_roi_mean);
 fprintf('Arrhenius thermal diagnostic ROI mean: %.4f\n', arrhenius_thermal_roi_mean);

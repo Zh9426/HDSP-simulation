@@ -1,4 +1,4 @@
-function dose_rate = compute_cavitation_dose_rate(trigger, growth, params)
+function [dose_rate, components] = compute_cavitation_dose_rate(trigger, growth, params)
 arguments
     trigger
     growth
@@ -26,6 +26,7 @@ cloud_gate = cloud_floor + (1 - cloud_floor) .* (cloud_support .^ max(cloud_powe
 seed_gate = seed_floor + (1 - seed_floor) .* (trigger .^ max(seed_power, eps));
 coherent_rate = base_drive .* cloud_gate .* seed_gate;
 dose_rate = coherent_rate;
+fill_rate = zeros(size(coherent_rate), 'like', coherent_rate);
 if fill_weight > 0 && fill_radius_px > 0
     neighbor_rate = compute_local_cloud_support(coherent_rate, fill_radius_px);
     fill_gate = min(max(growth ./ max(fill_growth_ref, eps), 0), 1) .^ max(fill_power, eps);
@@ -33,6 +34,15 @@ if fill_weight > 0 && fill_radius_px > 0
     dose_rate = max(dose_rate, fill_rate);
 end
 dose_rate = min(max(dose_rate, 0), 1);
+
+components = struct();
+components.base_drive = base_drive;
+components.cloud_support = cloud_support;
+components.cloud_gate = cloud_gate;
+components.seed_gate = seed_gate;
+components.coherent_rate = coherent_rate;
+components.fill_rate = fill_rate;
+components.fill_gain = max(dose_rate - coherent_rate, 0);
 end
 
 function support = compute_local_cloud_support(growth, radius_px)
