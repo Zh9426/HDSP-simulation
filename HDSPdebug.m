@@ -64,14 +64,15 @@ thermal_feedback.trigger_gain = cavitation_model.trigger_gain;
 thermal_feedback.growth_gain = cavitation_model.growth_gain;
 cure_model.threshold = 1.0;
 cure_model.threshold_candidates = 1.00 : 0.05 : 1.40;
-cure_model.iou_drop_tolerance = 0.03;
-cure_model.over_cure_target = 0.18;
-cure_model.under_cure_target = 0.12;
-cure_model.over_cure_weight = 1.40;
-cure_model.under_cure_weight = 1.10;
-cure_model.dice_weight = 0.10;
+cure_model.threshold_selection_mode = 'near_best_iou';
+cure_model.iou_drop_tolerance = 0.005;
+cure_model.over_cure_target = 0.22;
+cure_model.under_cure_target = 0.16;
+cure_model.over_cure_weight = 1.00;
+cure_model.under_cure_weight = 1.00;
+cure_model.dice_weight = 0.02;
 cure_model.iou_weight = 1.00;
-cure_model.global_penalty_weight = 0.12;
+cure_model.global_penalty_weight = 0.03;
 cure_model.cavitation_dose_time = 0.04;
 cure_model.thermal_dose_time = 0.12;
 cure_model.thermal_delta_ref = 20.0;
@@ -791,6 +792,7 @@ for phase = 1:2
         Omega_tmp = cure_score_tmp;
         target_mask_2d = imag_target > 0.5;
         threshold_select_cfg = struct( ...
+            'selection_mode', cure_model.threshold_selection_mode, ...
             'over_cure_target', cure_model.over_cure_target, ...
             'under_cure_target', cure_model.under_cure_target, ...
             'over_cure_weight', cure_model.over_cure_weight, ...

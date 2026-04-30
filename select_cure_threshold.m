@@ -76,6 +76,7 @@ cfg.dice_weight = get_param_or_default(params, 'dice_weight', 0.15);
 cfg.iou_weight = get_param_or_default(params, 'iou_weight', 1.00);
 cfg.iou_drop_tolerance = get_param_or_default(params, 'iou_drop_tolerance', inf);
 cfg.global_penalty_weight = get_param_or_default(params, 'global_penalty_weight', 0.10);
+cfg.selection_mode = get_param_or_default(params, 'selection_mode', 'near_best_iou');
 end
 
 function result = select_by_balanced_score(metrics, cfg)
@@ -95,6 +96,20 @@ under_excess = max(under_vec - cfg.under_cure_target, 0);
 penalty = cfg.over_cure_weight .* over_excess ...
     + cfg.under_cure_weight .* under_excess ...
     + cfg.global_penalty_weight .* (over_vec + under_vec);
+
+if strcmpi(cfg.selection_mode, 'near_best_iou')
+    penalty(~feasible) = inf;
+    [min_penalty, ~] = min(penalty);
+    candidate = feasible & abs(penalty - min_penalty) <= 1e-12;
+    candidate_score = IoU_vec + 1e-3 .* Dice_vec;
+    candidate_score(~candidate) = -inf;
+    [~, best_idx] = max(candidate_score);
+    result = metrics(best_idx);
+    result.selection_score = candidate_score(best_idx);
+    result.selection_penalty = penalty(best_idx);
+    return;
+end
+
 score = cfg.iou_weight .* IoU_vec + cfg.dice_weight .* Dice_vec - penalty;
 score(~feasible) = -inf;
 
@@ -106,8 +121,16 @@ end
 
 function value = get_param_or_default(s, field_name, default_value)
 if isfield(s, field_name)
-    value = double(s.(field_name));
+    if ischar(default_value) || isstring(default_value)
+        value = char(s.(field_name));
+    else
+        value = double(s.(field_name));
+    end
 else
-    value = double(default_value);
+    if ischar(default_value) || isstring(default_value)
+        value = char(default_value);
+    else
+        value = double(default_value);
+    end
 end
 end
