@@ -57,11 +57,39 @@ verifyGreaterThan(testCase, cloud_rate(3, 3), isolated_rate(3, 3) * 2.0);
 verifyLessThan(testCase, isolated_rate(3, 3), 0.30);
 end
 
+function testCloudReplenishesWeakInteriorPoint(testCase)
+params = baseParams();
+params.dose_cloud_radius_px = 1;
+params.dose_cloud_floor = 0.35;
+params.dose_fill_radius_px = 1;
+params.dose_fill_weight = 0.75;
+params.dose_fill_growth_ref = 0.20;
+
+trigger = zeros(5, 5);
+growth = zeros(5, 5);
+trigger(2:4, 2:4) = 0.9;
+growth(2:4, 2:4) = 0.9;
+trigger(3, 3) = 0.2;
+growth(3, 3) = 0.2;
+
+params_without_fill = params;
+params_without_fill.dose_fill_weight = 0.0;
+rate_without_fill = compute_cavitation_dose_rate(trigger, growth, params_without_fill);
+rate_with_fill = compute_cavitation_dose_rate(trigger, growth, params);
+
+verifyGreaterThan(testCase, rate_with_fill(3, 3), rate_without_fill(3, 3) * 2.0);
+verifyLessThanOrEqual(testCase, max(rate_with_fill(:)), 1.0);
+end
+
 function params = baseParams()
 params = struct( ...
     'dose_growth_floor', 0.60, ...
     'dose_trigger_weight', 0.40, ...
     'dose_cloud_radius_px', 0, ...
     'dose_cloud_floor', 1.0, ...
-    'dose_cloud_power', 1.0);
+    'dose_cloud_power', 1.0, ...
+    'dose_fill_radius_px', 0, ...
+    'dose_fill_weight', 0.0, ...
+    'dose_fill_growth_ref', 0.20, ...
+    'dose_fill_power', 1.0);
 end

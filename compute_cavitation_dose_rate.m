@@ -12,6 +12,10 @@ cloud_floor = get_param(params, 'dose_cloud_floor', 1.0);
 cloud_power = get_param(params, 'dose_cloud_power', 1.0);
 seed_floor = get_param(params, 'dose_seed_floor', 1.0);
 seed_power = get_param(params, 'dose_seed_power', 1.0);
+fill_radius_px = round(get_param(params, 'dose_fill_radius_px', 0));
+fill_weight = get_param(params, 'dose_fill_weight', 0.0);
+fill_growth_ref = get_param(params, 'dose_fill_growth_ref', 0.20);
+fill_power = get_param(params, 'dose_fill_power', 1.0);
 
 trigger = double(trigger);
 growth = double(growth);
@@ -20,7 +24,14 @@ base_drive = growth .* (growth_floor + trigger_weight .* trigger);
 cloud_support = compute_local_cloud_support(growth, cloud_radius_px);
 cloud_gate = cloud_floor + (1 - cloud_floor) .* (cloud_support .^ max(cloud_power, eps));
 seed_gate = seed_floor + (1 - seed_floor) .* (trigger .^ max(seed_power, eps));
-dose_rate = base_drive .* cloud_gate .* seed_gate;
+coherent_rate = base_drive .* cloud_gate .* seed_gate;
+dose_rate = coherent_rate;
+if fill_weight > 0 && fill_radius_px > 0
+    neighbor_rate = compute_local_cloud_support(coherent_rate, fill_radius_px);
+    fill_gate = min(max(growth ./ max(fill_growth_ref, eps), 0), 1) .^ max(fill_power, eps);
+    fill_rate = fill_weight .* neighbor_rate .* fill_gate;
+    dose_rate = max(dose_rate, fill_rate);
+end
 dose_rate = min(max(dose_rate, 0), 1);
 end
 
