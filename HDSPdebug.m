@@ -82,8 +82,9 @@ cure_model.bulk_ref_temp = 25.0;
 cure_model.dose_growth_floor = 0.65;
 cure_model.dose_trigger_weight = 0.35;
 cure_model.dose_cloud_radius_px = 2;
-cure_model.dose_cloud_floor = 0.35;
+cure_model.dose_cloud_floor = 0.45;
 cure_model.dose_cloud_power = 1.0;
+cure_model.dose_cloud_weight = 0.25;
 cure_model.dose_seed_floor = 0.85;
 cure_model.dose_seed_power = 1.0;
 cure_model.dose_fill_radius_px = 2;
@@ -637,8 +638,9 @@ cure_model.bulk_ref_temp = 25.0;
 cure_model.dose_growth_floor = 0.65;
 cure_model.dose_trigger_weight = 0.35;
 cure_model.dose_cloud_radius_px = 2;
-cure_model.dose_cloud_floor = 0.35;
+cure_model.dose_cloud_floor = 0.45;
 cure_model.dose_cloud_power = 1.0;
+cure_model.dose_cloud_weight = 0.25;
 cure_model.dose_seed_floor = 0.85;
 cure_model.dose_seed_power = 1.0;
 cure_model.dose_fill_radius_px = 2;
@@ -1171,9 +1173,10 @@ fprintf('固化分析\n');
 fprintf('最佳固化指标出自: %.2f MPa + %.2f s曝光 ( %.2f s冷却)\n', target_median_pressure / 1e6, exposure_time, cooling_time);
 fprintf('Bulk Tmax / DeltaT: %.1f C / %.1f C\n', T_max_real, bulk_deltaT_max);
 fprintf('Cure score threshold: %.2f\n', Cure_Score_Threshold);
-fprintf('Dose cloud/fill: radius %d/%d px | fill weight %.2f | growth ref %.2f\n', ...
+fprintf('Dose cloud/fill: radius %d/%d px | cloud weight %.2f | fill weight %.2f | growth ref %.2f\n', ...
     cure_model.dose_cloud_radius_px, cure_model.dose_fill_radius_px, ...
-    cure_model.dose_fill_weight, cure_model.dose_fill_growth_ref);
+    cure_model.dose_cloud_weight, cure_model.dose_fill_weight, ...
+    cure_model.dose_fill_growth_ref);
 fprintf('Cavitation dose peak/ROI mean: %.4f / %.4f\n', cavitation_dose_peak, cavitation_dose_roi_mean);
 fprintf('Cavitation dose-rate ROI mean: %.4f\n', cavitation_dose_rate_roi_mean);
 fprintf('Cavitation fill gain peak/ROI mean/ROI max: %.4f / %.4f / %.4f\n', ...
