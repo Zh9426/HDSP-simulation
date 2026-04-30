@@ -615,6 +615,42 @@ end
 
 %% 7.热场与固化
 fprintf('热场分析与固化预测\n');
+% Section 7 can be run independently after the acoustic field is already in
+% workspace, so refresh all cure-algorithm parameters here.
+cure_model.threshold = 1.0;
+cure_model.threshold_candidates = 1.00 : 0.05 : 1.40;
+cure_model.threshold_selection_mode = 'near_best_iou';
+cure_model.iou_drop_tolerance = 0.005;
+cure_model.over_cure_target = 0.22;
+cure_model.under_cure_target = 0.16;
+cure_model.over_cure_weight = 1.00;
+cure_model.under_cure_weight = 1.00;
+cure_model.dice_weight = 0.02;
+cure_model.iou_weight = 1.00;
+cure_model.global_penalty_weight = 0.03;
+cure_model.cavitation_dose_time = 0.04;
+cure_model.thermal_dose_time = 0.12;
+cure_model.thermal_delta_ref = 20.0;
+cure_model.thermal_weight = 0.15;
+cure_model.penalty_weight = 0.80;
+cure_model.bulk_ref_temp = 25.0;
+cure_model.dose_growth_floor = 0.65;
+cure_model.dose_trigger_weight = 0.35;
+cure_model.dose_cloud_radius_px = 2;
+cure_model.dose_cloud_floor = 0.35;
+cure_model.dose_cloud_power = 1.0;
+cure_model.dose_seed_floor = 0.85;
+cure_model.dose_seed_power = 1.0;
+cure_model.dose_fill_radius_px = 2;
+cure_model.dose_fill_weight = 0.65;
+cure_model.dose_fill_growth_ref = 0.20;
+cure_model.dose_fill_power = 1.0;
+cure_model.cooling_thermal_weight = 0.05;
+cure_model.thermal_cavitation_gate_floor = 0.05;
+cure_model.thermal_cavitation_gate_power = 0.8;
+
+scan_verbose = false;
+scan_report_top_n = 5;
 p_3d_abs = abs(p_field_3d);
 focal_slice_abs = p_3d_abs(:, :, best_idx_global);
 roi_mask = (imag_target > 0.5);
@@ -648,16 +684,16 @@ for phase = 1:2
     if phase == 1
         %曝光时间，声压与冷却时间粗查
         fprintf('\n[第一阶段:粗扫]...\n');
-        P_list = (1.40 : 0.04 : 1.64) * 1e6;
-        E_list = 0.34 : 0.03 : 0.55;
-        C_list = 0.34 : 0.06 : 0.64;
+        P_list = (1.40 : 0.04 : 1.56) * 1e6;
+        E_list = 0.48 : 0.03 : 0.60;
+        C_list = [0.44, 0.54];
     else
         %细查
          fprintf('\n[第二阶段: 微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
             best_coarse.P/1e6, best_coarse.E, best_coarse.C);
-        P_list = max(1.36e6, best_coarse.P - 0.06e6) : 0.02e6 : (best_coarse.P + 0.06e6);
-        E_list = max(0.30, best_coarse.E - 0.04) : 0.01 : min(0.60, best_coarse.E + 0.04);
-        C_list = max(0.28, best_coarse.C - 0.06) : 0.02 : min(0.70, best_coarse.C + 0.06);
+        P_list = max(1.36e6, best_coarse.P - 0.04e6) : 0.02e6 : (best_coarse.P + 0.04e6);
+        E_list = max(0.44, best_coarse.E - 0.03) : 0.01 : min(0.64, best_coarse.E + 0.03);
+        C_list = best_coarse.C;
     end
 
     [Pg, Eg, Cg] = ndgrid(P_list, E_list, C_list);
@@ -831,9 +867,11 @@ for phase = 1:2
             t_cool, threshold_result_tmp.threshold, current_IoU, current_Dice, ...
             current_over_cure, current_under_cure, current_coverage, current_Tmax];
 
-        fprintf('  [%02d/%02d] P=%.2f MPa, Exp=%.2f s, Cool=%.2f s, Thr=%.2f | Tmax: %4.1f C | IoU: %.4f\n', ...
-            i, num_tests, p_target / 1e6, t_exp, t_cool, threshold_result_tmp.threshold, ...
-            current_Tmax, current_IoU);
+        if scan_verbose
+            fprintf('  [%02d/%02d] P=%.2f MPa, Exp=%.2f s, Cool=%.2f s, Thr=%.2f | Tmax: %4.1f C | IoU: %.4f\n', ...
+                i, num_tests, p_target / 1e6, t_exp, t_cool, threshold_result_tmp.threshold, ...
+                current_Tmax, current_IoU);
+        end
 
         if current_IoU > best_IoU_global
             best_IoU_global = current_IoU;
@@ -884,7 +922,7 @@ if ~isempty(near_best_records)
         min(near_best_records(:, 5)), max(near_best_records(:, 5)));
 end
 
-top_n = min(10, size(scan_records, 1));
+top_n = min(scan_report_top_n, size(scan_records, 1));
 top_records = sortrows(scan_records, -6);
 fprintf('Top-%d scan records: P MPa | Exp s | Cool s | Thr | IoU | Dice | Over | Under | Coverage | Tmax C\n', top_n);
 for top_i = 1:top_n
