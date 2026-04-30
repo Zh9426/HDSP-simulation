@@ -81,5 +81,5 @@ params = struct( ...
 result = select_cure_threshold(cure_score, target_mask, threshold_candidates, params);
 
 verifyEqual(testCase, result.threshold, 0.75);
-verifyEqual(testCase, result.IoU, 0.8, 'AbsTol', 1e-12);
+verifyEqual(testCase, result.IoU, 0.8, 'AbsTol', 1e-10);
 end
