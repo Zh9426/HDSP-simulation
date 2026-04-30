@@ -63,8 +63,8 @@ cavitation_model.growth_gain = 0.0;
 thermal_feedback.trigger_gain = cavitation_model.trigger_gain;
 thermal_feedback.growth_gain = cavitation_model.growth_gain;
 cure_model.threshold = 1.0;
-cure_model.threshold_candidates = 1.00 : 0.05 : 1.40;
-cure_model.threshold_selection_mode = 'near_best_iou';
+cure_model.threshold_candidates = cure_model.threshold;
+cure_model.threshold_selection_mode = 'fixed_physical';
 cure_model.iou_drop_tolerance = 0.005;
 cure_model.over_cure_target = 0.22;
 cure_model.under_cure_target = 0.16;
@@ -84,11 +84,11 @@ cure_model.dose_trigger_weight = 0.35;
 cure_model.dose_cloud_radius_px = 2;
 cure_model.dose_cloud_floor = 0.45;
 cure_model.dose_cloud_power = 1.0;
-cure_model.dose_cloud_weight = 0.25;
+cure_model.dose_cloud_weight = 0.0;
 cure_model.dose_seed_floor = 0.85;
 cure_model.dose_seed_power = 1.0;
 cure_model.dose_fill_radius_px = 2;
-cure_model.dose_fill_weight = 0.65;
+cure_model.dose_fill_weight = 0.0;
 cure_model.dose_fill_growth_ref = 0.20;
 cure_model.dose_fill_power = 1.0;
 cure_model.cooling_thermal_weight = 0.05;
@@ -619,8 +619,8 @@ fprintf('热场分析与固化预测\n');
 % Section 7 can be run independently after the acoustic field is already in
 % workspace, so refresh all cure-algorithm parameters here.
 cure_model.threshold = 1.0;
-cure_model.threshold_candidates = 1.00 : 0.05 : 1.40;
-cure_model.threshold_selection_mode = 'near_best_iou';
+cure_model.threshold_candidates = cure_model.threshold;
+cure_model.threshold_selection_mode = 'fixed_physical';
 cure_model.iou_drop_tolerance = 0.005;
 cure_model.over_cure_target = 0.22;
 cure_model.under_cure_target = 0.16;
@@ -640,11 +640,11 @@ cure_model.dose_trigger_weight = 0.35;
 cure_model.dose_cloud_radius_px = 2;
 cure_model.dose_cloud_floor = 0.45;
 cure_model.dose_cloud_power = 1.0;
-cure_model.dose_cloud_weight = 0.25;
+cure_model.dose_cloud_weight = 0.0;
 cure_model.dose_seed_floor = 0.85;
 cure_model.dose_seed_power = 1.0;
 cure_model.dose_fill_radius_px = 2;
-cure_model.dose_fill_weight = 0.65;
+cure_model.dose_fill_weight = 0.0;
 cure_model.dose_fill_growth_ref = 0.20;
 cure_model.dose_fill_power = 1.0;
 cure_model.cooling_thermal_weight = 0.05;
@@ -844,19 +844,8 @@ for phase = 1:2
             penalty_tmp, cure_model);
         Omega_tmp = cure_score_tmp;
         target_mask_2d = imag_target > 0.5;
-        threshold_select_cfg = struct( ...
-            'selection_mode', cure_model.threshold_selection_mode, ...
-            'over_cure_target', cure_model.over_cure_target, ...
-            'under_cure_target', cure_model.under_cure_target, ...
-            'over_cure_weight', cure_model.over_cure_weight, ...
-            'under_cure_weight', cure_model.under_cure_weight, ...
-            'dice_weight', cure_model.dice_weight, ...
-            'iou_weight', cure_model.iou_weight, ...
-            'iou_drop_tolerance', cure_model.iou_drop_tolerance, ...
-            'global_penalty_weight', cure_model.global_penalty_weight);
-        threshold_result_tmp = select_cure_threshold( ...
-            Omega_tmp, target_mask_2d, cure_model.threshold_candidates, ...
-            threshold_select_cfg);
+        threshold_result_tmp = evaluate_cure_prediction( ...
+            Omega_tmp, target_mask_2d, cure_model.threshold);
         cured_mask_tmp = threshold_result_tmp.cured_mask;
         current_IoU = threshold_result_tmp.IoU;
         current_Dice = threshold_result_tmp.Dice;
@@ -1172,7 +1161,7 @@ fprintf('----------------------------------------\n');
 fprintf('固化分析\n');
 fprintf('最佳固化指标出自: %.2f MPa + %.2f s曝光 ( %.2f s冷却)\n', target_median_pressure / 1e6, exposure_time, cooling_time);
 fprintf('Bulk Tmax / DeltaT: %.1f C / %.1f C\n', T_max_real, bulk_deltaT_max);
-fprintf('Cure score threshold: %.2f\n', Cure_Score_Threshold);
+fprintf('Cure score threshold: %.2f (fixed physical criterion)\n', Cure_Score_Threshold);
 fprintf('Dose cloud/fill: radius %d/%d px | cloud weight %.2f | fill weight %.2f | growth ref %.2f\n', ...
     cure_model.dose_cloud_radius_px, cure_model.dose_fill_radius_px, ...
     cure_model.dose_cloud_weight, cure_model.dose_fill_weight, ...
