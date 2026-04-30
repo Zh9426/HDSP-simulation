@@ -32,9 +32,24 @@ increment = compute_thermal_aux_increment(bulk_temp_rise, dt, true, params);
 verifyEqual(testCase, increment, [0, 0; 0.0125, 0.025], 'AbsTol', 1e-12);
 end
 
+function testCavitationGateLimitsThermalAuxiliaryDose(testCase)
+params = baseParams();
+params.thermal_cavitation_gate_floor = 0.0;
+params.thermal_cavitation_gate_power = 1.0;
+bulk_temp_rise = ones(2, 2) * 20;
+gate = [0, 0.25; 0.5, 1.0];
+dt = 0.01;
+
+increment = compute_thermal_aux_increment(bulk_temp_rise, dt, true, params, gate);
+
+verifyEqual(testCase, increment, [0, 0.0125; 0.025, 0.05], 'AbsTol', 1e-12);
+end
+
 function params = baseParams()
 params = struct( ...
     'thermal_delta_ref', 20.0, ...
     'thermal_dose_time', 0.20, ...
-    'cooling_thermal_weight', 0.15);
+    'cooling_thermal_weight', 0.15, ...
+    'thermal_cavitation_gate_floor', 1.0, ...
+    'thermal_cavitation_gate_power', 1.0);
 end

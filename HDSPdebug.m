@@ -77,11 +77,18 @@ cure_model.cavitation_dose_time = 0.04;
 cure_model.thermal_dose_time = 0.12;
 cure_model.thermal_delta_ref = 20.0;
 cure_model.thermal_weight = 0.15;
-cure_model.penalty_weight = 0.90;
+cure_model.penalty_weight = 0.80;
 cure_model.bulk_ref_temp = 25.0;
 cure_model.dose_growth_floor = 0.65;
 cure_model.dose_trigger_weight = 0.35;
+cure_model.dose_cloud_radius_px = 2;
+cure_model.dose_cloud_floor = 0.35;
+cure_model.dose_cloud_power = 1.0;
+cure_model.dose_seed_floor = 0.85;
+cure_model.dose_seed_power = 1.0;
 cure_model.cooling_thermal_weight = 0.05;
+cure_model.thermal_cavitation_gate_floor = 0.05;
+cure_model.thermal_cavitation_gate_power = 0.8;
 
 dx = Lx / Nx;
 dy = dx;
@@ -630,23 +637,23 @@ best_IoU_global = 0;
 best_record = struct();
 best_coarse = struct('P', 1.5e6, 'E', 0.3, 'C', 0.2);
 near_best_iou_tol = 0.01;
-scan_records = zeros(10000, 6);
+scan_records = zeros(10000, 11);
 scan_record_count = 0;
 
 for phase = 1:2
     if phase == 1
         %曝光时间，声压与冷却时间粗查
         fprintf('\n[第一阶段:粗扫]...\n');
-        P_list = (1.44 : 0.02 : 1.52) * 1e6;
-        E_list = 0.39 : 0.02 : 0.47;
-        C_list = 0.42 : 0.04 : 0.54;
+        P_list = (1.40 : 0.04 : 1.64) * 1e6;
+        E_list = 0.34 : 0.03 : 0.55;
+        C_list = 0.34 : 0.06 : 0.64;
     else
         %细查
          fprintf('\n[第二阶段: 微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
             best_coarse.P/1e6, best_coarse.E, best_coarse.C);
-        P_list = max(1.40e6, best_coarse.P - 0.04e6) : 0.01e6 : (best_coarse.P + 0.04e6);
-        E_list = max(0.38, best_coarse.E - 0.02) : 0.01 : min(0.49, best_coarse.E + 0.02);
-        C_list = max(0.38, best_coarse.C - 0.04) : 0.02 : (best_coarse.C + 0.04);
+        P_list = max(1.36e6, best_coarse.P - 0.06e6) : 0.02e6 : (best_coarse.P + 0.06e6);
+        E_list = max(0.30, best_coarse.E - 0.04) : 0.01 : min(0.60, best_coarse.E + 0.04);
+        C_list = max(0.28, best_coarse.C - 0.06) : 0.02 : min(0.70, best_coarse.C + 0.06);
     end
 
     [Pg, Eg, Cg] = ndgrid(P_list, E_list, C_list);
@@ -718,6 +725,8 @@ for phase = 1:2
             cavitation_trigger_gpu = gpuArray(cavitation_reaction_slice);
             cavitation_growth_gpu = gpuArray(cavitation_growth_crop(:, :, best_idx_crop));
             cavitation_penalty_gpu = gpuArray(cavitation_penalty_crop(:, :, best_idx_crop));
+            cavitation_dose_rate_gpu = single(compute_cavitation_dose_rate( ...
+                cavitation_trigger_gpu, cavitation_growth_gpu, cure_model));
             Q_heat_3d_gpu = gpuArray(Q_heat_3d(:, :, z_crop_start:z_crop_end));
             current_P = p_target;
         end
@@ -762,10 +771,8 @@ for phase = 1:2
                 Q_dynamic(:, :, best_idx_crop) = Q_heat_3d_gpu(:, :, best_idx_crop) .* absorption_multiplier;
                 Q_dynamic = Q_dynamic .* cavitation_heat_gain_gpu;
                 T_3d_gpu = T_3d_gpu + dt_th * (thermal_diffusion_term + Q_dynamic ./ rho_Cp_3d_gpu);
-                cavitation_rate = single(compute_cavitation_dose_rate( ...
-                    cavitation_trigger_gpu, cavitation_growth_gpu, cure_model));
                 cavitation_dose_gpu = cavitation_dose_gpu ...
-                    + cavitation_rate .* single(dt_th / cure_model.cavitation_dose_time);
+                    + cavitation_dose_rate_gpu .* single(dt_th / cure_model.cavitation_dose_time);
             else
                 T_3d_gpu = T_3d_gpu + dt_th * thermal_diffusion_term;
             end
@@ -773,9 +780,10 @@ for phase = 1:2
             T_focal_slice = T_3d_gpu(:, :, best_idx_crop);
             T_max_history_tmp(step) = gather(max(T_focal_slice(:)));
             bulk_temp_rise = max(T_focal_slice - single(cure_model.bulk_ref_temp), 0);
+            thermal_cavitation_gate = max(cavitation_trigger_gpu, min(cavitation_dose_gpu, 1.0));
             thermal_dose_gpu = thermal_dose_gpu ...
                 + single(compute_thermal_aux_increment(bulk_temp_rise, ...
-                dt_th, step <= step_exposure_end, cure_model));
+                dt_th, step <= step_exposure_end, cure_model, thermal_cavitation_gate));
             T_current_K = T_focal_slice + 273.15;
             reaction_rate = A_freq .* exp(-E_a ./ (R_gas .* T_current_K));
             reaction_rate = reaction_rate .* reaction_multiplier;
@@ -806,13 +814,19 @@ for phase = 1:2
             threshold_select_cfg);
         cured_mask_tmp = threshold_result_tmp.cured_mask;
         current_IoU = threshold_result_tmp.IoU;
+        current_Dice = threshold_result_tmp.Dice;
+        current_over_cure = threshold_result_tmp.over_cure_ratio;
+        current_under_cure = threshold_result_tmp.under_cure_ratio;
+        current_coverage = threshold_result_tmp.cured_coverage;
+        current_Tmax = max(T_max_history_tmp);
         scan_record_count = scan_record_count + 1;
         scan_records(scan_record_count, :) = [phase, p_target / 1e6, t_exp, ...
-            t_cool, threshold_result_tmp.threshold, current_IoU];
+            t_cool, threshold_result_tmp.threshold, current_IoU, current_Dice, ...
+            current_over_cure, current_under_cure, current_coverage, current_Tmax];
 
         fprintf('  [%02d/%02d] P=%.2f MPa, Exp=%.2f s, Cool=%.2f s, Thr=%.2f | Tmax: %4.1f C | IoU: %.4f\n', ...
             i, num_tests, p_target / 1e6, t_exp, t_cool, threshold_result_tmp.threshold, ...
-            max(T_max_history_tmp), current_IoU);
+            current_Tmax, current_IoU);
 
         if current_IoU > best_IoU_global
             best_IoU_global = current_IoU;
@@ -859,6 +873,16 @@ if ~isempty(near_best_records)
         min(near_best_records(:, 3)), max(near_best_records(:, 3)), ...
         min(near_best_records(:, 4)), max(near_best_records(:, 4)), ...
         min(near_best_records(:, 5)), max(near_best_records(:, 5)));
+end
+
+top_n = min(10, size(scan_records, 1));
+top_records = sortrows(scan_records, -6);
+fprintf('Top-%d scan records: P MPa | Exp s | Cool s | Thr | IoU | Dice | Over | Under | Coverage | Tmax C\n', top_n);
+for top_i = 1:top_n
+    row = top_records(top_i, :);
+    fprintf('  #%02d %.2f | %.2f | %.2f | %.2f | %.4f | %.4f | %.1f%% | %.1f%% | %.1f%% | %.1f\n', ...
+        top_i, row(2), row(3), row(4), row(5), row(6), row(7), ...
+        row(8) * 100, row(9) * 100, row(10) * 100, row(11));
 end
 
 target_median_pressure = best_record.p_target;
