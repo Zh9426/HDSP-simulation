@@ -46,43 +46,82 @@ fprintf('Most degraded semi-ideal case: %s (IoU %.4f)\n', ...
 fprintf('========================================\n');
 
 %% 5. Visualization
-if isempty(ideal_idx)
-    ideal_idx = 1;
+visual_idx = select_cure_visualization_cases(records);
+num_cases = numel(visual_idx);
+
+figure(1); clf; set(gcf, 'Color', 'w', 'Position', [80, 60, 1760, 980]);
+tiledlayout(4, num_cases, 'TileSpacing', 'compact', 'Padding', 'compact');
+for col = 1:num_cases
+    idx = visual_idx(col);
+    sim = simulations{idx};
+    case_pressure = pressure_cases(idx).pressure_map;
+    case_error = build_cure_error_map(sim.cured_mask, target_mask);
+
+    nexttile(col);
+    imagesc(target.x * 1e3, target.x * 1e3, case_pressure / 1e6);
+    format_map_axis(); colormap(gca, turbo); colorbar;
+    title(sprintf('%s\npressure MPa', records(idx).name), 'Interpreter', 'none');
+    if col == 1, ylabel('pressure'); end
+
+    nexttile(num_cases + col);
+    imagesc(target.x * 1e3, target.x * 1e3, sim.cure_score);
+    format_map_axis(); colormap(gca, hot); colorbar;
+    title(sprintf('dose | IoU %.4f', records(idx).IoU), 'Interpreter', 'none');
+    if col == 1, ylabel('cav dose'); end
+
+    nexttile(2 * num_cases + col);
+    imagesc(target.x * 1e3, target.x * 1e3, sim.cured_mask);
+    format_map_axis(); colormap(gca, gray);
+    title(sprintf('cured | under %.1f%%', records(idx).under_cure * 100), ...
+        'Interpreter', 'none');
+    if col == 1, ylabel('cured'); end
+
+    nexttile(3 * num_cases + col);
+    imagesc(target.x * 1e3, target.x * 1e3, case_error, [0, 3]);
+    format_map_axis(); colormap(gca, cure_error_colormap());
+    title(sprintf('error | over %.1f%%', records(idx).over_cure * 100), ...
+        'Interpreter', 'none');
+    if col == 1, ylabel('error'); end
 end
-ideal_sim = simulations{ideal_idx};
-diagnostic_sim = simulations{diagnostic_idx};
+sgtitle('Cure validation: pressure -> cavitation dose -> cure mask -> error map');
 
-figure(1); clf; set(gcf, 'Color', 'w', 'Position', [120, 120, 1280, 720]);
-subplot(2, 3, 1);
-imagesc(target.x * 1e3, target.x * 1e3, target_mask); axis image;
-colormap(gca, gray); title('Target mask'); xlabel('mm'); ylabel('mm');
+figure(2); clf; set(gcf, 'Color', 'w', 'Position', [120, 120, 1760, 520]);
+tiledlayout(2, num_cases, 'TileSpacing', 'compact', 'Padding', 'compact');
+for col = 1:num_cases
+    idx = visual_idx(col);
+    sim = simulations{idx};
 
-subplot(2, 3, 2);
-imagesc(target.x * 1e3, target.x * 1e3, pressure_cases(ideal_idx).pressure_map / 1e6);
-axis image; colormap(gca, turbo); colorbar;
-title('Ideal pressure (MPa)'); xlabel('mm'); ylabel('mm');
+    nexttile(col);
+    imagesc(target.x * 1e3, target.x * 1e3, sim.score_components.thermal_dose);
+    format_map_axis(); colormap(gca, parula); colorbar;
+    title(sprintf('%s\nthermal diagnostic', records(idx).name), 'Interpreter', 'none');
+    if col == 1, ylabel('thermal'); end
 
-subplot(2, 3, 3);
-imagesc(target.x * 1e3, target.x * 1e3, ideal_sim.cured_mask); axis image;
-colormap(gca, gray);
-title(sprintf('Ideal cure | IoU %.4f', records(ideal_idx).IoU));
-xlabel('mm'); ylabel('mm');
+    nexttile(num_cases + col);
+    imagesc(target.x * 1e3, target.x * 1e3, sim.score_components.quality_risk, [0, 1]);
+    format_map_axis(); colormap(gca, hot); colorbar;
+    title(sprintf('quality risk peak %.3f', records(idx).quality_risk_peak), ...
+        'Interpreter', 'none');
+    if col == 1, ylabel('quality risk'); end
+end
+sgtitle('Diagnostics only: thermal diffusion does not enter cure score');
 
-subplot(2, 3, 4);
-imagesc(target.x * 1e3, target.x * 1e3, pressure_cases(diagnostic_idx).pressure_map / 1e6);
-axis image; colormap(gca, turbo); colorbar;
-title(sprintf('%s pressure', records(diagnostic_idx).name), 'Interpreter', 'none');
-xlabel('mm'); ylabel('mm');
+function error_map = build_cure_error_map(cured_mask, target_mask)
+error_map = zeros(size(target_mask));
+error_map(cured_mask & target_mask) = 1;
+error_map(~cured_mask & target_mask) = 2;
+error_map(cured_mask & ~target_mask) = 3;
+end
 
-subplot(2, 3, 5);
-imagesc(target.x * 1e3, target.x * 1e3, diagnostic_sim.cure_score); axis image;
-colormap(gca, hot); colorbar;
-title(sprintf('%s cavitation dose', records(diagnostic_idx).name), 'Interpreter', 'none');
-xlabel('mm'); ylabel('mm');
+function cmap = cure_error_colormap()
+cmap = [ ...
+    1.00, 1.00, 1.00; ...
+    0.10, 0.32, 0.75; ...
+    1.00, 0.62, 0.05; ...
+    0.85, 0.10, 0.10];
+end
 
-subplot(2, 3, 6);
-imagesc(target.x * 1e3, target.x * 1e3, diagnostic_sim.cured_mask); axis image;
-colormap(gca, gray);
-title(sprintf('%s cure | IoU %.4f', records(diagnostic_idx).name, records(diagnostic_idx).IoU), ...
-    'Interpreter', 'none');
-xlabel('mm'); ylabel('mm');
+function format_map_axis()
+axis image;
+set(gca, 'XTick', [], 'YTick', []);
+end
