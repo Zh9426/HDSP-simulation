@@ -13,7 +13,7 @@ cav = compute_cavitation_activity_map(p_amp, params);
 
 cavitation_dose_time = get_param(params, 'cavitation_dose_time', 0.04);
 cavitation_dose = dose_rate .* (exposure_time ./ max(cavitation_dose_time, eps));
-thermal_dose = get_map_param(params, 'thermal_dose_map', zeros(size(p_amp)));
+thermal_dose = resolve_thermal_dose(p_amp, exposure_time, params);
 
 [cure_score, cured_mask, score_components] = compute_cavitation_cure_score( ...
     cavitation_dose, thermal_dose, cav.penalty, params);
@@ -41,10 +41,25 @@ else
 end
 end
 
-function value = get_map_param(params, field_name, default_value)
-if isfield(params, field_name) && ~isempty(params.(field_name))
-    value = double(params.(field_name));
-else
-    value = default_value;
+function thermal_dose = resolve_thermal_dose(p_amp, exposure_time, params)
+if isfield(params, 'thermal_dose_map') && ~isempty(params.thermal_dose_map)
+    thermal_dose = double(params.thermal_dose_map);
+    return;
 end
+
+thermal_weight = get_param(params, 'thermal_weight', 0.0);
+if thermal_weight <= 0
+    thermal_dose = zeros(size(p_amp));
+    return;
+end
+
+spatial_dx = get_param(params, 'spatial_dx', []);
+if isempty(spatial_dx) || ~isscalar(spatial_dx) || ~isfinite(spatial_dx) || spatial_dx <= 0
+    error('simulate_cure_from_pressure_map:MissingThermalInput', ...
+        ['thermal_weight is enabled, so provide params.spatial_dx ', ...
+        'or params.thermal_dose_map to keep the full cure model active.']);
+end
+
+thermal_dose = compute_thermal_aux_from_pressure_map( ...
+    p_amp, exposure_time, params, spatial_dx);
 end

@@ -52,6 +52,36 @@ verifyGreaterThan(testCase, result.metrics.over_cure_ratio, 1.0);
 verifyGreaterThan(testCase, nnz(result.cured_mask & ~target), 0);
 end
 
+function testThermalAuxIsComputedWhenSpatialDxIsProvided(testCase)
+target = squareTarget();
+params = baseParams();
+params.thermal_weight = 0.15;
+params.thermal_pressure_ref = 2.25e6;
+params.thermal_peak_deltaT = 8.0;
+params.thermal_delta_ref = 20.0;
+params.thermal_dose_time = 0.12;
+params.thermal_diffusivity = 1.0e-7;
+params.thermal_blur_scale = 1.0;
+params.spatial_dx = 1.0e-4;
+p_amp = pressureCase(target, 2.25e6, 1.20e6);
+
+result = simulate_cure_from_pressure_map(p_amp, 0.06, params, target);
+
+verifyGreaterThan(testCase, mean(result.score_components.thermal_dose(target)), 0);
+verifyGreaterThan(testCase, mean(result.score_components.thermal_contribution(target)), 0);
+end
+
+function testEnabledThermalModelRequiresThermalInput(testCase)
+target = squareTarget();
+params = baseParams();
+params.thermal_weight = 0.15;
+p_amp = pressureCase(target, 2.25e6, 1.20e6);
+
+verifyError(testCase, ...
+    @() simulate_cure_from_pressure_map(p_amp, 0.06, params, target), ...
+    'simulate_cure_from_pressure_map:MissingThermalInput');
+end
+
 function target = squareTarget()
 target = false(48, 48);
 target(13:36, 13:36) = true;
