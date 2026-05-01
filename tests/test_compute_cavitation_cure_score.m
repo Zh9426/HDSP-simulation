@@ -26,11 +26,12 @@ penalty = zeros(2, 2);
     cavitation_dose, thermal_dose, penalty, params);
 
 verifyFalse(testCase, any(cured_mask(:)));
-verifyEqual(testCase, cure_score, ones(2, 2) * 0.6, 'AbsTol', 1e-12);
-verifyEqual(testCase, components.thermal_contribution, ones(2, 2) * 0.6, 'AbsTol', 1e-12);
+verifyEqual(testCase, cure_score, cavitation_dose, 'AbsTol', 1e-12);
+verifyEqual(testCase, components.thermal_dose, thermal_dose, 'AbsTol', 1e-12);
+verifyEqual(testCase, components.thermal_contribution, zeros(2, 2), 'AbsTol', 1e-12);
 end
 
-function testPenaltySuppressesOverdrivenRegions(testCase)
+function testPenaltyIsQualityRiskNotCureSubtraction(testCase)
 params = baseParams();
 cavitation_dose = ones(2, 2) * 1.2;
 thermal_dose = zeros(2, 2);
@@ -39,16 +40,16 @@ penalty = [0.0, 0.5; 1.0, 0.2];
 [cure_score, cured_mask, components] = compute_cavitation_cure_score( ...
     cavitation_dose, thermal_dose, penalty, params);
 
-verifyGreaterThan(testCase, cure_score(1, 1), cure_score(1, 2));
-verifyGreaterThan(testCase, cure_score(1, 2), cure_score(2, 1));
-verifyTrue(testCase, cured_mask(1, 1));
-verifyFalse(testCase, cured_mask(2, 1));
-verifyEqual(testCase, components.penalty_contribution, params.penalty_weight .* penalty, 'AbsTol', 1e-12);
+verifyEqual(testCase, cure_score, cavitation_dose, 'AbsTol', 1e-12);
+verifyTrue(testCase, all(cured_mask(:)));
+verifyEqual(testCase, components.quality_risk, params.quality_risk_weight .* penalty, 'AbsTol', 1e-12);
+verifyEqual(testCase, components.penalty_contribution, zeros(2, 2), 'AbsTol', 1e-12);
 end
 
 function params = baseParams()
 params = struct( ...
     'thermal_weight', 0.2, ...
     'penalty_weight', 0.7, ...
+    'quality_risk_weight', 0.7, ...
     'threshold', 1.0);
 end

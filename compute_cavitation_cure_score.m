@@ -7,17 +7,18 @@ arguments
     params struct
 end
 
-thermal_weight = get_param(params, 'thermal_weight', 0.15);
-penalty_weight = get_param(params, 'penalty_weight', 0.6);
+quality_risk_weight = get_param(params, 'quality_risk_weight', ...
+    get_param(params, 'penalty_weight', 0.6));
 threshold = get_param(params, 'threshold', 1.0);
 
 cavitation_dose = double(cavitation_dose);
 thermal_dose = double(thermal_dose);
 penalty = double(penalty);
 
-thermal_contribution = thermal_weight .* thermal_dose;
-penalty_contribution = penalty_weight .* penalty;
-cure_score = cavitation_dose + thermal_contribution - penalty_contribution;
+thermal_contribution = zeros(size(thermal_dose), 'like', thermal_dose);
+penalty_contribution = zeros(size(penalty), 'like', penalty);
+quality_risk = min(max(quality_risk_weight .* penalty, 0), 1);
+cure_score = cavitation_dose;
 cure_score = max(cure_score, 0);
 cured_mask = cure_score >= threshold;
 
@@ -27,6 +28,7 @@ components.thermal_dose = thermal_dose;
 components.thermal_contribution = thermal_contribution;
 components.penalty = penalty;
 components.penalty_contribution = penalty_contribution;
+components.quality_risk = quality_risk;
 components.threshold = threshold;
 end
 

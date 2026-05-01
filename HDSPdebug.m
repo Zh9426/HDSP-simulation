@@ -76,8 +76,10 @@ cure_model.global_penalty_weight = 0.03;
 cure_model.cavitation_dose_time = 0.04;
 cure_model.thermal_dose_time = 0.12;
 cure_model.thermal_delta_ref = 20.0;
-cure_model.thermal_weight = 0.15;
-cure_model.penalty_weight = 0.80;
+cure_model.thermal_weight = 0.0;
+cure_model.compute_thermal_diagnostic = true;
+cure_model.penalty_weight = 0.0;
+cure_model.quality_risk_weight = 0.80;
 cure_model.bulk_ref_temp = 25.0;
 cure_model.dose_growth_floor = 0.65;
 cure_model.dose_trigger_weight = 0.35;
@@ -632,8 +634,10 @@ cure_model.global_penalty_weight = 0.03;
 cure_model.cavitation_dose_time = 0.04;
 cure_model.thermal_dose_time = 0.12;
 cure_model.thermal_delta_ref = 20.0;
-cure_model.thermal_weight = 0.15;
-cure_model.penalty_weight = 0.80;
+cure_model.thermal_weight = 0.0;
+cure_model.compute_thermal_diagnostic = true;
+cure_model.penalty_weight = 0.0;
+cure_model.quality_risk_weight = 0.80;
 cure_model.bulk_ref_temp = 25.0;
 cure_model.dose_growth_floor = 0.65;
 cure_model.dose_trigger_weight = 0.35;
@@ -879,6 +883,7 @@ for phase = 1:2
             best_record.thermal_aux_contribution_2d = cure_components_tmp.thermal_contribution;
             best_record.overdrive_penalty_2d = cure_components_tmp.penalty;
             best_record.overdrive_penalty_contribution_2d = cure_components_tmp.penalty_contribution;
+            best_record.quality_risk_2d = cure_components_tmp.quality_risk;
             best_record.T_max_history = T_max_history_tmp;
             best_record.Nt_th = Nt_th;
             best_record.p_3d_scaled = p_3d_scaled;
@@ -935,6 +940,7 @@ thermal_aux_dose_2d = best_record.thermal_aux_dose_2d;
 thermal_aux_contribution_2d = best_record.thermal_aux_contribution_2d;
 overdrive_penalty_2d = best_record.overdrive_penalty_2d;
 overdrive_penalty_contribution_2d = best_record.overdrive_penalty_contribution_2d;
+quality_risk_2d = best_record.quality_risk_2d;
 T_max_history = best_record.T_max_history;
 Nt_th = best_record.Nt_th;
 p_3d_scaled = best_record.p_3d_scaled;
@@ -958,8 +964,9 @@ cavitation_dose_rate_roi_mean = mean(cavitation_dose_rate_2d(R_binary));
 cavitation_fill_gain_peak = max(cavitation_fill_gain_2d(:));
 cavitation_fill_gain_roi_mean = mean(cavitation_fill_gain_2d(R_binary));
 cavitation_fill_gain_roi_max = max(cavitation_fill_gain_2d(R_binary));
-thermal_aux_roi_mean = mean(thermal_aux_contribution_2d(R_binary));
-overdrive_penalty_roi_mean = mean(overdrive_penalty_contribution_2d(R_binary));
+thermal_aux_roi_mean = mean(thermal_aux_dose_2d(R_binary));
+quality_risk_roi_mean = mean(quality_risk_2d(R_binary));
+quality_risk_peak = max(quality_risk_2d(:));
 arrhenius_thermal_roi_mean = mean(Arrhenius_Omega_thermal_2d(R_binary));
 bulk_deltaT_max = T_max_real - cure_model.bulk_ref_temp;
 
@@ -1088,7 +1095,7 @@ title('厚度 (mm)'); xlabel('mm'); ylabel('mm');
 subplot(3, 5, 5);
 imagesc(x * 1e3, y * 1e3, Omega_final_2d); axis image; colormap(gca, turbo); colorbar;
 clim([0, max(2.0, max(Omega_final_2d(:)))]);
-title('固化评分'); xlabel('mm'); ylabel('mm');
+title('Cavitation dose / cure score'); xlabel('mm'); ylabel('mm');
 
 subplot(3, 5, 6);
 imagesc(x * 1e3, y * 1e3, Q_focal_2d / 1e6); axis image; colormap(gca, hot); colorbar;
@@ -1161,7 +1168,7 @@ fprintf('----------------------------------------\n');
 fprintf('固化分析\n');
 fprintf('最佳固化指标出自: %.2f MPa + %.2f s曝光 ( %.2f s冷却)\n', target_median_pressure / 1e6, exposure_time, cooling_time);
 fprintf('Bulk Tmax / DeltaT: %.1f C / %.1f C\n', T_max_real, bulk_deltaT_max);
-fprintf('Cure score threshold: %.2f (fixed physical criterion)\n', Cure_Score_Threshold);
+fprintf('Cure score threshold: %.2f (fixed cavitation-dose criterion)\n', Cure_Score_Threshold);
 fprintf('Dose cloud/fill: radius %d/%d px | cloud weight %.2f | fill weight %.2f | growth ref %.2f\n', ...
     cure_model.dose_cloud_radius_px, cure_model.dose_fill_radius_px, ...
     cure_model.dose_cloud_weight, cure_model.dose_fill_weight, ...
@@ -1170,8 +1177,8 @@ fprintf('Cavitation dose peak/ROI mean: %.4f / %.4f\n', cavitation_dose_peak, ca
 fprintf('Cavitation dose-rate ROI mean: %.4f\n', cavitation_dose_rate_roi_mean);
 fprintf('Cavitation fill gain peak/ROI mean/ROI max: %.4f / %.4f / %.4f\n', ...
     cavitation_fill_gain_peak, cavitation_fill_gain_roi_mean, cavitation_fill_gain_roi_max);
-fprintf('Thermal aux ROI mean: %.4f\n', thermal_aux_roi_mean);
-fprintf('Overdrive penalty ROI mean: %.4f\n', overdrive_penalty_roi_mean);
+fprintf('Thermal diagnostic ROI mean: %.4f\n', thermal_aux_roi_mean);
+fprintf('Quality risk ROI/peak: %.4f / %.4f\n', quality_risk_roi_mean, quality_risk_peak);
 fprintf('Arrhenius thermal diagnostic ROI mean: %.4f\n', arrhenius_thermal_roi_mean);
 fprintf('有效固化: %.1f%%\n', cured_coverage);
 fprintf('IoU: %.4f\n', IoU);
