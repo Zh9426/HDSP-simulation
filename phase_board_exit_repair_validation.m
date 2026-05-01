@@ -163,6 +163,10 @@ exit_phase_scan = analyze_exit_phase_planes( ...
     exit_result.p_exit_complex_stack, exit_result.z_probe_indices, exit_result.z_board_exit_idx, ...
     holo_phase, circle_mask_board, H_forward, Kz, propagating, asm_focus_scan_distances, center_idx, Nx_pad, Ny_pad, ...
     target_norm, dx, exit_phase_amp_threshold_ratio);
+local_exit_diagnostic = analyze_local_exit_field( ...
+    exit_result.local_exit_complex, exit_result.local_exit_compensated, holo_phase, circle_mask_board, ...
+    H_forward, Kz, propagating, asm_focus_scan_distances, center_idx, Nx_pad, Ny_pad, ...
+    target_norm, exit_phase_amp_threshold_ratio);
 
 p_exit_complex = exit_phase_scan.best_repaired.p_exit_complex;
 p_exit_amp = abs(p_exit_complex);
@@ -226,11 +230,12 @@ metrics.exit_phase_scan = exit_phase_scan.records;
 metrics.exit_phase_best_repaired = exit_phase_scan.best_repaired.summary;
 metrics.exit_phase_best_phase = exit_phase_scan.best_phase.summary;
 metrics.exit_phase_focus_scan_distances_mm = asm_focus_scan_distances * 1e3;
+metrics.local_exit = local_exit_diagnostic.metrics;
 metrics.best_z_mm = full_result.best_z_mm;
 metrics.cure = cure_result.metrics;
 save(fullfile(out_dir, 'phase_board_exit_repair_results.mat'), ...
     'metrics', 'thickness_map', 'net_num_board', 'holo_phase', ...
-    'p_exit_complex', 'theory_exit', 'exit_phase_scan', 'p_focal', 'p_focal_norm', ...
+    'p_exit_complex', 'theory_exit', 'exit_phase_scan', 'local_exit_diagnostic', 'p_focal', 'p_focal_norm', ...
     'target_norm', 'target_mask', 'cure_result', 'x', 'y', '-v7.3');
 
 fig = figure('Color', 'w', 'Position', [60, 60, 1600, 920]);
@@ -250,6 +255,22 @@ nexttile; plot(x * 1e3, target_norm(round(end/2), :), 'k--', 'LineWidth', 2); ho
 plot(x * 1e3, p_focal_norm(round(end/2), :), 'r-', 'LineWidth', 1.5); grid on;
 title('Centerline'); xlabel('x (mm)'); ylabel('norm amp'); legend('Target', 'Repaired k-Wave');
 exportgraphics(fig, fullfile(out_dir, 'phase_board_exit_repair_overview.png'), 'Resolution', 300);
+
+local_raw_repaired = make_idealized_exit_field(local_exit_diagnostic.raw_complex, circle_mask_board, 1.0);
+local_comp_repaired = make_idealized_exit_field(local_exit_diagnostic.compensated_complex, circle_mask_board, 1.0);
+local_raw_asm = propagate_exit_field_asm(local_raw_repaired, H_forward, center_idx, Nx_pad, Ny_pad);
+local_raw_asm_norm = local_raw_asm / (max(local_raw_asm(:)) + eps);
+local_comp_asm = propagate_exit_field_asm(local_comp_repaired, H_forward, center_idx, Nx_pad, Ny_pad);
+local_comp_asm_norm = local_comp_asm / (max(local_comp_asm(:)) + eps);
+fig_local = figure('Color', 'w', 'Position', [80, 80, 1450, 760]);
+tiledlayout(2, 3, 'Padding', 'compact', 'TileSpacing', 'compact');
+nexttile; imagesc(x * 1e3, y * 1e3, abs(local_exit_diagnostic.raw_complex)); axis image; colormap(gca, turbo); colorbar; title('Local exit amp');
+nexttile; imagesc(x * 1e3, y * 1e3, angle(local_exit_diagnostic.raw_complex)); axis image; colormap(gca, hsv); colorbar; clim([-pi, pi]); title('Local exit phase raw');
+nexttile; imagesc(x * 1e3, y * 1e3, angle(local_exit_diagnostic.compensated_complex)); axis image; colormap(gca, hsv); colorbar; clim([-pi, pi]); title('Local exit phase compensated');
+nexttile; imagesc(x * 1e3, y * 1e3, holo_phase); axis image; colormap(gca, hsv); colorbar; clim([0, 2*pi]); title('Theoretical board phase');
+nexttile; imagesc(x * 1e3, y * 1e3, local_raw_asm_norm); axis image; colormap(gca, turbo); colorbar; title(sprintf('Raw local repaired PCC %.4f', local_exit_diagnostic.metrics.raw.repaired_fixed_pcc));
+nexttile; imagesc(x * 1e3, y * 1e3, local_comp_asm_norm); axis image; colormap(gca, turbo); colorbar; title(sprintf('Comp local repaired PCC %.4f', local_exit_diagnostic.metrics.compensated.repaired_fixed_pcc));
+exportgraphics(fig_local, fullfile(out_dir, 'local_exit_diagnostic.png'), 'Resolution', 300);
 
 fig_scan = figure('Color', 'w', 'Position', [90, 90, 1250, 720]);
 tiledlayout(2, 2, 'Padding', 'compact', 'TileSpacing', 'compact');
@@ -307,6 +328,18 @@ fprintf('Best phase-match probe offset: %.2f mm | fixed repaired PCC %.4f | scan
     exit_phase_scan.best_phase.summary.best_sign, ...
     exit_phase_scan.best_phase.summary.best_coherence, ...
     exit_phase_scan.best_phase.summary.best_rms_rad);
+fprintf('Local exit raw: repaired scan PCC %.4f at %.2f mm | phase best=%s | coh %.4f | RMS %.4f rad\n', ...
+    local_exit_diagnostic.metrics.raw.repaired_best_pcc, ...
+    local_exit_diagnostic.metrics.raw.repaired_best_z_mm, ...
+    local_exit_diagnostic.metrics.raw.best_sign, ...
+    local_exit_diagnostic.metrics.raw.best_coherence, ...
+    local_exit_diagnostic.metrics.raw.best_rms_rad);
+fprintf('Local exit compensated: repaired scan PCC %.4f at %.2f mm | phase best=%s | coh %.4f | RMS %.4f rad\n', ...
+    local_exit_diagnostic.metrics.compensated.repaired_best_pcc, ...
+    local_exit_diagnostic.metrics.compensated.repaired_best_z_mm, ...
+    local_exit_diagnostic.metrics.compensated.best_sign, ...
+    local_exit_diagnostic.metrics.compensated.best_coherence, ...
+    local_exit_diagnostic.metrics.compensated.best_rms_rad);
 fprintf('Repaired best z from exit: %.2f mm\n', full_result.best_z_mm);
 fprintf('Cure IoU/Dice/over/under/coverage: %.4f / %.4f / %.2f%% / %.2f%% / %.2f%%\n', ...
     cure_result.metrics.IoU, cure_result.metrics.Dice, ...
@@ -401,7 +434,9 @@ z_board_start_idx = source_z_idx + 1;
 max_layers = max(net_num_board(:));
 z_board_exit_idx = z_board_start_idx + max_layers;
 z_probe_indices = z_board_exit_idx + probe_offsets_voxels;
-Nz_short = max(z_probe_indices) + pml_size + 12;
+local_exit_z_indices = z_board_start_idx + net_num_board;
+diagnostic_z_indices = unique([z_probe_indices(:); local_exit_z_indices(aperture_mask)]);
+Nz_short = max(diagnostic_z_indices) + pml_size + 12;
 
 kgrid = kWaveGrid(Nx, dx, Ny, dy, Nz_short, dz);
 medium.sound_speed = c_water * ones(Nx, Ny, Nz_short, 'single');
@@ -434,8 +469,8 @@ source.p = single(source_sig .* [linspace(0, 1, ramp_pts), ones(1, kgrid.Nt - ra
 source.p_mode = 'dirichlet';
 
 sensor.mask = zeros(Nx, Ny, Nz_short, 'single');
-for idx = 1:numel(z_probe_indices)
-    sensor.mask(:, :, z_probe_indices(idx)) = 1;
+for idx = 1:numel(diagnostic_z_indices)
+    sensor.mask(:, :, diagnostic_z_indices(idx)) = 1;
 end
 sensor.record = {'p'};
 sensor.record_start_index = max(1, kgrid.Nt - round(3 / f0 / kgrid.dt));
@@ -454,10 +489,19 @@ demod = exp(-1i * 2 * pi * f0 * t_record(:));
 p_exit_complex_vec = (p_time * demod) ./ numel(t_record);
 p_exit_volume = complex(zeros(Nx, Ny, Nz_short));
 p_exit_volume(sensor.mask ~= 0) = p_exit_complex_vec;
+local_exit_complex = extract_local_exit_field(p_exit_volume, local_exit_z_indices, aperture_mask);
+common_plane_shift_voxels = z_board_exit_idx - local_exit_z_indices;
+local_exit_compensated = local_exit_complex;
+local_exit_compensated(aperture_mask) = local_exit_complex(aperture_mask) .* ...
+    exp(1i * (2 * pi * f0 / c_water) .* common_plane_shift_voxels(aperture_mask) .* dz);
 
 result = struct();
 result.p_exit_complex_stack = p_exit_volume(:, :, z_probe_indices);
 result.z_probe_indices = z_probe_indices;
+result.local_exit_complex = local_exit_complex;
+result.local_exit_compensated = local_exit_compensated;
+result.local_exit_z_indices = local_exit_z_indices;
+result.diagnostic_z_indices = diagnostic_z_indices;
 result.z_board_exit_idx = z_board_exit_idx;
 result.Nz_short = Nz_short;
 end
@@ -513,6 +557,62 @@ scan.best_repaired = struct( ...
 scan.best_phase = struct( ...
     'summary', records(best_phase_idx), ...
     'p_exit_complex', p_exit_complex_stack(:, :, best_phase_idx));
+end
+
+function diagnostic = analyze_local_exit_field(local_exit_raw, local_exit_compensated, holo_phase, aperture_mask, ...
+    H_forward, Kz, propagating, asm_focus_scan_distances, center_idx, Nx_pad, Ny_pad, target_norm, amp_threshold_ratio)
+
+raw = summarize_local_exit_case( ...
+    local_exit_raw, holo_phase, aperture_mask, H_forward, Kz, propagating, ...
+    asm_focus_scan_distances, center_idx, Nx_pad, Ny_pad, target_norm, amp_threshold_ratio);
+compensated = summarize_local_exit_case( ...
+    local_exit_compensated, holo_phase, aperture_mask, H_forward, Kz, propagating, ...
+    asm_focus_scan_distances, center_idx, Nx_pad, Ny_pad, target_norm, amp_threshold_ratio);
+
+diagnostic = struct();
+diagnostic.raw_complex = local_exit_raw;
+diagnostic.compensated_complex = local_exit_compensated;
+diagnostic.metrics = struct('raw', raw, 'compensated', compensated);
+end
+
+function summary = summarize_local_exit_case(exit_complex, holo_phase, aperture_mask, H_forward, Kz, propagating, ...
+    asm_focus_scan_distances, center_idx, Nx_pad, Ny_pad, target_norm, amp_threshold_ratio)
+
+phase_cmp = compare_phase_to_reference(exit_complex, holo_phase, aperture_mask, amp_threshold_ratio);
+repaired = make_idealized_exit_field(exit_complex, aperture_mask, 1.0);
+fixed_asm = propagate_exit_field_asm(repaired, H_forward, center_idx, Nx_pad, Ny_pad);
+fixed_asm = fixed_asm / (max(fixed_asm(:)) + eps);
+fixed_metrics = calc_image_metrics(fixed_asm, target_norm);
+focus_scan = scan_exit_field_asm_focus( ...
+    repaired, Kz, propagating, asm_focus_scan_distances, center_idx, Nx_pad, Ny_pad, target_norm);
+exit_amp = abs(exit_complex);
+exit_vals = exit_amp(aperture_mask);
+
+summary = struct();
+summary.best_sign = phase_cmp.best_sign;
+if phase_cmp.best_sign == "same"
+    summary.best_coherence = phase_cmp.same_sign.coherence;
+    summary.best_rms_rad = phase_cmp.same_sign.rms_rad;
+else
+    summary.best_coherence = phase_cmp.opposite_sign.coherence;
+    summary.best_rms_rad = phase_cmp.opposite_sign.rms_rad;
+end
+summary.same_coherence = phase_cmp.same_sign.coherence;
+summary.same_rms_rad = phase_cmp.same_sign.rms_rad;
+summary.opposite_coherence = phase_cmp.opposite_sign.coherence;
+summary.opposite_rms_rad = phase_cmp.opposite_sign.rms_rad;
+summary.valid_pixels = phase_cmp.valid_pixels;
+summary.valid_fraction = phase_cmp.valid_fraction;
+summary.repaired_fixed_pcc = fixed_metrics.pcc;
+summary.repaired_fixed_ssim = fixed_metrics.ssim;
+summary.repaired_fixed_nmse = fixed_metrics.nmse;
+summary.repaired_best_pcc = focus_scan.best_metrics.pcc;
+summary.repaired_best_ssim = focus_scan.best_metrics.ssim;
+summary.repaired_best_nmse = focus_scan.best_metrics.nmse;
+summary.repaired_best_ee = focus_scan.best_metrics.ee;
+summary.repaired_best_z_mm = focus_scan.best_z_mm;
+summary.exit_amp_cv = std(exit_vals(:)) / (mean(exit_vals(:)) + eps);
+summary.exit_amp_min_ratio = min(exit_vals(:)) / (max(exit_vals(:)) + eps);
 end
 
 function record = empty_exit_phase_record()
