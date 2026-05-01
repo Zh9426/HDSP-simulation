@@ -181,10 +181,26 @@ actual_exit_asm_amp = propagate_exit_field_asm(p_exit_complex, H_forward, center
 actual_exit_asm_norm = actual_exit_asm_amp / (max(actual_exit_asm_amp(:)) + eps);
 actual_exit_asm_metrics = calc_image_metrics(actual_exit_asm_norm, target_norm);
 
-theory_exit = make_idealized_exit_field(p_exit_complex, circle_mask_board, 1.0);
-theory_exit_asm_amp = propagate_exit_field_asm(theory_exit, H_forward, center_idx, Nx_pad, Ny_pad);
-theory_exit_asm_norm = theory_exit_asm_amp / (max(theory_exit_asm_amp(:)) + eps);
-theory_exit_asm_metrics = calc_image_metrics(theory_exit_asm_norm, target_norm);
+theory_exit_same = make_idealized_exit_field(p_exit_complex, circle_mask_board, 1.0);
+theory_exit_opposite = make_idealized_exit_field(conj(p_exit_complex), circle_mask_board, 1.0);
+theory_exit_same_asm_amp = propagate_exit_field_asm(theory_exit_same, H_forward, center_idx, Nx_pad, Ny_pad);
+theory_exit_same_asm_norm = theory_exit_same_asm_amp / (max(theory_exit_same_asm_amp(:)) + eps);
+theory_exit_same_asm_metrics = calc_image_metrics(theory_exit_same_asm_norm, target_norm);
+theory_exit_opposite_asm_amp = propagate_exit_field_asm(theory_exit_opposite, H_forward, center_idx, Nx_pad, Ny_pad);
+theory_exit_opposite_asm_norm = theory_exit_opposite_asm_amp / (max(theory_exit_opposite_asm_amp(:)) + eps);
+theory_exit_opposite_asm_metrics = calc_image_metrics(theory_exit_opposite_asm_norm, target_norm);
+selected_repaired_phase_sign = exit_phase_scan.best_repaired.summary.repaired_signed_phase_sign;
+if selected_repaired_phase_sign == "opposite"
+    theory_exit = theory_exit_opposite;
+    theory_exit_asm_amp = theory_exit_opposite_asm_amp;
+    theory_exit_asm_norm = theory_exit_opposite_asm_norm;
+    theory_exit_asm_metrics = theory_exit_opposite_asm_metrics;
+else
+    theory_exit = theory_exit_same;
+    theory_exit_asm_amp = theory_exit_same_asm_amp;
+    theory_exit_asm_norm = theory_exit_same_asm_norm;
+    theory_exit_asm_metrics = theory_exit_same_asm_metrics;
+end
 
 %% 5. Second full simulation: ideal amplitude + measured exit phase
 if run_repaired_full_simulation
@@ -223,7 +239,10 @@ metrics.phase_bias_python_iasa = phase_bias_python_iasa;
 metrics.phase_step = phase_step;
 metrics.asm_iasa = asm_iasa_metrics;
 metrics.actual_exit_asm = actual_exit_asm_metrics;
+metrics.repaired_exit_asm_same = theory_exit_same_asm_metrics;
+metrics.repaired_exit_asm_opposite = theory_exit_opposite_asm_metrics;
 metrics.repaired_exit_asm = theory_exit_asm_metrics;
+metrics.repaired_exit_phase_sign = selected_repaired_phase_sign;
 metrics.repaired_kwave = kwave_metrics;
 metrics.exit_amp_cv = exit_amp_cv;
 metrics.exit_amp_min_ratio = exit_amp_min_ratio;
@@ -236,7 +255,8 @@ metrics.best_z_mm = full_result.best_z_mm;
 metrics.cure = cure_result.metrics;
 save(fullfile(out_dir, 'phase_board_exit_repair_results.mat'), ...
     'metrics', 'thickness_map', 'net_num_board', 'holo_phase', ...
-    'p_exit_complex', 'theory_exit', 'exit_phase_scan', 'local_exit_diagnostic', 'p_focal', 'p_focal_norm', ...
+    'p_exit_complex', 'theory_exit', 'theory_exit_same', 'theory_exit_opposite', ...
+    'exit_phase_scan', 'local_exit_diagnostic', 'p_focal', 'p_focal_norm', ...
     'target_norm', 'target_mask', 'cure_result', 'x', 'y', '-v7.3');
 
 fig = figure('Color', 'w', 'Position', [60, 60, 1600, 920]);
@@ -248,7 +268,7 @@ nexttile; imagesc(x * 1e3, y * 1e3, asm_iasa_norm); axis image; colormap(gca, tu
 nexttile; imagesc(x * 1e3, y * 1e3, p_exit_amp_norm); axis image; colormap(gca, turbo); colorbar; title(sprintf('Actual exit amp CV %.4f', exit_amp_cv));
 nexttile; imagesc(x * 1e3, y * 1e3, p_exit_phase); axis image; colormap(gca, hsv); colorbar; title('Actual exit phase');
 nexttile; imagesc(x * 1e3, y * 1e3, actual_exit_asm_norm); axis image; colormap(gca, turbo); colorbar; title(sprintf('Actual exit ASM PCC %.4f', actual_exit_asm_metrics.pcc));
-nexttile; imagesc(x * 1e3, y * 1e3, theory_exit_asm_norm); axis image; colormap(gca, turbo); colorbar; title(sprintf('Repaired exit ASM PCC %.4f', theory_exit_asm_metrics.pcc));
+nexttile; imagesc(x * 1e3, y * 1e3, theory_exit_asm_norm); axis image; colormap(gca, turbo); colorbar; title(sprintf('Signed repaired ASM PCC %.4f', theory_exit_asm_metrics.pcc));
 nexttile; imagesc(x * 1e3, y * 1e3, p_focal_norm); axis image; colormap(gca, turbo); colorbar; title(sprintf('Repaired k-Wave PCC %.4f', kwave_metrics.pcc));
 nexttile; imagesc(x * 1e3, y * 1e3, cure_result.cured_mask); axis image; colormap(gca, [1 1 1; 0.1 0.1 0.3]); title(sprintf('Cure IoU %.4f', cure_result.metrics.IoU));
 nexttile; imagesc(x * 1e3, y * 1e3, cure_result.cure_score); axis image; colormap(gca, turbo); colorbar; title('Cavitation cure score');
@@ -314,8 +334,11 @@ fprintf('Design ASM PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
     asm_iasa_metrics.pcc, asm_iasa_metrics.ssim, asm_iasa_metrics.nmse, asm_iasa_metrics.ee * 100);
 fprintf('Actual exit ASM PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
     actual_exit_asm_metrics.pcc, actual_exit_asm_metrics.ssim, actual_exit_asm_metrics.nmse, actual_exit_asm_metrics.ee * 100);
-fprintf('Repaired exit ASM PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
-    theory_exit_asm_metrics.pcc, theory_exit_asm_metrics.ssim, theory_exit_asm_metrics.nmse, theory_exit_asm_metrics.ee * 100);
+fprintf('Repaired exit ASM same PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
+    theory_exit_same_asm_metrics.pcc, theory_exit_same_asm_metrics.ssim, theory_exit_same_asm_metrics.nmse, theory_exit_same_asm_metrics.ee * 100);
+fprintf('Repaired exit ASM selected(%s) PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
+    selected_repaired_phase_sign, theory_exit_asm_metrics.pcc, theory_exit_asm_metrics.ssim, ...
+    theory_exit_asm_metrics.nmse, theory_exit_asm_metrics.ee * 100);
 fprintf('Repaired k-Wave PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
     kwave_metrics.pcc, kwave_metrics.ssim, kwave_metrics.nmse, kwave_metrics.ee * 100);
 fprintf('Exit amp CV/min-max: %.4f / %.4f\n', exit_amp_cv, exit_amp_min_ratio);
