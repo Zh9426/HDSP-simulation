@@ -34,6 +34,9 @@ iasa_anchor_eta = 1.0;
 min_base_layers = 2;
 target_pressure_mpa = 2.05;
 exposure_time = 0.06;
+exit_probe_offsets_voxels = [0, 2, 4, 8, 12, 16, 24, 32];
+exit_phase_amp_threshold_ratio = 0.10;
+run_repaired_full_simulation = strcmpi(getenv('RUN_REPAIRED_FULL_KWAVE'), '1');
 
 dx = Lx / Nx;
 dy = dx;
@@ -147,9 +150,14 @@ fprintf('\nRunning short board-exit simulation.\n');
 exit_result = run_board_exit_simulation( ...
     net_num_board, circle_mask_board, Nx, Ny, dx, dy, dz, f0, ...
     c_water, c_board, density_water, density_board, ...
-    alpha_coeff_water, alpha_power_water, alpha_coeff_board);
+    alpha_coeff_water, alpha_power_water, alpha_coeff_board, exit_probe_offsets_voxels);
 
-p_exit_complex = exit_result.p_exit_complex;
+exit_phase_scan = analyze_exit_phase_planes( ...
+    exit_result.p_exit_complex_stack, exit_result.z_probe_indices, exit_result.z_board_exit_idx, ...
+    holo_phase, circle_mask_board, H_forward, center_idx, Nx_pad, Ny_pad, ...
+    target_norm, dx, exit_phase_amp_threshold_ratio);
+
+p_exit_complex = exit_phase_scan.best_repaired.p_exit_complex;
 p_exit_amp = abs(p_exit_complex);
 p_exit_amp_norm = p_exit_amp / (max(p_exit_amp(:)) + eps);
 p_exit_phase = angle(p_exit_complex);
@@ -167,21 +175,30 @@ theory_exit_asm_norm = theory_exit_asm_amp / (max(theory_exit_asm_amp(:)) + eps)
 theory_exit_asm_metrics = calc_image_metrics(theory_exit_asm_norm, target_norm);
 
 %% 5. Second full simulation: ideal amplitude + measured exit phase
-try
-    reset(gpuDevice);
-catch
-end
-fprintf('\nRunning repaired-exit full propagation simulation.\n');
-full_result = run_repaired_exit_full_simulation( ...
-    theory_exit, circle_mask_board, target_norm, target_mask, ...
-    Nx, Ny, dx, dy, dz, z_target_dist, focus_scan_radius, ...
-    f0, c_water, density_water, alpha_coeff_water, alpha_power_water, ...
-    c_pdms, density_pdms, alpha_coeff_pdms, pdms_thickness);
+if run_repaired_full_simulation
+    try
+        reset(gpuDevice);
+    catch
+    end
+    fprintf('\nRunning repaired-exit full propagation simulation.\n');
+    full_result = run_repaired_exit_full_simulation( ...
+        theory_exit, circle_mask_board, target_norm, target_mask, ...
+        Nx, Ny, dx, dy, dz, z_target_dist, focus_scan_radius, ...
+        f0, c_water, density_water, alpha_coeff_water, alpha_power_water, ...
+        c_pdms, density_pdms, alpha_coeff_pdms, pdms_thickness);
 
-p_focal = full_result.p_focal;
-p_focal_norm = p_focal / (max(p_focal(:)) + eps);
-kwave_metrics = calc_image_metrics(p_focal_norm, target_norm);
-cure_result = run_cavitation_cure_prediction(p_focal, target_mask, target_pressure_mpa, exposure_time);
+    p_focal = full_result.p_focal;
+    p_focal_norm = p_focal / (max(p_focal(:)) + eps);
+    kwave_metrics = calc_image_metrics(p_focal_norm, target_norm);
+    cure_result = run_cavitation_cure_prediction(p_focal, target_mask, target_pressure_mpa, exposure_time);
+else
+    fprintf('\nSkipping repaired full k-Wave run. Use exit-phase scan before enabling it.\n');
+    full_result = struct('best_z_mm', NaN);
+    p_focal = NaN(size(target_norm));
+    p_focal_norm = p_focal;
+    kwave_metrics = empty_image_metrics();
+    cure_result = empty_cure_result(size(target_norm));
+end
 
 %% 6. Export artifacts and report
 out_dir = fullfile(fileparts(mfilename('fullpath')), 'phase_board_exit_repair_outputs');
@@ -198,11 +215,14 @@ metrics.repaired_exit_asm = theory_exit_asm_metrics;
 metrics.repaired_kwave = kwave_metrics;
 metrics.exit_amp_cv = exit_amp_cv;
 metrics.exit_amp_min_ratio = exit_amp_min_ratio;
+metrics.exit_phase_scan = exit_phase_scan.records;
+metrics.exit_phase_best_repaired = exit_phase_scan.best_repaired.summary;
+metrics.exit_phase_best_phase = exit_phase_scan.best_phase.summary;
 metrics.best_z_mm = full_result.best_z_mm;
 metrics.cure = cure_result.metrics;
 save(fullfile(out_dir, 'phase_board_exit_repair_results.mat'), ...
     'metrics', 'thickness_map', 'net_num_board', 'holo_phase', ...
-    'p_exit_complex', 'theory_exit', 'p_focal', 'p_focal_norm', ...
+    'p_exit_complex', 'theory_exit', 'exit_phase_scan', 'p_focal', 'p_focal_norm', ...
     'target_norm', 'target_mask', 'cure_result', 'x', 'y', '-v7.3');
 
 fig = figure('Color', 'w', 'Position', [60, 60, 1600, 920]);
@@ -223,6 +243,31 @@ plot(x * 1e3, p_focal_norm(round(end/2), :), 'r-', 'LineWidth', 1.5); grid on;
 title('Centerline'); xlabel('x (mm)'); ylabel('norm amp'); legend('Target', 'Repaired k-Wave');
 exportgraphics(fig, fullfile(out_dir, 'phase_board_exit_repair_overview.png'), 'Resolution', 300);
 
+fig_scan = figure('Color', 'w', 'Position', [90, 90, 1250, 720]);
+tiledlayout(2, 2, 'Padding', 'compact', 'TileSpacing', 'compact');
+offset_mm = [exit_phase_scan.records.offset_mm];
+nexttile;
+plot(offset_mm, [exit_phase_scan.records.same_coherence], 'o-', 'LineWidth', 1.5); hold on;
+plot(offset_mm, [exit_phase_scan.records.opposite_coherence], 's-', 'LineWidth', 1.5);
+grid on; xlabel('Probe offset after max board exit (mm)'); ylabel('phase coherence');
+legend('phi - holo', 'phi + holo', 'Location', 'best'); title('Exit phase coherence');
+nexttile;
+plot(offset_mm, [exit_phase_scan.records.same_rms_rad], 'o-', 'LineWidth', 1.5); hold on;
+plot(offset_mm, [exit_phase_scan.records.opposite_rms_rad], 's-', 'LineWidth', 1.5);
+grid on; xlabel('Probe offset after max board exit (mm)'); ylabel('RMS after global offset (rad)');
+legend('phi - holo', 'phi + holo', 'Location', 'best'); title('Exit phase RMS');
+nexttile;
+plot(offset_mm, [exit_phase_scan.records.actual_asm_pcc], 'o-', 'LineWidth', 1.5); hold on;
+plot(offset_mm, [exit_phase_scan.records.repaired_asm_pcc], 's-', 'LineWidth', 1.5);
+grid on; xlabel('Probe offset after max board exit (mm)'); ylabel('PCC to target');
+legend('actual complex exit', 'ideal amp + exit phase', 'Location', 'best'); title('ASM target match');
+nexttile;
+plot(offset_mm, [exit_phase_scan.records.exit_amp_cv], 'o-', 'LineWidth', 1.5); hold on;
+plot(offset_mm, [exit_phase_scan.records.valid_fraction], 's-', 'LineWidth', 1.5);
+grid on; xlabel('Probe offset after max board exit (mm)'); ylabel('value');
+legend('exit amp CV', 'valid phase fraction', 'Location', 'best'); title('Amplitude quality gate');
+exportgraphics(fig_scan, fullfile(out_dir, 'exit_phase_probe_scan.png'), 'Resolution', 300);
+
 fprintf('\n==================================================\n');
 fprintf('Exit amplitude repair validation summary\n');
 fprintf('Design ASM PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
@@ -234,6 +279,18 @@ fprintf('Repaired exit ASM PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
 fprintf('Repaired k-Wave PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
     kwave_metrics.pcc, kwave_metrics.ssim, kwave_metrics.nmse, kwave_metrics.ee * 100);
 fprintf('Exit amp CV/min-max: %.4f / %.4f\n', exit_amp_cv, exit_amp_min_ratio);
+fprintf('Best repaired ASM probe offset: %.2f mm | PCC %.4f | phase best=%s | coh %.4f | RMS %.4f rad\n', ...
+    exit_phase_scan.best_repaired.summary.offset_mm, ...
+    exit_phase_scan.best_repaired.summary.repaired_asm_pcc, ...
+    exit_phase_scan.best_repaired.summary.best_sign, ...
+    exit_phase_scan.best_repaired.summary.best_coherence, ...
+    exit_phase_scan.best_repaired.summary.best_rms_rad);
+fprintf('Best phase-match probe offset: %.2f mm | repaired ASM PCC %.4f | phase best=%s | coh %.4f | RMS %.4f rad\n', ...
+    exit_phase_scan.best_phase.summary.offset_mm, ...
+    exit_phase_scan.best_phase.summary.repaired_asm_pcc, ...
+    exit_phase_scan.best_phase.summary.best_sign, ...
+    exit_phase_scan.best_phase.summary.best_coherence, ...
+    exit_phase_scan.best_phase.summary.best_rms_rad);
 fprintf('Repaired best z from exit: %.2f mm\n', full_result.best_z_mm);
 fprintf('Cure IoU/Dice/over/under/coverage: %.4f / %.4f / %.2f%% / %.2f%% / %.2f%%\n', ...
     cure_result.metrics.IoU, cure_result.metrics.Dice, ...
@@ -320,14 +377,15 @@ holo_phase(~circle_mask_board) = 0;
 end
 
 function result = run_board_exit_simulation(net_num_board, aperture_mask, Nx, Ny, dx, dy, dz, f0, ...
-    c_water, c_board, density_water, density_board, alpha_coeff_water, alpha_power_water, alpha_coeff_board)
+    c_water, c_board, density_water, density_board, alpha_coeff_water, alpha_power_water, alpha_coeff_board, probe_offsets_voxels)
 
 pml_size = 10;
 source_z_idx = pml_size + 5;
 z_board_start_idx = source_z_idx + 1;
 max_layers = max(net_num_board(:));
 z_board_exit_idx = z_board_start_idx + max_layers;
-Nz_short = z_board_exit_idx + pml_size + 12;
+z_probe_indices = z_board_exit_idx + probe_offsets_voxels;
+Nz_short = max(z_probe_indices) + pml_size + 12;
 
 kgrid = kWaveGrid(Nx, dx, Ny, dy, Nz_short, dz);
 medium.sound_speed = c_water * ones(Nx, Ny, Nz_short, 'single');
@@ -360,7 +418,9 @@ source.p = single(source_sig .* [linspace(0, 1, ramp_pts), ones(1, kgrid.Nt - ra
 source.p_mode = 'dirichlet';
 
 sensor.mask = zeros(Nx, Ny, Nz_short, 'single');
-sensor.mask(:, :, z_board_exit_idx) = 1;
+for idx = 1:numel(z_probe_indices)
+    sensor.mask(:, :, z_probe_indices(idx)) = 1;
+end
 sensor.record = {'p'};
 sensor.record_start_index = max(1, kgrid.Nt - round(3 / f0 / kgrid.dt));
 
@@ -376,11 +436,115 @@ p_time = gather(sensor_data.p);
 t_record = kgrid.t_array(sensor.record_start_index:end);
 demod = exp(-1i * 2 * pi * f0 * t_record(:));
 p_exit_complex_vec = (p_time * demod) ./ numel(t_record);
+p_exit_volume = complex(zeros(Nx, Ny, Nz_short));
+p_exit_volume(sensor.mask ~= 0) = p_exit_complex_vec;
 
 result = struct();
-result.p_exit_complex = reshape(p_exit_complex_vec, Nx, Ny);
+result.p_exit_complex_stack = p_exit_volume(:, :, z_probe_indices);
+result.z_probe_indices = z_probe_indices;
 result.z_board_exit_idx = z_board_exit_idx;
 result.Nz_short = Nz_short;
+end
+
+function scan = analyze_exit_phase_planes(p_exit_complex_stack, z_probe_indices, z_board_exit_idx, ...
+    holo_phase, aperture_mask, H_forward, center_idx, Nx_pad, Ny_pad, target_norm, dx, amp_threshold_ratio)
+
+n_planes = size(p_exit_complex_stack, 3);
+records = repmat(empty_exit_phase_record(), 1, n_planes);
+best_repaired_idx = 1;
+best_phase_idx = 1;
+best_repaired_pcc = -inf;
+best_phase_rms = inf;
+
+for idx = 1:n_planes
+    p_complex = p_exit_complex_stack(:, :, idx);
+    phase_cmp = compare_phase_to_reference(p_complex, holo_phase, aperture_mask, amp_threshold_ratio);
+    actual_asm = propagate_exit_field_asm(p_complex, H_forward, center_idx, Nx_pad, Ny_pad);
+    actual_asm_norm = actual_asm / (max(actual_asm(:)) + eps);
+    actual_metrics = calc_image_metrics(actual_asm_norm, target_norm);
+    repaired = make_idealized_exit_field(p_complex, aperture_mask, 1.0);
+    repaired_asm = propagate_exit_field_asm(repaired, H_forward, center_idx, Nx_pad, Ny_pad);
+    repaired_asm_norm = repaired_asm / (max(repaired_asm(:)) + eps);
+    repaired_metrics = calc_image_metrics(repaired_asm_norm, target_norm);
+
+    exit_amp = abs(p_complex);
+    exit_vals = exit_amp(aperture_mask);
+    records(idx) = build_exit_phase_record( ...
+        z_probe_indices(idx), z_board_exit_idx, dx, phase_cmp, actual_metrics, repaired_metrics, exit_vals);
+
+    if repaired_metrics.pcc > best_repaired_pcc
+        best_repaired_pcc = repaired_metrics.pcc;
+        best_repaired_idx = idx;
+    end
+    if records(idx).best_rms_rad < best_phase_rms
+        best_phase_rms = records(idx).best_rms_rad;
+        best_phase_idx = idx;
+    end
+end
+
+scan = struct();
+scan.records = records;
+scan.best_repaired = struct( ...
+    'summary', records(best_repaired_idx), ...
+    'p_exit_complex', p_exit_complex_stack(:, :, best_repaired_idx));
+scan.best_phase = struct( ...
+    'summary', records(best_phase_idx), ...
+    'p_exit_complex', p_exit_complex_stack(:, :, best_phase_idx));
+end
+
+function record = empty_exit_phase_record()
+record = struct( ...
+    'z_index', 0, ...
+    'offset_voxels', 0, ...
+    'offset_mm', 0, ...
+    'same_coherence', 0, ...
+    'same_rms_rad', 0, ...
+    'opposite_coherence', 0, ...
+    'opposite_rms_rad', 0, ...
+    'best_sign', "", ...
+    'best_coherence', 0, ...
+    'best_rms_rad', 0, ...
+    'valid_pixels', 0, ...
+    'total_mask_pixels', 0, ...
+    'valid_fraction', 0, ...
+    'actual_asm_pcc', 0, ...
+    'actual_asm_ssim', 0, ...
+    'actual_asm_nmse', 0, ...
+    'repaired_asm_pcc', 0, ...
+    'repaired_asm_ssim', 0, ...
+    'repaired_asm_nmse', 0, ...
+    'exit_amp_cv', 0, ...
+    'exit_amp_min_ratio', 0);
+end
+
+function record = build_exit_phase_record(z_index, z_board_exit_idx, dx, phase_cmp, actual_metrics, repaired_metrics, exit_vals)
+record = empty_exit_phase_record();
+record.z_index = z_index;
+record.offset_voxels = z_index - z_board_exit_idx;
+record.offset_mm = record.offset_voxels * dx * 1e3;
+record.same_coherence = phase_cmp.same_sign.coherence;
+record.same_rms_rad = phase_cmp.same_sign.rms_rad;
+record.opposite_coherence = phase_cmp.opposite_sign.coherence;
+record.opposite_rms_rad = phase_cmp.opposite_sign.rms_rad;
+record.best_sign = phase_cmp.best_sign;
+if phase_cmp.best_sign == "same"
+    record.best_coherence = record.same_coherence;
+    record.best_rms_rad = record.same_rms_rad;
+else
+    record.best_coherence = record.opposite_coherence;
+    record.best_rms_rad = record.opposite_rms_rad;
+end
+record.valid_pixels = phase_cmp.valid_pixels;
+record.total_mask_pixels = phase_cmp.total_mask_pixels;
+record.valid_fraction = phase_cmp.valid_fraction;
+record.actual_asm_pcc = actual_metrics.pcc;
+record.actual_asm_ssim = actual_metrics.ssim;
+record.actual_asm_nmse = actual_metrics.nmse;
+record.repaired_asm_pcc = repaired_metrics.pcc;
+record.repaired_asm_ssim = repaired_metrics.ssim;
+record.repaired_asm_nmse = repaired_metrics.nmse;
+record.exit_amp_cv = std(exit_vals(:)) / (mean(exit_vals(:)) + eps);
+record.exit_amp_min_ratio = min(exit_vals(:)) / (max(exit_vals(:)) + eps);
 end
 
 function result = run_repaired_exit_full_simulation(exit_complex, aperture_mask, target_norm, target_mask, ...
@@ -544,4 +708,28 @@ metrics.ssim = ssim(double(pred_norm), double(target_norm));
 metrics.nmse = sum((pred_norm(:) - target_norm(:)).^2) / sum(target_norm(:).^2);
 target_mask = target_norm > 0.5;
 metrics.ee = sum(pred_norm(target_mask).^2) / (sum(pred_norm(:).^2) + eps);
+end
+
+function metrics = empty_image_metrics()
+metrics = struct('pcc', NaN, 'ssim', NaN, 'nmse', NaN, 'ee', NaN);
+end
+
+function cure_result = empty_cure_result(map_size)
+empty_map = false(map_size);
+cure_result = struct();
+cure_result.p_scaled = NaN(map_size);
+cure_result.cavitation = struct();
+cure_result.dose_rate = NaN(map_size);
+cure_result.dose_components = struct();
+cure_result.cure_score = NaN(map_size);
+cure_result.cured_mask = empty_map;
+cure_result.components = struct();
+cure_result.metrics = struct( ...
+    'threshold', NaN, ...
+    'IoU', NaN, ...
+    'Dice', NaN, ...
+    'over_cure_ratio', NaN, ...
+    'under_cure_ratio', NaN, ...
+    'cured_coverage', NaN, ...
+    'cured_mask', empty_map);
 end
