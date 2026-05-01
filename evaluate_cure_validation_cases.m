@@ -33,7 +33,9 @@ record = struct( ...
     'cavitation_dose_roi_mean', 0, ...
     'thermal_dose_roi_mean', 0, ...
     'thermal_dose_background_mean', 0, ...
-    'penalty_roi_mean', 0);
+    'quality_risk_roi_mean', 0, ...
+    'quality_risk_background_mean', 0, ...
+    'quality_risk_peak', 0);
 end
 
 function record = record_from_simulation(case_def, exposure_time, sim, target_mask)
@@ -51,5 +53,7 @@ record.pressure_background_max_MPa = max(case_def.pressure_map(~target_mask)) / 
 record.cavitation_dose_roi_mean = mean(sim.score_components.cavitation_dose(target_mask));
 record.thermal_dose_roi_mean = mean(sim.score_components.thermal_dose(target_mask));
 record.thermal_dose_background_mean = mean(sim.score_components.thermal_dose(~target_mask));
-record.penalty_roi_mean = mean(sim.score_components.penalty_contribution(target_mask));
+record.quality_risk_roi_mean = mean(sim.score_components.quality_risk(target_mask));
+record.quality_risk_background_mean = mean(sim.score_components.quality_risk(~target_mask));
+record.quality_risk_peak = max(sim.score_components.quality_risk(:));
 end

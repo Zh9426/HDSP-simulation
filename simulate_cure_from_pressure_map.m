@@ -47,17 +47,18 @@ if isfield(params, 'thermal_dose_map') && ~isempty(params.thermal_dose_map)
     return;
 end
 
-thermal_weight = get_param(params, 'thermal_weight', 0.0);
-if thermal_weight <= 0
+compute_thermal_diagnostic = get_param(params, 'compute_thermal_diagnostic', false);
+has_spatial_dx = isfield(params, 'spatial_dx') && ~isempty(params.spatial_dx);
+if ~compute_thermal_diagnostic && ~has_spatial_dx
     thermal_dose = zeros(size(p_amp));
     return;
 end
 
 spatial_dx = get_param(params, 'spatial_dx', []);
 if isempty(spatial_dx) || ~isscalar(spatial_dx) || ~isfinite(spatial_dx) || spatial_dx <= 0
-    error('simulate_cure_from_pressure_map:MissingThermalInput', ...
-        ['thermal_weight is enabled, so provide params.spatial_dx ', ...
-        'or params.thermal_dose_map to keep the full cure model active.']);
+    error('simulate_cure_from_pressure_map:MissingThermalDiagnosticInput', ...
+        ['thermal diagnostics are enabled, so provide params.spatial_dx ', ...
+        'or params.thermal_dose_map.']);
 end
 
 thermal_dose = compute_thermal_aux_from_pressure_map( ...

@@ -14,7 +14,19 @@ verifyTrue(testCase, any(case_names == "ideal_binary"));
 verifyTrue(testCase, any(case_names == "blurred_edge"));
 verifyTrue(testCase, any(case_names == "background_leakage"));
 verifyTrue(testCase, any(case_names == "speckle_nonuniform"));
+verifyTrue(testCase, any(case_names == "target_overdrive"));
 verifyGreaterThanOrEqual(testCase, numel(cases), 4);
+end
+
+function testPressureCasesIncludeOverdriveRisk(testCase)
+target = false(32, 32);
+target(9:24, 9:24) = true;
+params = default_cure_model_params();
+
+cases = build_pressure_validation_cases(target, params, 1.0e-4);
+max_pressure = max(arrayfun(@(case_def) max(case_def.pressure_map(:)), cases));
+
+verifyGreaterThan(testCase, max_pressure, params.pressure_stream);
 end
 
 function testIdealCaseKeepsBackgroundBelowCavitationOnset(testCase)

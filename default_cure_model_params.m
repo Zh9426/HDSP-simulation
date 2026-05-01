@@ -16,8 +16,10 @@ params.smooth_sigma_px = 0.0;
 
 params.threshold = 1.0;
 params.cavitation_dose_time = 0.04;
-params.thermal_weight = 0.15;
-params.penalty_weight = 0.80;
+params.thermal_weight = 0.0;
+params.compute_thermal_diagnostic = true;
+params.penalty_weight = 0.0;
+params.quality_risk_weight = 0.80;
 
 params.thermal_pressure_ref = 2.25e6;
 params.thermal_peak_deltaT = 8.0;
