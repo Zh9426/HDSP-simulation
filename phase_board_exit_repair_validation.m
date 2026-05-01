@@ -167,6 +167,10 @@ theory_exit_asm_norm = theory_exit_asm_amp / (max(theory_exit_asm_amp(:)) + eps)
 theory_exit_asm_metrics = calc_image_metrics(theory_exit_asm_norm, target_norm);
 
 %% 5. Second full simulation: ideal amplitude + measured exit phase
+try
+    reset(gpuDevice);
+catch
+end
 fprintf('\nRunning repaired-exit full propagation simulation.\n');
 full_result = run_repaired_exit_full_simulation( ...
     theory_exit, circle_mask_board, target_norm, target_mask, ...
