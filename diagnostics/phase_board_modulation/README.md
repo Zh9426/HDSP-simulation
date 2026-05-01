@@ -5,7 +5,7 @@
 ## 基线脚本
 
 - 原始脚本来源：`F:\MATLAB\code\HDSP\IASAdebug\IASAdebug0420.m`
-- 分支内基线副本：`diagnostics/phase_board_modulation/IASAdebug0420_baseline.m`
+- 分支内工作副本：`diagnostics/phase_board_modulation/IASAdebug0420.m`
 
 ## 已确认的代码结构
 
