@@ -60,30 +60,30 @@ for col = 1:num_cases
     nexttile(col);
     imagesc(target.x * 1e3, target.x * 1e3, case_pressure / 1e6);
     format_map_axis(); colormap(gca, turbo); colorbar;
-    title(sprintf('%s\npressure MPa', records(idx).name), 'Interpreter', 'none');
-    if col == 1, ylabel('pressure'); end
+    title(sprintf('%s\n声压 MPa', records(idx).name), 'Interpreter', 'none');
+    if col == 1, ylabel('声压'); end
 
     nexttile(num_cases + col);
     imagesc(target.x * 1e3, target.x * 1e3, sim.cure_score);
     format_map_axis(); colormap(gca, hot); colorbar;
-    title(sprintf('dose | IoU %.4f', records(idx).IoU), 'Interpreter', 'none');
-    if col == 1, ylabel('cav dose'); end
+    title(sprintf('空化剂量 | IoU %.4f', records(idx).IoU), 'Interpreter', 'none');
+    if col == 1, ylabel('空化剂量'); end
 
     nexttile(2 * num_cases + col);
     imagesc(target.x * 1e3, target.x * 1e3, sim.cured_mask);
     format_map_axis(); colormap(gca, gray);
-    title(sprintf('cured | under %.1f%%', records(idx).under_cure * 100), ...
+    title(sprintf('固化预测 | 欠固化 %.1f%%', records(idx).under_cure * 100), ...
         'Interpreter', 'none');
-    if col == 1, ylabel('cured'); end
+    if col == 1, ylabel('固化预测'); end
 
     nexttile(3 * num_cases + col);
     imagesc(target.x * 1e3, target.x * 1e3, case_error, [0, 3]);
     format_map_axis(); colormap(gca, cure_error_colormap());
-    title(sprintf('error | over %.1f%%', records(idx).over_cure * 100), ...
+    title(sprintf('误差图 | 过固化 %.1f%%', records(idx).over_cure * 100), ...
         'Interpreter', 'none');
-    if col == 1, ylabel('error'); end
+    if col == 1, ylabel('误差图'); end
 end
-sgtitle('Cure validation: pressure -> cavitation dose -> cure mask -> error map');
+sgtitle('固化验证：声压 -> 空化剂量 -> 固化预测 -> 误差图');
 
 figure(2); clf; set(gcf, 'Color', 'w', 'Position', [120, 120, 1760, 520]);
 tiledlayout(2, num_cases, 'TileSpacing', 'compact', 'Padding', 'compact');
@@ -94,17 +94,17 @@ for col = 1:num_cases
     nexttile(col);
     imagesc(target.x * 1e3, target.x * 1e3, sim.score_components.thermal_dose);
     format_map_axis(); colormap(gca, parula); colorbar;
-    title(sprintf('%s\nthermal diagnostic', records(idx).name), 'Interpreter', 'none');
-    if col == 1, ylabel('thermal'); end
+    title(sprintf('%s\n热扩散诊断', records(idx).name), 'Interpreter', 'none');
+    if col == 1, ylabel('热扩散诊断'); end
 
     nexttile(num_cases + col);
     imagesc(target.x * 1e3, target.x * 1e3, sim.score_components.quality_risk, [0, 1]);
     format_map_axis(); colormap(gca, hot); colorbar;
-    title(sprintf('quality risk peak %.3f', records(idx).quality_risk_peak), ...
+    title(sprintf('质量风险峰值 %.3f', records(idx).quality_risk_peak), ...
         'Interpreter', 'none');
-    if col == 1, ylabel('quality risk'); end
+    if col == 1, ylabel('质量风险'); end
 end
-sgtitle('Diagnostics only: thermal diffusion does not enter cure score');
+sgtitle('诊断项：热扩散不参与固化判据，过驱只标记质量风险');
 
 function error_map = build_cure_error_map(cured_mask, target_mask)
 error_map = zeros(size(target_mask));
