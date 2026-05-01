@@ -36,11 +36,16 @@ target_pressure_mpa = 2.05;
 exposure_time = 0.06;
 exit_probe_offsets_voxels = [0, 2, 4, 8, 12, 16, 24, 32];
 exit_phase_amp_threshold_ratio = 0.10;
+asm_focus_scan_step_voxels = 2;
 run_repaired_full_simulation = strcmpi(getenv('RUN_REPAIRED_FULL_KWAVE'), '1');
 
 dx = Lx / Nx;
 dy = dx;
 dz = dx;
+asm_focus_scan_offsets_voxels = -round(focus_scan_radius / dz):asm_focus_scan_step_voxels:round(focus_scan_radius / dz);
+asm_focus_scan_offsets_voxels = unique(sort([asm_focus_scan_offsets_voxels, 0]));
+asm_focus_scan_distances = z_target_dist + asm_focus_scan_offsets_voxels * dz;
+asm_focus_scan_distances = asm_focus_scan_distances(asm_focus_scan_distances > 0);
 x = (-Nx/2 : Nx/2-1) * dx;
 y = x;
 [Y_grid, X_grid] = meshgrid(y, x);
@@ -48,6 +53,8 @@ y = x;
 fprintf('==================================================\n');
 fprintf('Phase-board exit repair validation\n');
 fprintf('Grid dx = dy = dz = %.4f mm | PPW = %.2f\n', dx * 1e3, lambda_water / dx);
+fprintf('ASM focus scan: %.2f to %.2f mm, %d planes\n', ...
+    min(asm_focus_scan_distances) * 1e3, max(asm_focus_scan_distances) * 1e3, numel(asm_focus_scan_distances));
 fprintf('==================================================\n');
 
 %% 2. Target pattern and Python transport
@@ -154,7 +161,7 @@ exit_result = run_board_exit_simulation( ...
 
 exit_phase_scan = analyze_exit_phase_planes( ...
     exit_result.p_exit_complex_stack, exit_result.z_probe_indices, exit_result.z_board_exit_idx, ...
-    holo_phase, circle_mask_board, H_forward, center_idx, Nx_pad, Ny_pad, ...
+    holo_phase, circle_mask_board, H_forward, Kz, propagating, asm_focus_scan_distances, center_idx, Nx_pad, Ny_pad, ...
     target_norm, dx, exit_phase_amp_threshold_ratio);
 
 p_exit_complex = exit_phase_scan.best_repaired.p_exit_complex;
@@ -218,6 +225,7 @@ metrics.exit_amp_min_ratio = exit_amp_min_ratio;
 metrics.exit_phase_scan = exit_phase_scan.records;
 metrics.exit_phase_best_repaired = exit_phase_scan.best_repaired.summary;
 metrics.exit_phase_best_phase = exit_phase_scan.best_phase.summary;
+metrics.exit_phase_focus_scan_distances_mm = asm_focus_scan_distances * 1e3;
 metrics.best_z_mm = full_result.best_z_mm;
 metrics.cure = cure_result.metrics;
 save(fullfile(out_dir, 'phase_board_exit_repair_results.mat'), ...
@@ -257,15 +265,19 @@ plot(offset_mm, [exit_phase_scan.records.opposite_rms_rad], 's-', 'LineWidth', 1
 grid on; xlabel('Probe offset after max board exit (mm)'); ylabel('RMS after global offset (rad)');
 legend('phi - holo', 'phi + holo', 'Location', 'best'); title('Exit phase RMS');
 nexttile;
-plot(offset_mm, [exit_phase_scan.records.actual_asm_pcc], 'o-', 'LineWidth', 1.5); hold on;
-plot(offset_mm, [exit_phase_scan.records.repaired_asm_pcc], 's-', 'LineWidth', 1.5);
+plot(offset_mm, [exit_phase_scan.records.actual_asm_pcc], 'o--', 'LineWidth', 1.0); hold on;
+plot(offset_mm, [exit_phase_scan.records.repaired_asm_pcc], 's--', 'LineWidth', 1.0);
+plot(offset_mm, [exit_phase_scan.records.actual_asm_best_pcc], 'o-', 'LineWidth', 1.8);
+plot(offset_mm, [exit_phase_scan.records.repaired_asm_best_pcc], 's-', 'LineWidth', 1.8);
 grid on; xlabel('Probe offset after max board exit (mm)'); ylabel('PCC to target');
-legend('actual complex exit', 'ideal amp + exit phase', 'Location', 'best'); title('ASM target match');
+legend('actual fixed z', 'repaired fixed z', 'actual best z', 'repaired best z', 'Location', 'best');
+title('ASM target match');
 nexttile;
-plot(offset_mm, [exit_phase_scan.records.exit_amp_cv], 'o-', 'LineWidth', 1.5); hold on;
-plot(offset_mm, [exit_phase_scan.records.valid_fraction], 's-', 'LineWidth', 1.5);
-grid on; xlabel('Probe offset after max board exit (mm)'); ylabel('value');
-legend('exit amp CV', 'valid phase fraction', 'Location', 'best'); title('Amplitude quality gate');
+plot(offset_mm, [exit_phase_scan.records.actual_asm_best_z_mm], 'o-', 'LineWidth', 1.5); hold on;
+plot(offset_mm, [exit_phase_scan.records.repaired_asm_best_z_mm], 's-', 'LineWidth', 1.5);
+yline(z_target_dist * 1e3, 'k--', 'Design z');
+grid on; xlabel('Probe offset after max board exit (mm)'); ylabel('best target z (mm)');
+legend('actual complex exit', 'ideal amp + exit phase', 'Location', 'best'); title('ASM best target plane');
 exportgraphics(fig_scan, fullfile(out_dir, 'exit_phase_probe_scan.png'), 'Resolution', 300);
 
 fprintf('\n==================================================\n');
@@ -279,15 +291,19 @@ fprintf('Repaired exit ASM PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
 fprintf('Repaired k-Wave PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
     kwave_metrics.pcc, kwave_metrics.ssim, kwave_metrics.nmse, kwave_metrics.ee * 100);
 fprintf('Exit amp CV/min-max: %.4f / %.4f\n', exit_amp_cv, exit_amp_min_ratio);
-fprintf('Best repaired ASM probe offset: %.2f mm | PCC %.4f | phase best=%s | coh %.4f | RMS %.4f rad\n', ...
+fprintf('Best repaired ASM probe offset: %.2f mm | fixed PCC %.4f | scan PCC %.4f at %.2f mm | phase best=%s | coh %.4f | RMS %.4f rad\n', ...
     exit_phase_scan.best_repaired.summary.offset_mm, ...
     exit_phase_scan.best_repaired.summary.repaired_asm_pcc, ...
+    exit_phase_scan.best_repaired.summary.repaired_asm_best_pcc, ...
+    exit_phase_scan.best_repaired.summary.repaired_asm_best_z_mm, ...
     exit_phase_scan.best_repaired.summary.best_sign, ...
     exit_phase_scan.best_repaired.summary.best_coherence, ...
     exit_phase_scan.best_repaired.summary.best_rms_rad);
-fprintf('Best phase-match probe offset: %.2f mm | repaired ASM PCC %.4f | phase best=%s | coh %.4f | RMS %.4f rad\n', ...
+fprintf('Best phase-match probe offset: %.2f mm | fixed repaired PCC %.4f | scan PCC %.4f at %.2f mm | phase best=%s | coh %.4f | RMS %.4f rad\n', ...
     exit_phase_scan.best_phase.summary.offset_mm, ...
     exit_phase_scan.best_phase.summary.repaired_asm_pcc, ...
+    exit_phase_scan.best_phase.summary.repaired_asm_best_pcc, ...
+    exit_phase_scan.best_phase.summary.repaired_asm_best_z_mm, ...
     exit_phase_scan.best_phase.summary.best_sign, ...
     exit_phase_scan.best_phase.summary.best_coherence, ...
     exit_phase_scan.best_phase.summary.best_rms_rad);
@@ -447,7 +463,8 @@ result.Nz_short = Nz_short;
 end
 
 function scan = analyze_exit_phase_planes(p_exit_complex_stack, z_probe_indices, z_board_exit_idx, ...
-    holo_phase, aperture_mask, H_forward, center_idx, Nx_pad, Ny_pad, target_norm, dx, amp_threshold_ratio)
+    holo_phase, aperture_mask, H_forward, Kz, propagating, asm_focus_scan_distances, ...
+    center_idx, Nx_pad, Ny_pad, target_norm, dx, amp_threshold_ratio)
 
 n_planes = size(p_exit_complex_stack, 3);
 records = repmat(empty_exit_phase_record(), 1, n_planes);
@@ -462,18 +479,24 @@ for idx = 1:n_planes
     actual_asm = propagate_exit_field_asm(p_complex, H_forward, center_idx, Nx_pad, Ny_pad);
     actual_asm_norm = actual_asm / (max(actual_asm(:)) + eps);
     actual_metrics = calc_image_metrics(actual_asm_norm, target_norm);
+    actual_focus_scan = scan_exit_field_asm_focus( ...
+        p_complex, Kz, propagating, asm_focus_scan_distances, center_idx, Nx_pad, Ny_pad, target_norm);
+
     repaired = make_idealized_exit_field(p_complex, aperture_mask, 1.0);
     repaired_asm = propagate_exit_field_asm(repaired, H_forward, center_idx, Nx_pad, Ny_pad);
     repaired_asm_norm = repaired_asm / (max(repaired_asm(:)) + eps);
     repaired_metrics = calc_image_metrics(repaired_asm_norm, target_norm);
+    repaired_focus_scan = scan_exit_field_asm_focus( ...
+        repaired, Kz, propagating, asm_focus_scan_distances, center_idx, Nx_pad, Ny_pad, target_norm);
 
     exit_amp = abs(p_complex);
     exit_vals = exit_amp(aperture_mask);
     records(idx) = build_exit_phase_record( ...
-        z_probe_indices(idx), z_board_exit_idx, dx, phase_cmp, actual_metrics, repaired_metrics, exit_vals);
+        z_probe_indices(idx), z_board_exit_idx, dx, phase_cmp, actual_metrics, repaired_metrics, ...
+        actual_focus_scan, repaired_focus_scan, exit_vals);
 
-    if repaired_metrics.pcc > best_repaired_pcc
-        best_repaired_pcc = repaired_metrics.pcc;
+    if repaired_focus_scan.best_metrics.pcc > best_repaired_pcc
+        best_repaired_pcc = repaired_focus_scan.best_metrics.pcc;
         best_repaired_idx = idx;
     end
     if records(idx).best_rms_rad < best_phase_rms
@@ -510,14 +533,25 @@ record = struct( ...
     'actual_asm_pcc', 0, ...
     'actual_asm_ssim', 0, ...
     'actual_asm_nmse', 0, ...
+    'actual_asm_best_pcc', 0, ...
+    'actual_asm_best_ssim', 0, ...
+    'actual_asm_best_nmse', 0, ...
+    'actual_asm_best_ee', 0, ...
+    'actual_asm_best_z_mm', 0, ...
     'repaired_asm_pcc', 0, ...
     'repaired_asm_ssim', 0, ...
     'repaired_asm_nmse', 0, ...
+    'repaired_asm_best_pcc', 0, ...
+    'repaired_asm_best_ssim', 0, ...
+    'repaired_asm_best_nmse', 0, ...
+    'repaired_asm_best_ee', 0, ...
+    'repaired_asm_best_z_mm', 0, ...
     'exit_amp_cv', 0, ...
     'exit_amp_min_ratio', 0);
 end
 
-function record = build_exit_phase_record(z_index, z_board_exit_idx, dx, phase_cmp, actual_metrics, repaired_metrics, exit_vals)
+function record = build_exit_phase_record(z_index, z_board_exit_idx, dx, phase_cmp, actual_metrics, repaired_metrics, ...
+    actual_focus_scan, repaired_focus_scan, exit_vals)
 record = empty_exit_phase_record();
 record.z_index = z_index;
 record.offset_voxels = z_index - z_board_exit_idx;
@@ -540,9 +574,19 @@ record.valid_fraction = phase_cmp.valid_fraction;
 record.actual_asm_pcc = actual_metrics.pcc;
 record.actual_asm_ssim = actual_metrics.ssim;
 record.actual_asm_nmse = actual_metrics.nmse;
+record.actual_asm_best_pcc = actual_focus_scan.best_metrics.pcc;
+record.actual_asm_best_ssim = actual_focus_scan.best_metrics.ssim;
+record.actual_asm_best_nmse = actual_focus_scan.best_metrics.nmse;
+record.actual_asm_best_ee = actual_focus_scan.best_metrics.ee;
+record.actual_asm_best_z_mm = actual_focus_scan.best_z_mm;
 record.repaired_asm_pcc = repaired_metrics.pcc;
 record.repaired_asm_ssim = repaired_metrics.ssim;
 record.repaired_asm_nmse = repaired_metrics.nmse;
+record.repaired_asm_best_pcc = repaired_focus_scan.best_metrics.pcc;
+record.repaired_asm_best_ssim = repaired_focus_scan.best_metrics.ssim;
+record.repaired_asm_best_nmse = repaired_focus_scan.best_metrics.nmse;
+record.repaired_asm_best_ee = repaired_focus_scan.best_metrics.ee;
+record.repaired_asm_best_z_mm = repaired_focus_scan.best_z_mm;
 record.exit_amp_cv = std(exit_vals(:)) / (mean(exit_vals(:)) + eps);
 record.exit_amp_min_ratio = min(exit_vals(:)) / (max(exit_vals(:)) + eps);
 end
@@ -698,6 +742,53 @@ U_exit_pad(center_idx, center_idx) = exit_complex ./ (max(abs(exit_complex(:))) 
 A_exit = fftshift(fft2(ifftshift(U_exit_pad)));
 U_target_exit = fftshift(ifft2(ifftshift(A_exit .* H_forward)));
 focus_amp = abs(U_target_exit(center_idx, center_idx));
+end
+
+function focus_scan = scan_exit_field_asm_focus(exit_complex, Kz, propagating, z_distances, center_idx, Nx_pad, Ny_pad, target_norm)
+U_exit_pad = zeros(Nx_pad, Ny_pad);
+U_exit_pad(center_idx, center_idx) = exit_complex ./ (max(abs(exit_complex(:))) + eps);
+A_exit = fftshift(fft2(ifftshift(U_exit_pad)));
+
+n_planes = numel(z_distances);
+z_mm = zeros(1, n_planes);
+pcc = zeros(1, n_planes);
+ssim_val = zeros(1, n_planes);
+nmse = zeros(1, n_planes);
+ee = zeros(1, n_planes);
+best_idx = 1;
+best_pcc = -inf;
+best_metrics = empty_image_metrics();
+
+for idx = 1:n_planes
+    H_scan = zeros(size(Kz));
+    H_scan(propagating) = exp(1i * Kz(propagating) * z_distances(idx));
+    U_target = fftshift(ifft2(ifftshift(A_exit .* H_scan)));
+    amp = abs(U_target(center_idx, center_idx));
+    amp_norm = amp / (max(amp(:)) + eps);
+    metrics = calc_image_metrics(amp_norm, target_norm);
+
+    z_mm(idx) = z_distances(idx) * 1e3;
+    pcc(idx) = metrics.pcc;
+    ssim_val(idx) = metrics.ssim;
+    nmse(idx) = metrics.nmse;
+    ee(idx) = metrics.ee;
+
+    if metrics.pcc > best_pcc
+        best_pcc = metrics.pcc;
+        best_idx = idx;
+        best_metrics = metrics;
+    end
+end
+
+focus_scan = struct();
+focus_scan.z_mm = z_mm;
+focus_scan.pcc = pcc;
+focus_scan.ssim = ssim_val;
+focus_scan.nmse = nmse;
+focus_scan.ee = ee;
+focus_scan.best_idx = best_idx;
+focus_scan.best_z_mm = z_mm(best_idx);
+focus_scan.best_metrics = best_metrics;
 end
 
 function metrics = calc_image_metrics(pred_img, target_img)
