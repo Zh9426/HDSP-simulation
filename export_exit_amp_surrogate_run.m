@@ -1,6 +1,13 @@
 function export_exit_amp_surrogate_run(export_dir, run_meta, run_metrics, thickness_map, thickness_grad_norm, ...
     p_exit_amp_norm, circle_mask_board, x, y, dx, net_num_board, aperture_edge_distance_mm, ...
-    local_thickness_mean, local_thickness_std)
+    local_thickness_mean, local_thickness_std, complex_ratio_same, complex_ratio_opposite)
+
+if nargin < 15
+    complex_ratio_same = [];
+end
+if nargin < 16
+    complex_ratio_opposite = [];
+end
 
 patch_size = run_meta.patch_size;
 patch_radius = floor(patch_size / 2);
@@ -23,6 +30,12 @@ num_samples = numel(row_idx);
 thickness_patches = zeros(patch_size, patch_size, num_samples, 'single');
 feature_vector = zeros(num_samples, 10, 'single');
 target_exit_amp = zeros(num_samples, 1, 'single');
+target_ratio_same_real = zeros(num_samples, 1, 'single');
+target_ratio_same_imag = zeros(num_samples, 1, 'single');
+target_ratio_opposite_real = zeros(num_samples, 1, 'single');
+target_ratio_opposite_imag = zeros(num_samples, 1, 'single');
+target_phase_error_same = zeros(num_samples, 1, 'single');
+target_phase_error_opposite = zeros(num_samples, 1, 'single');
 x_mm = zeros(num_samples, 1, 'single');
 y_mm = zeros(num_samples, 1, 'single');
 radius_mm = zeros(num_samples, 1, 'single');
@@ -42,6 +55,16 @@ for sample_idx = 1:num_samples
 
     thickness_patches(:, :, sample_idx) = patch_thickness;
     target_exit_amp(sample_idx) = single(p_exit_amp_norm(r, c));
+    if ~isempty(complex_ratio_same)
+        ratio_same_now = complex_ratio_same(r, c);
+        ratio_opposite_now = complex_ratio_opposite(r, c);
+        target_ratio_same_real(sample_idx) = single(real(ratio_same_now));
+        target_ratio_same_imag(sample_idx) = single(imag(ratio_same_now));
+        target_ratio_opposite_real(sample_idx) = single(real(ratio_opposite_now));
+        target_ratio_opposite_imag(sample_idx) = single(imag(ratio_opposite_now));
+        target_phase_error_same(sample_idx) = single(angle(ratio_same_now));
+        target_phase_error_opposite(sample_idx) = single(angle(ratio_opposite_now));
+    end
     x_mm(sample_idx) = single(x(c) * 1e3);
     y_mm(sample_idx) = single(y(r) * 1e3);
     radius_mm(sample_idx) = single(hypot(x(c), y(r)) * 1e3);
@@ -87,6 +110,9 @@ material_params = single([ ...
     run_meta.c_pdms, run_meta.density_pdms, run_meta.alpha_coeff_pdms]);
 
 save(sample_file, 'thickness_patches', 'feature_vector', 'target_exit_amp', ...
+    'target_ratio_same_real', 'target_ratio_same_imag', ...
+    'target_ratio_opposite_real', 'target_ratio_opposite_imag', ...
+    'target_phase_error_same', 'target_phase_error_opposite', ...
     'x_mm', 'y_mm', 'radius_mm', 'edge_distance_mm', 'material_params', 'run_meta');
 save(summary_file, 'run_meta', 'run_metrics', 'summary_stats');
 fprintf('研究样本已导出: %s\n', sample_file);

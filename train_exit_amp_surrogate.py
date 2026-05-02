@@ -12,6 +12,7 @@ import scipy.io as sio
 from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.multioutput import MultiOutputRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -52,6 +53,12 @@ def parse_args():
         default=12000,
         help="Optional deterministic cap per run before training. Use 0 to keep all samples.",
     )
+    parser.add_argument(
+        "--target",
+        choices=["amp", "complex_ratio_same", "complex_ratio_opposite"],
+        default="complex_ratio_opposite",
+        help="Prediction target. complex_ratio_* uses real/imag multi-output regression.",
+    )
     return parser.parse_args()
 
 
@@ -60,6 +67,18 @@ def sanitize_run_name(run_name: str) -> str:
 
 
 def evaluate_predictions(y_true, y_pred):
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    if y_true.ndim == 2 and y_true.shape[1] > 1:
+        per_dim = []
+        for dim in range(y_true.shape[1]):
+            per_dim.append(evaluate_predictions(y_true[:, dim], y_pred[:, dim]))
+        return {
+            "r2": float(r2_score(y_true, y_pred, multioutput="uniform_average")),
+            "mae": float(mean_absolute_error(y_true, y_pred)),
+            "rmse": float(math.sqrt(mean_squared_error(y_true, y_pred))),
+            "per_dim": per_dim,
+        }
     return {
         "r2": float(r2_score(y_true, y_pred)),
         "mae": float(mean_absolute_error(y_true, y_pred)),
@@ -71,12 +90,31 @@ def default_data_dir() -> Path:
     return Path(__file__).resolve().parent / "modulation_law_dataset"
 
 
-def load_sample_file(sample_path: Path, max_samples_per_run: int = 0):
+def pick_target_arrays(data, target: str):
+    if target == "amp":
+        return np.asarray(data["target_exit_amp"], dtype=np.float32).reshape(-1), "target_exit_amp"
+
+    prefix = "target_ratio_same" if target == "complex_ratio_same" else "target_ratio_opposite"
+    real_name = f"{prefix}_real"
+    imag_name = f"{prefix}_imag"
+    if real_name not in data or imag_name not in data:
+        if target != "amp":
+            raise KeyError(
+                f"Sample file does not contain {real_name}/{imag_name}. "
+                "Regenerate sweep data after the complex-field export update, or use --target amp."
+            )
+    y_real = np.asarray(data[real_name], dtype=np.float32).reshape(-1)
+    y_imag = np.asarray(data[imag_name], dtype=np.float32).reshape(-1)
+    return np.stack([y_real, y_imag], axis=1), target
+
+
+def load_sample_file(sample_path: Path, max_samples_per_run: int = 0, target: str = "complex_ratio_opposite"):
     data = sio.loadmat(sample_path, squeeze_me=True, struct_as_record=False)
     run_meta = data["run_meta"]
     run_name = str(getattr(run_meta, "run_label", sample_path.stem))
 
     feature_vector = np.asarray(data["feature_vector"], dtype=np.float32)
+    target_values, target_name = pick_target_arrays(data, target)
     target_exit_amp = np.asarray(data["target_exit_amp"], dtype=np.float32).reshape(-1)
     thickness_patches = np.asarray(data["thickness_patches"], dtype=np.float32)
     x_mm = np.asarray(data["x_mm"], dtype=np.float32).reshape(-1)
@@ -87,7 +125,7 @@ def load_sample_file(sample_path: Path, max_samples_per_run: int = 0):
     if thickness_patches.ndim != 3:
         raise ValueError(f"{sample_path} thickness_patches must be 3D, got shape {thickness_patches.shape}")
 
-    num_samples = target_exit_amp.shape[0]
+    num_samples = target_values.shape[0]
     if thickness_patches.shape[2] != num_samples:
         raise ValueError(
             f"{sample_path} thickness_patches sample count mismatch: {thickness_patches.shape[2]} vs {num_samples}"
@@ -106,13 +144,14 @@ def load_sample_file(sample_path: Path, max_samples_per_run: int = 0):
     if max_samples_per_run and num_samples > max_samples_per_run:
         sample_idx = np.round(np.linspace(0, num_samples - 1, int(max_samples_per_run))).astype(np.int64)
         feature_vector = feature_vector[sample_idx]
+        target_values = target_values[sample_idx]
         target_exit_amp = target_exit_amp[sample_idx]
         thickness_patches = thickness_patches[:, :, sample_idx]
         x_mm = x_mm[sample_idx]
         y_mm = y_mm[sample_idx]
         radius_mm = radius_mm[sample_idx]
         edge_distance_mm = edge_distance_mm[sample_idx]
-        num_samples = int(target_exit_amp.shape[0])
+        num_samples = int(target_values.shape[0])
 
     patch_features = np.transpose(thickness_patches, (2, 0, 1)).reshape(num_samples, -1)
     feature_names = [
@@ -134,7 +173,9 @@ def load_sample_file(sample_path: Path, max_samples_per_run: int = 0):
         "num_samples": int(num_samples),
         "X_linear": feature_vector,
         "X_patch": np.concatenate([patch_features, feature_vector], axis=1),
-        "y": target_exit_amp,
+        "y": target_values,
+        "target_name": target_name,
+        "target_exit_amp": target_exit_amp,
         "x_mm": x_mm,
         "y_mm": y_mm,
         "radius_mm": radius_mm,
@@ -143,14 +184,14 @@ def load_sample_file(sample_path: Path, max_samples_per_run: int = 0):
     }
 
 
-def build_dataset(data_dir: Path, max_runs: int = 0, max_samples_per_run: int = 0):
+def build_dataset(data_dir: Path, max_runs: int = 0, max_samples_per_run: int = 0, target: str = "complex_ratio_opposite"):
     sample_files = sorted(data_dir.rglob("*_samples.mat"))
     if not sample_files:
         raise FileNotFoundError(f"No *_samples.mat files found recursively in {data_dir}")
     if max_runs:
         sample_files = sample_files[: max(1, int(max_runs))]
 
-    runs = [load_sample_file(path, max_samples_per_run=max_samples_per_run) for path in sample_files]
+    runs = [load_sample_file(path, max_samples_per_run=max_samples_per_run, target=target) for path in sample_files]
     X_patch = np.concatenate([run["X_patch"] for run in runs], axis=0)
     y = np.concatenate([run["y"] for run in runs], axis=0)
     groups = np.concatenate([[idx] * run["y"].shape[0] for idx, run in enumerate(runs)]).astype(np.int32)
@@ -173,24 +214,26 @@ def select_holdout_run_ids(groups, num_holdout_runs: int, random_seed: int):
 
 def fit_rf_model(X_train, X_test, y_train, y_test):
     pca_components = min(32, X_train.shape[1], X_train.shape[0])
+    regressor = RandomForestRegressor(
+        n_estimators=160,
+        max_depth=18,
+        min_samples_leaf=4,
+        random_state=42,
+        n_jobs=1,
+    )
+    if np.asarray(y_train).ndim == 2 and np.asarray(y_train).shape[1] > 1:
+        regressor = MultiOutputRegressor(regressor)
     model = Pipeline(
         [
             ("scaler", StandardScaler()),
             ("pca", PCA(n_components=max(4, pca_components))),
-            (
-                "regressor",
-                RandomForestRegressor(
-                    n_estimators=160,
-                    max_depth=18,
-                    min_samples_leaf=4,
-                    random_state=42,
-                    n_jobs=1,
-                ),
-            ),
+            ("regressor", regressor),
         ]
     )
     model.fit(X_train, y_train)
-    pred = np.clip(model.predict(X_test), 0.0, 1.0)
+    pred = model.predict(X_test)
+    if np.asarray(y_train).ndim == 1:
+        pred = np.clip(pred, 0.0, 1.0)
     return {
         "model": model,
         "metrics": evaluate_predictions(y_test, pred),
@@ -255,15 +298,15 @@ def plot_grouped_errors(output_dir: Path, run, y_true, y_pred, title_prefix):
     plt.close(fig)
 
 
-def plot_true_vs_pred(output_dir: Path, y_true, y_pred, title_prefix):
+def plot_true_vs_pred(output_dir: Path, y_true, y_pred, title_prefix, filename="true_vs_pred.png"):
     fig, ax = plt.subplots(figsize=(5.2, 5.2), constrained_layout=True)
     ax.scatter(y_true, y_pred, s=8, alpha=0.4)
     ax.plot([0, 1], [0, 1], "k--", linewidth=1.0)
-    ax.set_xlabel("Measured exit amplitude")
-    ax.set_ylabel("Predicted exit amplitude")
+    ax.set_xlabel("Measured target")
+    ax.set_ylabel("Predicted target")
     ax.set_title(title_prefix)
     ax.grid(True, alpha=0.25)
-    fig.savefig(output_dir / "true_vs_pred.png", dpi=180)
+    fig.savefig(output_dir / filename, dpi=180)
     plt.close(fig)
 
 
@@ -316,9 +359,13 @@ def evaluate_holdout_runs(output_dir: Path, runs, X_patch, y, groups, run_names,
             flush=True,
         )
         print(f"[{eval_idx}/{len(holdout_run_ids)}] Writing figures for '{run_name}'...", flush=True)
-        plot_true_vs_pred(run_output_dir, y_true, y_pred, title_prefix)
-        plot_prediction_maps(run_output_dir, run, y_true, y_pred, title_prefix)
-        plot_grouped_errors(run_output_dir, run, y_true, y_pred, title_prefix)
+        if y_true.ndim == 1:
+            plot_true_vs_pred(run_output_dir, y_true, y_pred, title_prefix)
+            plot_prediction_maps(run_output_dir, run, y_true, y_pred, title_prefix)
+            plot_grouped_errors(run_output_dir, run, y_true, y_pred, title_prefix)
+        else:
+            plot_true_vs_pred(run_output_dir, y_true[:, 0], y_pred[:, 0], title_prefix + " real", "true_vs_pred_real.png")
+            plot_true_vs_pred(run_output_dir, y_true[:, 1], y_pred[:, 1], title_prefix + " imag", "true_vs_pred_imag.png")
 
         metrics = result["metrics"]
         per_run_report[run_name] = {
@@ -337,7 +384,11 @@ def evaluate_holdout_runs(output_dir: Path, runs, X_patch, y, groups, run_names,
     aggregate_true = np.concatenate(aggregate_true, axis=0)
     aggregate_pred = np.concatenate(aggregate_pred, axis=0)
     print("[INFO] Writing aggregate held-out scatter plot...", flush=True)
-    plot_true_vs_pred(output_dir, aggregate_true, aggregate_pred, "rf_patch_pca across held-out runs")
+    if aggregate_true.ndim == 1:
+        plot_true_vs_pred(output_dir, aggregate_true, aggregate_pred, "rf_patch_pca across held-out runs")
+    else:
+        plot_true_vs_pred(output_dir, aggregate_true[:, 0], aggregate_pred[:, 0], "rf_patch_pca real across held-out runs", "true_vs_pred_real.png")
+        plot_true_vs_pred(output_dir, aggregate_true[:, 1], aggregate_pred[:, 1], "rf_patch_pca imag across held-out runs", "true_vs_pred_imag.png")
 
     aggregate_metrics = {
         "r2_global": float(r2_score(aggregate_true, aggregate_pred)),
@@ -396,7 +447,7 @@ def main():
 
     print(f"[INFO] Loading runs from: {data_dir}", flush=True)
     runs, X_patch, y, groups, run_names = build_dataset(
-        data_dir, max_runs=args.max_runs, max_samples_per_run=args.max_samples_per_run
+        data_dir, max_runs=args.max_runs, max_samples_per_run=args.max_samples_per_run, target=args.target
     )
     print(
         f"[INFO] Loaded {len(runs)} run(s), total samples={y.shape[0]}: " + ", ".join(run_names),
@@ -421,6 +472,7 @@ def main():
         "random_seed": int(args.random_seed),
         "max_runs": int(args.max_runs),
         "max_samples_per_run": int(args.max_samples_per_run),
+        "target": args.target,
         "best_model": "rf_patch_pca",
         "aggregate_metrics": aggregate_metrics,
         "per_run_metrics": per_run_report,

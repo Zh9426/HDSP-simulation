@@ -345,7 +345,7 @@ sensor.mask(:, :, z_exit_probe_idx) = 1;
 if run_target
     sensor.mask(:, :, z_scan_start:z_scan_end) = 1;
 end
-sensor.record = {'p_max'};
+sensor.record = {'p', 'p_max'};
 sensor.record_start_index = max(1, kgrid.Nt - round(3 / cfg.f0 / kgrid.dt));
 input_args = {'PMLInside', true, 'PMLSize', pml_size, 'PlotPML', false, 'PlotSim', false, 'DataCast', 'gpuArray-single'};
 try
@@ -363,6 +363,19 @@ p_field_3d = zeros(cfg.Nx, cfg.Ny, Nz);
 p_field_3d(sensor.mask ~= 0) = p_amp;
 exit_amp = p_field_3d(:, :, z_exit_probe_idx);
 exit_amp_norm = exit_amp / (max(exit_amp(:)) + eps);
+p_time = gather(sensor_data.p);
+t_record = kgrid.t_array(sensor.record_start_index:end);
+p_complex_vec = demodulate_kwave_pressure(p_time, t_record, cfg.f0);
+p_complex_3d = complex(zeros(cfg.Nx, cfg.Ny, Nz));
+p_complex_3d(sensor.mask ~= 0) = p_complex_vec;
+exit_complex = p_complex_3d(:, :, z_exit_probe_idx);
+ideal_complex = exp(1i * board.phase) .* base.circle_mask_board;
+ratio_same = zeros(cfg.Nx, cfg.Ny);
+ratio_opposite = zeros(cfg.Nx, cfg.Ny);
+ratio_same(base.circle_mask_board) = exit_complex(base.circle_mask_board) ./ ...
+    (ideal_complex(base.circle_mask_board) + eps);
+ratio_opposite(base.circle_mask_board) = conj(exit_complex(base.circle_mask_board)) ./ ...
+    (ideal_complex(base.circle_mask_board) + eps);
 
 sim = struct();
 sim.study_mode = cfg.study_mode;
@@ -370,6 +383,10 @@ sim.z_board_exit_idx = z_board_exit_idx;
 sim.z_exit_probe_idx = z_exit_probe_idx;
 sim.exit_amp = exit_amp;
 sim.exit_amp_norm = exit_amp_norm;
+sim.exit_complex = exit_complex;
+sim.ideal_complex = ideal_complex;
+sim.complex_ratio_same = ratio_same;
+sim.complex_ratio_opposite = ratio_opposite;
 sim.target_amp = NaN(cfg.Nx, cfg.Ny);
 sim.target_amp_norm = NaN(cfg.Nx, cfg.Ny);
 sim.best_z_mm = NaN;
@@ -441,6 +458,9 @@ metrics.focus_search_edge_margin_mm = sim.focus_search_edge_margin_mm;
 metrics.focus_search_near_edge = sim.focus_search_near_edge;
 metrics.exit_amp_cv = std(exit_vals(:)) / (mean(exit_vals(:)) + eps);
 metrics.exit_amp_min_ratio = min(exit_vals(:)) / (max(exit_vals(:)) + eps);
+ratio_vals = sim.complex_ratio_opposite(base.circle_mask_board);
+metrics.exit_ratio_amp_cv = std(abs(ratio_vals(:))) / (mean(abs(ratio_vals(:))) + eps);
+metrics.exit_ratio_phase_std_rad = std(angle(ratio_vals(:)));
 metrics.layer_min = min(layer_vals(:));
 metrics.layer_max = max(layer_vals(:));
 metrics.layer_mean = mean(layer_vals(:));
@@ -481,7 +501,8 @@ export_exit_amp_surrogate_run( ...
     case_dir, run_meta, run_metrics, ...
     board.thickness_map, board.thickness_grad_norm, sim.exit_amp_norm, ...
     base.circle_mask_board, base.x, base.y, cfg.dx, board.net_num_board, ...
-    board.aperture_edge_distance_mm, board.local_thickness_mean, board.local_thickness_std);
+    board.aperture_edge_distance_mm, board.local_thickness_mean, board.local_thickness_std, ...
+    sim.complex_ratio_same, sim.complex_ratio_opposite);
 end
 
 function [holo_phase, net_num_board, phase_bias_seed] = run_iasa_phase_refinement_local( ...
@@ -677,6 +698,11 @@ sensor_cpu = sensor;
 if isfield(sensor_cpu, 'mask')
     sensor_cpu.mask = double(sensor_cpu.mask);
 end
+end
+
+function p_complex_vec = demodulate_kwave_pressure(p_time, t_record, f0)
+demod_ref = exp(-1i * 2 * pi * f0 * t_record(:));
+p_complex_vec = (p_time * demod_ref) ./ numel(t_record);
 end
 
 function value = getenv_default(name, default_value)
