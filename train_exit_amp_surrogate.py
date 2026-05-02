@@ -20,8 +20,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train RF exit-amplitude surrogate from exported MATLAB runs.")
     parser.add_argument(
         "--data-dir",
-        default=r"C:\Users\Zh89\Desktop\transport\exit_amp_surrogate",
-        help="Directory containing *_samples.mat and *_summary.mat files.",
+        default=None,
+        help="Directory containing exported *_samples.mat files. Defaults to <script_dir>/modulation_law_dataset.",
     )
     parser.add_argument(
         "--output-dir",
@@ -40,6 +40,18 @@ def parse_args():
         default=42,
         help="Random seed for selecting holdout runs.",
     )
+    parser.add_argument(
+        "--max-runs",
+        type=int,
+        default=0,
+        help="Optional cap on loaded runs after sorting. Use 0 to load all runs.",
+    )
+    parser.add_argument(
+        "--max-samples-per-run",
+        type=int,
+        default=12000,
+        help="Optional deterministic cap per run before training. Use 0 to keep all samples.",
+    )
     return parser.parse_args()
 
 
@@ -55,7 +67,11 @@ def evaluate_predictions(y_true, y_pred):
     }
 
 
-def load_sample_file(sample_path: Path):
+def default_data_dir() -> Path:
+    return Path(__file__).resolve().parent / "modulation_law_dataset"
+
+
+def load_sample_file(sample_path: Path, max_samples_per_run: int = 0):
     data = sio.loadmat(sample_path, squeeze_me=True, struct_as_record=False)
     run_meta = data["run_meta"]
     run_name = str(getattr(run_meta, "run_label", sample_path.stem))
@@ -87,6 +103,17 @@ def load_sample_file(sample_path: Path):
         if value.shape[0] != num_samples:
             raise ValueError(f"{sample_path} {name} length mismatch: {value.shape[0]} vs {num_samples}")
 
+    if max_samples_per_run and num_samples > max_samples_per_run:
+        sample_idx = np.round(np.linspace(0, num_samples - 1, int(max_samples_per_run))).astype(np.int64)
+        feature_vector = feature_vector[sample_idx]
+        target_exit_amp = target_exit_amp[sample_idx]
+        thickness_patches = thickness_patches[:, :, sample_idx]
+        x_mm = x_mm[sample_idx]
+        y_mm = y_mm[sample_idx]
+        radius_mm = radius_mm[sample_idx]
+        edge_distance_mm = edge_distance_mm[sample_idx]
+        num_samples = int(target_exit_amp.shape[0])
+
     patch_features = np.transpose(thickness_patches, (2, 0, 1)).reshape(num_samples, -1)
     feature_names = [
         "thickness_center_mm",
@@ -116,12 +143,14 @@ def load_sample_file(sample_path: Path):
     }
 
 
-def build_dataset(data_dir: Path):
-    sample_files = sorted(data_dir.glob("*_samples.mat"))
+def build_dataset(data_dir: Path, max_runs: int = 0, max_samples_per_run: int = 0):
+    sample_files = sorted(data_dir.rglob("*_samples.mat"))
     if not sample_files:
-        raise FileNotFoundError(f"No *_samples.mat files found in {data_dir}")
+        raise FileNotFoundError(f"No *_samples.mat files found recursively in {data_dir}")
+    if max_runs:
+        sample_files = sample_files[: max(1, int(max_runs))]
 
-    runs = [load_sample_file(path) for path in sample_files]
+    runs = [load_sample_file(path, max_samples_per_run=max_samples_per_run) for path in sample_files]
     X_patch = np.concatenate([run["X_patch"] for run in runs], axis=0)
     y = np.concatenate([run["y"] for run in runs], axis=0)
     groups = np.concatenate([[idx] * run["y"].shape[0] for idx, run in enumerate(runs)]).astype(np.int32)
@@ -361,12 +390,14 @@ def write_report(output_dir: Path, report):
 
 def main():
     args = parse_args()
-    data_dir = Path(args.data_dir)
+    data_dir = Path(args.data_dir) if args.data_dir else default_data_dir()
     output_dir = Path(args.output_dir) if args.output_dir else data_dir / "model_outputs"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"[INFO] Loading runs from: {data_dir}", flush=True)
-    runs, X_patch, y, groups, run_names = build_dataset(data_dir)
+    runs, X_patch, y, groups, run_names = build_dataset(
+        data_dir, max_runs=args.max_runs, max_samples_per_run=args.max_samples_per_run
+    )
     print(
         f"[INFO] Loaded {len(runs)} run(s), total samples={y.shape[0]}: " + ", ".join(run_names),
         flush=True,
@@ -388,6 +419,8 @@ def main():
         "selected_holdout_runs": [run_names[int(idx)] for idx in holdout_run_ids],
         "num_holdout_runs": int(len(holdout_run_ids)),
         "random_seed": int(args.random_seed),
+        "max_runs": int(args.max_runs),
+        "max_samples_per_run": int(args.max_samples_per_run),
         "best_model": "rf_patch_pca",
         "aggregate_metrics": aggregate_metrics,
         "per_run_metrics": per_run_report,
