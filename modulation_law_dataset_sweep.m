@@ -303,12 +303,15 @@ scan_range_idx = round(cfg.focus_scan_radius / cfg.dz);
 if run_target
     z_scan_start = max(target_plane_idx - scan_range_idx, pml_size + 2);
     z_scan_end = target_plane_idx + scan_range_idx;
-    Nz = z_scan_end + pml_size + 12;
+    Nz_required = z_scan_end + pml_size + 12;
 else
     z_scan_start = z_exit_probe_idx;
     z_scan_end = z_exit_probe_idx;
-    Nz = z_exit_probe_idx + pml_size + 12;
+    Nz_required = z_exit_probe_idx + pml_size + 12;
 end
+Nz = next_fast_grid_size(Nz_required);
+fprintf('  k-Wave grid Nz required=%d -> using %d | source points=%d | scan planes=%d\n', ...
+    Nz_required, Nz, nnz(base.circle_mask_board), z_scan_end - z_scan_start + 1);
 
 kgrid = kWaveGrid(cfg.Nx, cfg.dx, cfg.Ny, cfg.dy, Nz, cfg.dz);
 medium.sound_speed = cfg.c_water * ones(cfg.Nx, cfg.Ny, Nz, 'single');
@@ -349,7 +352,10 @@ try
     sensor_data = kspaceFirstOrder3D(kgrid, medium, source, sensor, input_args{:});
 catch
     fprintf('GPU path failed, falling back to CPU.\n');
-    sensor_data = kspaceFirstOrder3D(kgrid, medium, source, sensor, input_args{1:end-2});
+    medium_cpu = cast_medium_for_cpu(medium);
+    source_cpu = cast_source_for_cpu(source);
+    sensor_cpu = cast_sensor_for_cpu(sensor);
+    sensor_data = kspaceFirstOrder3D(kgrid, medium_cpu, source_cpu, sensor_cpu, input_args{1:end-2});
 end
 
 p_amp = gather(sensor_data.p_max);
@@ -632,6 +638,45 @@ pred = X(valid, :) * coef;
 ss_res = sum((y(valid) - pred).^2);
 ss_tot = sum((y(valid) - mean(y(valid))).^2);
 r2 = 1 - ss_res / (ss_tot + eps);
+end
+
+function n_fast = next_fast_grid_size(n_required)
+candidate_sizes = [ ...
+    64, 72, 80, 90, 96, 100, 108, 120, 128, 144, 150, 160, 180, 192, ...
+    200, 216, 240, 256, 270, 288, 300, 320, 360, 384, 400, 432, ...
+    480, 512, 540, 576, 600, 640, 720, 768, 800, 864, 900, 960, 1024];
+n_fast = candidate_sizes(find(candidate_sizes >= n_required, 1));
+if isempty(n_fast)
+    n_fast = 2 ^ nextpow2(n_required);
+end
+end
+
+function medium_cpu = cast_medium_for_cpu(medium)
+medium_cpu = medium;
+fields = {'sound_speed', 'density', 'alpha_coeff'};
+for idx = 1:numel(fields)
+    field_name = fields{idx};
+    if isfield(medium_cpu, field_name)
+        medium_cpu.(field_name) = double(medium_cpu.(field_name));
+    end
+end
+end
+
+function source_cpu = cast_source_for_cpu(source)
+source_cpu = source;
+if isfield(source_cpu, 'p_mask')
+    source_cpu.p_mask = double(source_cpu.p_mask);
+end
+if isfield(source_cpu, 'p')
+    source_cpu.p = double(source_cpu.p);
+end
+end
+
+function sensor_cpu = cast_sensor_for_cpu(sensor)
+sensor_cpu = sensor;
+if isfield(sensor_cpu, 'mask')
+    sensor_cpu.mask = double(sensor_cpu.mask);
+end
 end
 
 function value = getenv_default(name, default_value)
