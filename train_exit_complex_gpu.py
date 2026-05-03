@@ -25,13 +25,13 @@ def parse_args():
     parser.add_argument("--num-holdout-runs", type=int, default=1)
     parser.add_argument("--random-seed", type=int, default=42)
     parser.add_argument("--max-runs", type=int, default=0, help="0 means all runs.")
-    parser.add_argument("--max-samples-per-run", type=int, default=12000, help="0 means all samples.")
-    parser.add_argument("--epochs", type=int, default=80)
-    parser.add_argument("--batch-size", type=int, default=8192)
-    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--max-samples-per-run", type=int, default=0, help="0 means all samples.")
+    parser.add_argument("--epochs", type=int, default=300)
+    parser.add_argument("--batch-size", type=int, default=16384)
+    parser.add_argument("--lr", type=float, default=8e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
-    parser.add_argument("--hidden", type=int, nargs="+", default=[384, 256, 128])
-    parser.add_argument("--dropout", type=float, default=0.05)
+    parser.add_argument("--hidden", type=int, nargs="+", default=[768, 512, 256, 128])
+    parser.add_argument("--dropout", type=float, default=0.03)
     parser.add_argument("--device", default="cuda", help="cuda, cpu, or cuda:0.")
     return parser.parse_args()
 
@@ -228,6 +228,7 @@ def train_one_split(args, X, y, groups, run_names, target_names, output_dir: Pat
     history = []
     best_metrics = None
     best_pred = None
+    best_state_dict = None
     best_r2 = -np.inf
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -257,13 +258,14 @@ def train_one_split(args, X, y, groups, run_names, target_names, output_dir: Pat
                 best_r2 = metrics["r2"]
                 best_metrics = metrics
                 best_pred = pred
+                best_state_dict = {key: value.detach().cpu().clone() for key, value in model.state_dict().items()}
 
     for dim, name in enumerate(target_names):
         plot_true_vs_pred(output_dir, y_test[:, dim], best_pred[:, dim], name, f"GPU MLP {name} holdout")
 
     torch.save(
         {
-            "model_state_dict": model.state_dict(),
+            "model_state_dict": best_state_dict if best_state_dict is not None else model.state_dict(),
             "input_dim": X.shape[1],
             "output_dim": y.shape[1],
             "hidden": args.hidden,
