@@ -22,7 +22,11 @@ def parse_args():
     parser.add_argument("--data-dir", default=None, help="Defaults to <script_dir>/modulation_law_dataset.")
     parser.add_argument("--output-dir", default=None, help="Defaults to <data-dir>/unet_model_outputs.")
     parser.add_argument("--case", default="case_004_same_bias-0.79_layer+0_round", help="Holdout case substring.")
-    parser.add_argument("--target", choices=["complex_ratio_opposite", "complex_ratio_same"], default="complex_ratio_opposite")
+    parser.add_argument("--ratio-sign", choices=["opposite", "same"], default="opposite")
+    parser.add_argument("--target-mode", choices=["complex", "amp_phase"], default="complex")
+    parser.add_argument("--target", choices=["complex_ratio_opposite", "complex_ratio_same"], default=None)
+    parser.add_argument("--amp-loss-weight", type=float, default=3.0)
+    parser.add_argument("--phase-loss-weight", type=float, default=1.0)
     parser.add_argument("--epochs", type=int, default=120)
     parser.add_argument("--steps-per-epoch", type=int, default=600)
     parser.add_argument("--batch-size", type=int, default=8)
@@ -58,7 +62,40 @@ def safe_norm(arr, scale=1.0):
     return out
 
 
-def load_field_case(path: Path, target: str):
+def resolve_target_args(args):
+    if args.target:
+        args.ratio_sign = "same" if args.target == "complex_ratio_same" else "opposite"
+        args.target_mode = "complex"
+    return args
+
+
+def ratio_fields(data, ratio_sign: str):
+    if ratio_sign == "same":
+        return np.asarray(data["ratio_same_real"], dtype=np.float32), np.asarray(data["ratio_same_imag"], dtype=np.float32)
+    return np.asarray(data["ratio_opposite_real"], dtype=np.float32), np.asarray(data["ratio_opposite_imag"], dtype=np.float32)
+
+
+def complex_to_target(real, imag, target_mode: str):
+    if target_mode == "complex":
+        return np.stack([real, imag], axis=0).astype(np.float32)
+    ratio = real + 1j * imag
+    amp = np.abs(ratio).astype(np.float32)
+    phase = np.angle(ratio).astype(np.float32)
+    log_amp = np.log(np.maximum(amp, 1e-4)).astype(np.float32)
+    return np.stack([log_amp, np.sin(phase), np.cos(phase)], axis=0).astype(np.float32)
+
+
+def target_to_complex(target_values, target_mode: str):
+    if target_mode == "complex":
+        return target_values[0] + 1j * target_values[1]
+    log_amp = np.clip(target_values[0], -9.0, 3.0)
+    amp = np.exp(log_amp)
+    phase_vec = target_values[1] + 1j * target_values[2]
+    phase_vec = phase_vec / (np.abs(phase_vec) + 1e-6)
+    return amp * phase_vec
+
+
+def load_field_case(path: Path, ratio_sign: str, target_mode: str):
     data = sio.loadmat(path, squeeze_me=True, struct_as_record=False)
     meta = data.get("run_meta")
     run_name = str(matlab_attr(meta, "run_label", path.parent.name))
@@ -119,20 +156,18 @@ def load_field_case(path: Path, target: str):
         ],
         axis=0,
     )
-    if target == "complex_ratio_same":
-        target_real = np.asarray(data["ratio_same_real"], dtype=np.float32)
-        target_imag = np.asarray(data["ratio_same_imag"], dtype=np.float32)
-    else:
-        target_real = np.asarray(data["ratio_opposite_real"], dtype=np.float32)
-        target_imag = np.asarray(data["ratio_opposite_imag"], dtype=np.float32)
-    target_map = np.stack([target_real, target_imag], axis=0)
+    target_real, target_imag = ratio_fields(data, ratio_sign)
+    target_map = complex_to_target(target_real, target_imag, target_mode)
+    target_complex = np.stack([target_real, target_imag], axis=0).astype(np.float32)
     inputs[:, mask == 0] = 0
     target_map[:, mask == 0] = 0
+    target_complex[:, mask == 0] = 0
     return {
         "run_name": run_name,
         "path": str(path),
         "input": inputs.astype(np.float32),
         "target": target_map.astype(np.float32),
+        "target_complex": target_complex,
         "mask": mask.astype(np.float32)[None, :, :],
     }
 
@@ -251,8 +286,15 @@ def make_batch(cases, batch_size, tile_size, device):
     )
 
 
-def masked_smooth_l1(pred, target, mask):
+def masked_smooth_l1(pred, target, mask, target_mode, amp_loss_weight, phase_loss_weight):
     loss = F.smooth_l1_loss(pred, target, reduction="none", beta=0.5)
+    if target_mode == "amp_phase":
+        weights = torch.tensor(
+            [amp_loss_weight, phase_loss_weight, phase_loss_weight],
+            dtype=loss.dtype,
+            device=loss.device,
+        ).view(1, -1, 1, 1)
+        loss = loss * weights
     loss = loss * mask
     return loss.sum() / (mask.sum() * pred.shape[1] + 1e-6)
 
@@ -271,35 +313,40 @@ def complex_metrics(y_true, y_pred):
     }
 
 
-def predict_case(model, case, device):
+def predict_case(model, case, device, target_mode):
     model.eval()
     x = torch.from_numpy(case["input_norm"][None]).to(device)
     with torch.no_grad():
         pred = model(x).cpu().numpy()[0]
     mask = case["mask"][0] > 0
-    y_true = np.stack([case["target"][0, mask], case["target"][1, mask]], axis=1)
-    y_pred = np.stack([pred[0, mask], pred[1, mask]], axis=1)
-    return y_true, y_pred, pred
+    pred_complex = target_to_complex(pred, target_mode)
+    true_complex = case["target_complex"][0] + 1j * case["target_complex"][1]
+    y_true = np.stack([true_complex.real[mask], true_complex.imag[mask]], axis=1)
+    y_pred = np.stack([pred_complex.real[mask], pred_complex.imag[mask]], axis=1)
+    return y_true, y_pred, pred_complex
 
 
-def evaluate(model, cases, device):
+def evaluate(model, cases, device, target_mode):
     all_true, all_pred = [], []
     per_case = {}
     for case in cases:
-        y_true, y_pred, _ = predict_case(model, case, device)
+        y_true, y_pred, _ = predict_case(model, case, device, target_mode)
         per_case[case["run_name"]] = complex_metrics(y_true, y_pred)
         all_true.append(y_true)
         all_pred.append(y_pred)
     return complex_metrics(np.concatenate(all_true, axis=0), np.concatenate(all_pred, axis=0)), per_case
 
 
-def plot_prediction_maps(output_dir, case, pred):
+def plot_prediction_maps(output_dir, case, pred_complex):
     output_dir.mkdir(parents=True, exist_ok=True)
     mask = case["mask"][0] > 0
     for name, image in [
-        ("unet_pred_ratio_amp", np.abs(pred[0] + 1j * pred[1])),
-        ("unet_actual_ratio_amp", np.abs(case["target"][0] + 1j * case["target"][1])),
-        ("unet_phase_error_rad", np.angle((pred[0] + 1j * pred[1]) * np.conj(case["target"][0] + 1j * case["target"][1]))),
+        ("unet_pred_ratio_amp", np.abs(pred_complex)),
+        ("unet_actual_ratio_amp", np.abs(case["target_complex"][0] + 1j * case["target_complex"][1])),
+        (
+            "unet_phase_error_rad",
+            np.angle(pred_complex * np.conj(case["target_complex"][0] + 1j * case["target_complex"][1])),
+        ),
     ]:
         img = np.asarray(image, dtype=np.float32).copy()
         img[~mask] = np.nan
@@ -315,6 +362,7 @@ def plot_prediction_maps(output_dir, case, pred):
 
 def main():
     args = parse_args()
+    args = resolve_target_args(args)
     random.seed(args.random_seed)
     np.random.seed(args.random_seed)
     torch.manual_seed(args.random_seed)
@@ -327,7 +375,7 @@ def main():
     device = torch.device(requested_device)
     files = find_field_files(data_dir, args.max_runs)
     print(f"[INFO] Loading {len(files)} field case(s) from {data_dir}", flush=True)
-    cases = [load_field_case(path, args.target) for path in files]
+    cases = [load_field_case(path, args.ratio_sign, args.target_mode) for path in files]
     train_cases, holdout_cases = split_cases(cases, args.case)
     x_mean, x_std = compute_channel_stats(train_cases)
     normalize_cases(train_cases + holdout_cases, x_mean, x_std)
@@ -338,7 +386,8 @@ def main():
     )
     print(f"[INFO] Holdout run(s): {', '.join(case['run_name'] for case in holdout_cases)}", flush=True)
 
-    model = SmallUNet(cases[0]["input"].shape[0], 2, args.base_channels).to(device)
+    output_channels = int(cases[0]["target"].shape[0])
+    model = SmallUNet(cases[0]["input"].shape[0], output_channels, args.base_channels).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scaler = torch.cuda.amp.GradScaler(enabled=args.amp and device.type == "cuda")
     best_metrics = None
@@ -354,14 +403,16 @@ def main():
             optimizer.zero_grad(set_to_none=True)
             with torch.cuda.amp.autocast(enabled=args.amp and device.type == "cuda"):
                 pred = model(xb)
-                loss = masked_smooth_l1(pred, yb, mb)
+                loss = masked_smooth_l1(
+                    pred, yb, mb, args.target_mode, args.amp_loss_weight, args.phase_loss_weight
+                )
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
             total_loss += float(loss.item())
         do_eval = epoch == 1 or epoch % args.eval_every == 0 or epoch == args.epochs
         if do_eval:
-            metrics, per_case = evaluate(model, holdout_cases, device)
+            metrics, per_case = evaluate(model, holdout_cases, device, args.target_mode)
             history.append({"epoch": epoch, "train_loss": total_loss / args.steps_per_epoch, "metrics": metrics})
             print(
                 f"[{epoch:03d}/{args.epochs}] loss={history[-1]['train_loss']:.5f} "
@@ -382,11 +433,15 @@ def main():
 
     if best_state is not None:
         model.load_state_dict(best_state)
-    final_metrics, per_case = evaluate(model, holdout_cases, device)
-    y_true, y_pred, pred_map = predict_case(model, holdout_cases[0], device)
+    final_metrics, per_case = evaluate(model, holdout_cases, device, args.target_mode)
+    y_true, y_pred, pred_map = predict_case(model, holdout_cases[0], device, args.target_mode)
     plot_prediction_maps(output_dir, holdout_cases[0], pred_map)
     report = {
+        "ratio_sign": args.ratio_sign,
+        "target_mode": args.target_mode,
         "target": args.target,
+        "amp_loss_weight": args.amp_loss_weight,
+        "phase_loss_weight": args.phase_loss_weight,
         "device": str(device),
         "epochs": args.epochs,
         "steps_per_epoch": args.steps_per_epoch,
@@ -397,6 +452,7 @@ def main():
         "train_runs": [case["run_name"] for case in train_cases],
         "holdout_runs": [case["run_name"] for case in holdout_cases],
         "input_channels": int(cases[0]["input"].shape[0]),
+        "output_channels": output_channels,
         "best_metrics": best_metrics,
         "final_metrics": final_metrics,
         "per_case": per_case,
@@ -407,9 +463,12 @@ def main():
         {
             "model_state_dict": best_state if best_state is not None else model.state_dict(),
             "input_channels": int(cases[0]["input"].shape[0]),
+            "output_channels": output_channels,
             "base_channels": args.base_channels,
             "x_mean": x_mean.astype(np.float32),
             "x_std": x_std.astype(np.float32),
+            "ratio_sign": args.ratio_sign,
+            "target_mode": args.target_mode,
             "target": args.target,
         },
         output_dir / "exit_complex_unet.pt",
