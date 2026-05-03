@@ -26,6 +26,7 @@ def parse_args():
     parser.add_argument("--random-seed", type=int, default=42)
     parser.add_argument("--max-runs", type=int, default=0, help="0 means all runs.")
     parser.add_argument("--max-samples-per-run", type=int, default=0, help="0 means all samples.")
+    parser.add_argument("--sample-selection", choices=["latest_per_case", "all"], default="latest_per_case")
     parser.add_argument("--epochs", type=int, default=300)
     parser.add_argument("--batch-size", type=int, default=16384)
     parser.add_argument("--lr", type=float, default=8e-4)
@@ -92,10 +93,22 @@ def load_sample_file(sample_path: Path, target: str, max_samples_per_run: int):
     }
 
 
-def build_dataset(data_dir: Path, target: str, max_runs: int, max_samples_per_run: int):
+def select_sample_files(data_dir: Path, sample_selection: str):
     sample_files = sorted(data_dir.rglob("*_samples.mat"))
     if not sample_files:
         raise FileNotFoundError(f"No *_samples.mat files found recursively in {data_dir}")
+    if sample_selection == "latest_per_case":
+        latest_by_dir = {}
+        for path in sample_files:
+            current = latest_by_dir.get(path.parent)
+            if current is None or path.stat().st_mtime > current.stat().st_mtime:
+                latest_by_dir[path.parent] = path
+        sample_files = sorted(latest_by_dir.values())
+    return sample_files
+
+
+def build_dataset(data_dir: Path, target: str, max_runs: int, max_samples_per_run: int, sample_selection: str):
+    sample_files = select_sample_files(data_dir, sample_selection)
     if max_runs:
         sample_files = sample_files[: max(1, int(max_runs))]
     runs = [load_sample_file(path, target, max_samples_per_run) for path in sample_files]
@@ -319,7 +332,7 @@ def main():
 
     print(f"[INFO] Loading runs from: {data_dir}", flush=True)
     runs, X, y, groups, run_names, target_names = build_dataset(
-        data_dir, args.target, args.max_runs, args.max_samples_per_run
+        data_dir, args.target, args.max_runs, args.max_samples_per_run, args.sample_selection
     )
     print(
         f"[INFO] Loaded {len(runs)} run(s), samples={X.shape[0]}, target={args.target}, "
@@ -335,6 +348,7 @@ def main():
             "run_names": run_names,
             "max_runs": args.max_runs,
             "max_samples_per_run": args.max_samples_per_run,
+            "sample_selection": args.sample_selection,
         }
     )
     (output_dir / "gpu_surrogate_report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")

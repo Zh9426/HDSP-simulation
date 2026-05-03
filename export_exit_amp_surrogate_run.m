@@ -12,19 +12,35 @@ end
 patch_size = run_meta.patch_size;
 patch_radius = floor(patch_size / 2);
 sample_stride = max(1, run_meta.sample_stride);
-max_samples_per_run = max(1, run_meta.max_samples_per_run);
+max_samples_per_run = run_meta.max_samples_per_run;
+sample_mode = 'grid';
+if isfield(run_meta, 'sample_mode') && ~isempty(run_meta.sample_mode)
+    sample_mode = char(run_meta.sample_mode);
+end
+sample_seed = 9426;
+if isfield(run_meta, 'sample_seed') && ~isempty(run_meta.sample_seed)
+    sample_seed = double(run_meta.sample_seed);
+end
 
 valid_mask = circle_mask_board;
 [row_idx_all, col_idx_all] = find(valid_mask);
-sample_order = 1:sample_stride:numel(row_idx_all);
+switch lower(sample_mode)
+    case 'random'
+        rng(sample_seed, 'twister');
+        sample_order = randperm(numel(row_idx_all));
+        if max_samples_per_run > 0
+            sample_order = sample_order(1:min(numel(sample_order), max_samples_per_run));
+        end
+        sample_order = sort(sample_order);
+    otherwise
+        sample_order = 1:sample_stride:numel(row_idx_all);
+        if max_samples_per_run > 0 && numel(sample_order) > max_samples_per_run
+            sample_pick = round(linspace(1, numel(sample_order), max_samples_per_run));
+            sample_order = sample_order(sample_pick);
+        end
+end
 row_idx = row_idx_all(sample_order);
 col_idx = col_idx_all(sample_order);
-
-if numel(row_idx) > max_samples_per_run
-    sample_pick = round(linspace(1, numel(row_idx), max_samples_per_run));
-    row_idx = row_idx(sample_pick);
-    col_idx = col_idx(sample_pick);
-end
 
 num_samples = numel(row_idx);
 thickness_patches = zeros(patch_size, patch_size, num_samples, 'single');
@@ -40,6 +56,8 @@ x_mm = zeros(num_samples, 1, 'single');
 y_mm = zeros(num_samples, 1, 'single');
 radius_mm = zeros(num_samples, 1, 'single');
 edge_distance_mm = zeros(num_samples, 1, 'single');
+row_idx_export = single(row_idx(:));
+col_idx_export = single(col_idx(:));
 
 thickness_pad = padarray(single(thickness_map), [patch_radius, patch_radius], 'replicate', 'both');
 grad_pad = padarray(single(thickness_grad_norm), [patch_radius, patch_radius], 'replicate', 'both');
@@ -98,6 +116,8 @@ summary_stats.edge_bin_edges_mm = single(linspace(min(edge_valid), max(edge_vali
 summary_stats.num_samples = num_samples;
 summary_stats.patch_size = patch_size;
 summary_stats.sample_stride = sample_stride;
+summary_stats.sample_mode = sample_mode;
+summary_stats.sample_seed = sample_seed;
 summary_stats.dx_mm = single(dx * 1e3);
 
 timestamp_tag = char(datetime('now', 'Format', 'yyyyMMdd_HHmmss'));
@@ -113,7 +133,8 @@ save(sample_file, 'thickness_patches', 'feature_vector', 'target_exit_amp', ...
     'target_ratio_same_real', 'target_ratio_same_imag', ...
     'target_ratio_opposite_real', 'target_ratio_opposite_imag', ...
     'target_phase_error_same', 'target_phase_error_opposite', ...
-    'x_mm', 'y_mm', 'radius_mm', 'edge_distance_mm', 'material_params', 'run_meta');
+    'x_mm', 'y_mm', 'radius_mm', 'edge_distance_mm', 'row_idx_export', 'col_idx_export', ...
+    'material_params', 'run_meta');
 save(summary_file, 'run_meta', 'run_metrics', 'summary_stats');
 fprintf('研究样本已导出: %s\n', sample_file);
 fprintf('研究摘要已导出: %s\n', summary_file);

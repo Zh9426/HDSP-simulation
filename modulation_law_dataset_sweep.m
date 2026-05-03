@@ -35,8 +35,17 @@ for case_idx = 1:height(case_table)
     if cfg.resume && exist(metrics_path, 'file')
         loaded = load(metrics_path, 'metrics');
         metrics = loaded.metrics;
-        if cfg.export_field_validation && ~exist(modulation_field_validation_path(case_dir, metrics.case_label), 'file')
+        loaded_field = struct();
+        needs_saved_payload = cfg.refresh_surrogate_export || ...
+            (cfg.export_field_validation && ~exist(modulation_field_validation_path(case_dir, metrics.case_label), 'file'));
+        if needs_saved_payload
             loaded_field = load(metrics_path, 'board', 'sim');
+        end
+        if cfg.refresh_surrogate_export && cfg.export_exit_surrogate && isfield(loaded_field.sim, 'exit_amp_norm') && ...
+                any(isfinite(loaded_field.sim.exit_amp_norm(:)))
+            export_modulation_surrogate_case(case_dir, metrics, loaded_field.board, loaded_field.sim, base, cfg);
+        end
+        if cfg.export_field_validation && ~exist(modulation_field_validation_path(case_dir, metrics.case_label), 'file')
             export_modulation_field_validation_case(case_dir, metrics, loaded_field.board, loaded_field.sim, base, cfg);
         end
         fprintf('[%03d/%03d] skip existing %s | mode %s | PCC %.4f\n', ...
@@ -103,9 +112,12 @@ cfg.resume = strcmpi(getenv_default('HDSP_MODULATION_RESUME', '1'), '1');
 cfg.max_cases = str2double(getenv_default('HDSP_MODULATION_MAX_CASES', '0'));
 cfg.export_exit_surrogate = strcmpi(getenv_default('HDSP_MODULATION_EXPORT_SURROGATE', '1'), '1');
 cfg.export_field_validation = strcmpi(getenv_default('HDSP_MODULATION_EXPORT_FIELD_VALIDATION', '1'), '1');
+cfg.refresh_surrogate_export = strcmpi(getenv_default('HDSP_MODULATION_REFRESH_SURROGATE', '0'), '1');
+cfg.sample_mode = getenv_default('HDSP_MODULATION_SAMPLE_MODE', 'random'); % random | grid
+cfg.sample_seed = str2double(getenv_default('HDSP_MODULATION_SAMPLE_SEED', '9426'));
 cfg.patch_size = 9;
-cfg.sample_stride = str2double(getenv_default('HDSP_MODULATION_SAMPLE_STRIDE', '2'));
-cfg.max_samples_per_run = str2double(getenv_default('HDSP_MODULATION_MAX_SAMPLES', '30000'));
+cfg.sample_stride = str2double(getenv_default('HDSP_MODULATION_SAMPLE_STRIDE', '1'));
+cfg.max_samples_per_run = str2double(getenv_default('HDSP_MODULATION_MAX_SAMPLES', '120000'));
 cfg.dx = cfg.Lx / cfg.Nx;
 cfg.dy = cfg.dx;
 cfg.dz = cfg.dx;
@@ -492,6 +504,8 @@ run_meta = struct( ...
     'patch_size', cfg.patch_size, ...
     'sample_stride', cfg.sample_stride, ...
     'max_samples_per_run', cfg.max_samples_per_run, ...
+    'sample_mode', cfg.sample_mode, ...
+    'sample_seed', cfg.sample_seed, ...
     'Nx', cfg.Nx, 'Ny', cfg.Ny, 'dx', cfg.dx, 'dz', cfg.dz, ...
     'f0', cfg.f0, 'Lx', cfg.Lx, 'z_target_dist', cfg.z_target_dist, ...
     'c_water', cfg.c_water, 'density_water', cfg.density_water, 'alpha_coeff_water', cfg.alpha_coeff_water, ...
