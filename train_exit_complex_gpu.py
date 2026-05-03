@@ -117,7 +117,8 @@ def build_dataset(data_dir: Path, target: str, max_runs: int, max_samples_per_ru
     groups = np.concatenate([[idx] * run["num_samples"] for idx, run in enumerate(runs)]).astype(np.int32)
     run_names = [run["run_name"] for run in runs]
     target_names = runs[0]["target_names"]
-    return runs, X, y, groups, run_names, target_names
+    sample_paths = [run["sample_path"] for run in runs]
+    return runs, X, y, groups, run_names, target_names, sample_paths
 
 
 def select_holdout_run_ids(groups, num_holdout_runs: int, random_seed: int):
@@ -331,7 +332,7 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"[INFO] Loading runs from: {data_dir}", flush=True)
-    runs, X, y, groups, run_names, target_names = build_dataset(
+    runs, X, y, groups, run_names, target_names, sample_paths = build_dataset(
         data_dir, args.target, args.max_runs, args.max_samples_per_run, args.sample_selection
     )
     print(
@@ -346,6 +347,7 @@ def main():
             "output_dir": str(output_dir),
             "num_runs": len(runs),
             "run_names": run_names,
+            "sample_paths": sample_paths,
             "max_runs": args.max_runs,
             "max_samples_per_run": args.max_samples_per_run,
             "sample_selection": args.sample_selection,
