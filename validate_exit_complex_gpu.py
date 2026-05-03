@@ -138,6 +138,20 @@ def matlab_attr(struct_value, name, default=None):
     return getattr(struct_value, name, default)
 
 
+def infer_patch_and_feature_dims(input_dim):
+    for feature_dim in (16, 10):
+        patch_area = input_dim - feature_dim
+        patch_size = int(round(np.sqrt(patch_area)))
+        if patch_size > 0 and patch_size * patch_size == patch_area:
+            return patch_size, feature_dim
+    raise ValueError(f"Cannot infer patch and feature dimensions from input_dim={input_dim}")
+
+
+def local_circular_std(phase_patch):
+    coherence = np.abs(np.mean(np.exp(1j * phase_patch)))
+    return float(np.sqrt(max(0.0, -2.0 * np.log(max(coherence, np.finfo(np.float32).eps)))))
+
+
 def build_field_features(data, checkpoint, max_samples):
     valid_mask = np.asarray(data["valid_mask"]).astype(bool)
     rows, cols = np.where(valid_mask)
@@ -147,9 +161,7 @@ def build_field_features(data, checkpoint, max_samples):
         cols = cols[pick]
 
     input_dim = int(checkpoint["input_dim"])
-    patch_size = int(round(np.sqrt(input_dim - 10)))
-    if patch_size * patch_size + 10 != input_dim:
-        raise ValueError(f"Cannot infer patch size from input_dim={input_dim}")
+    patch_size, feature_dim = infer_patch_and_feature_dims(input_dim)
     patch_radius = patch_size // 2
 
     thickness_map = np.asarray(data["thickness_map"], dtype=np.float32)
@@ -158,35 +170,55 @@ def build_field_features(data, checkpoint, max_samples):
     local_std = np.asarray(data["local_thickness_std"], dtype=np.float32)
     edge_mm = np.asarray(data["aperture_edge_distance_mm"], dtype=np.float32)
     layers = np.asarray(data["net_num_board"], dtype=np.float32)
+    board_phase = np.asarray(data.get("board_phase", np.zeros_like(thickness_map)), dtype=np.float32)
     x_mm = np.asarray(data["x_mm"], dtype=np.float32).reshape(-1)
     y_mm = np.asarray(data["y_mm"], dtype=np.float32).reshape(-1)
     X_mm, Y_mm = np.meshgrid(x_mm, y_mm)
     radius_mm = np.hypot(X_mm, Y_mm).astype(np.float32)
+    phase_complex = np.exp(1j * board_phase)
+    phase_gy, phase_gx = np.gradient(phase_complex)
+    phase_grad_norm = np.sqrt(np.abs(phase_gx) ** 2 + np.abs(phase_gy) ** 2).astype(np.float32)
 
     thickness_pad = np.pad(thickness_map, patch_radius, mode="edge")
     grad_pad = np.pad(grad_map, patch_radius, mode="edge")
+    phase_pad = np.pad(board_phase, patch_radius, mode="edge")
+    phase_grad_pad = np.pad(phase_grad_norm, patch_radius, mode="edge")
     num_pixels = rows.size
     patch_features = np.empty((num_pixels, patch_size * patch_size), dtype=np.float32)
-    feature_vector = np.empty((num_pixels, 10), dtype=np.float32)
+    feature_vector = np.empty((num_pixels, feature_dim), dtype=np.float32)
     for idx, (r, c) in enumerate(zip(rows, cols)):
         rp = r + patch_radius
         cp = c + patch_radius
         patch_thickness = thickness_pad[rp - patch_radius : rp + patch_radius + 1, cp - patch_radius : cp + patch_radius + 1]
         patch_grad = grad_pad[rp - patch_radius : rp + patch_radius + 1, cp - patch_radius : cp + patch_radius + 1]
+        patch_phase = phase_pad[rp - patch_radius : rp + patch_radius + 1, cp - patch_radius : cp + patch_radius + 1]
+        patch_phase_grad = phase_grad_pad[rp - patch_radius : rp + patch_radius + 1, cp - patch_radius : cp + patch_radius + 1]
         patch_features[idx] = patch_thickness.reshape(-1)
+        features = [
+            thickness_map[r, c] * 1e3,
+            grad_map[r, c],
+            local_mean[r, c] * 1e3,
+            local_std[r, c],
+            radius_mm[r, c],
+            edge_mm[r, c],
+            layers[r, c],
+            np.mean(patch_thickness) * 1e3,
+            np.std(patch_thickness) * 1e3,
+            np.mean(patch_grad),
+        ]
+        if feature_dim == 16:
+            features.extend(
+                [
+                    X_mm[r, c],
+                    Y_mm[r, c],
+                    np.sin(board_phase[r, c]),
+                    np.cos(board_phase[r, c]),
+                    np.mean(patch_phase_grad),
+                    local_circular_std(patch_phase),
+                ]
+            )
         feature_vector[idx] = np.array(
-            [
-                thickness_map[r, c] * 1e3,
-                grad_map[r, c],
-                local_mean[r, c] * 1e3,
-                local_std[r, c],
-                radius_mm[r, c],
-                edge_mm[r, c],
-                layers[r, c],
-                np.mean(patch_thickness) * 1e3,
-                np.std(patch_thickness) * 1e3,
-                np.mean(patch_grad),
-            ],
+            features,
             dtype=np.float32,
         )
     X = np.concatenate([patch_features, feature_vector], axis=1)

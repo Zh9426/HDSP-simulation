@@ -1,12 +1,15 @@
 function export_exit_amp_surrogate_run(export_dir, run_meta, run_metrics, thickness_map, thickness_grad_norm, ...
     p_exit_amp_norm, circle_mask_board, x, y, dx, net_num_board, aperture_edge_distance_mm, ...
-    local_thickness_mean, local_thickness_std, complex_ratio_same, complex_ratio_opposite)
+    local_thickness_mean, local_thickness_std, complex_ratio_same, complex_ratio_opposite, board_phase)
 
 if nargin < 15
     complex_ratio_same = [];
 end
 if nargin < 16
     complex_ratio_opposite = [];
+end
+if nargin < 17
+    board_phase = [];
 end
 
 patch_size = run_meta.patch_size;
@@ -44,7 +47,12 @@ col_idx = col_idx_all(sample_order);
 
 num_samples = numel(row_idx);
 thickness_patches = zeros(patch_size, patch_size, num_samples, 'single');
-feature_vector = zeros(num_samples, 10, 'single');
+feature_names = {'thickness_mm', 'thickness_grad_norm', 'local_thickness_mean_mm', ...
+    'local_thickness_std', 'radius_mm', 'edge_distance_mm', 'layer_id', ...
+    'patch_thickness_mean_mm', 'patch_thickness_std_mm', 'patch_grad_mean', ...
+    'x_mm', 'y_mm', 'board_phase_sin', 'board_phase_cos', ...
+    'board_phase_grad_norm', 'local_phase_circ_std'};
+feature_vector = zeros(num_samples, numel(feature_names), 'single');
 target_exit_amp = zeros(num_samples, 1, 'single');
 target_ratio_same_real = zeros(num_samples, 1, 'single');
 target_ratio_same_imag = zeros(num_samples, 1, 'single');
@@ -61,6 +69,15 @@ col_idx_export = single(col_idx(:));
 
 thickness_pad = padarray(single(thickness_map), [patch_radius, patch_radius], 'replicate', 'both');
 grad_pad = padarray(single(thickness_grad_norm), [patch_radius, patch_radius], 'replicate', 'both');
+if isempty(board_phase)
+    board_phase = zeros(size(thickness_map), 'single');
+end
+board_phase = single(board_phase);
+phase_complex = exp(1i * board_phase);
+[phase_gx, phase_gy] = gradient(phase_complex);
+phase_grad_norm = single(sqrt(abs(phase_gx).^2 + abs(phase_gy).^2));
+phase_pad = padarray(board_phase, [patch_radius, patch_radius], 'replicate', 'both');
+phase_grad_pad = padarray(phase_grad_norm, [patch_radius, patch_radius], 'replicate', 'both');
 
 for sample_idx = 1:num_samples
     r = row_idx(sample_idx);
@@ -70,6 +87,10 @@ for sample_idx = 1:num_samples
 
     patch_thickness = thickness_pad(r_pad-patch_radius:r_pad+patch_radius, c_pad-patch_radius:c_pad+patch_radius);
     patch_grad = grad_pad(r_pad-patch_radius:r_pad+patch_radius, c_pad-patch_radius:c_pad+patch_radius);
+    patch_phase = phase_pad(r_pad-patch_radius:r_pad+patch_radius, c_pad-patch_radius:c_pad+patch_radius);
+    patch_phase_grad = phase_grad_pad(r_pad-patch_radius:r_pad+patch_radius, c_pad-patch_radius:c_pad+patch_radius);
+    local_phase_coherence = abs(mean(exp(1i * patch_phase(:))));
+    local_phase_circ_std = sqrt(max(0, -2 * log(max(local_phase_coherence, eps))));
 
     thickness_patches(:, :, sample_idx) = patch_thickness;
     target_exit_amp(sample_idx) = single(p_exit_amp_norm(r, c));
@@ -98,7 +119,13 @@ for sample_idx = 1:num_samples
         net_num_board(r, c), ...
         mean(patch_thickness(:)) * 1e3, ...
         std(patch_thickness(:)) * 1e3, ...
-        mean(patch_grad(:))]);
+        mean(patch_grad(:)), ...
+        x_mm(sample_idx), ...
+        y_mm(sample_idx), ...
+        sin(board_phase(r, c)), ...
+        cos(board_phase(r, c)), ...
+        mean(patch_phase_grad(:)), ...
+        local_phase_circ_std]);
 end
 
 layer_idx = net_num_board(valid_mask);
@@ -118,6 +145,7 @@ summary_stats.patch_size = patch_size;
 summary_stats.sample_stride = sample_stride;
 summary_stats.sample_mode = sample_mode;
 summary_stats.sample_seed = sample_seed;
+summary_stats.feature_names = feature_names;
 summary_stats.dx_mm = single(dx * 1e3);
 
 timestamp_tag = char(datetime('now', 'Format', 'yyyyMMdd_HHmmss'));
@@ -134,7 +162,7 @@ save(sample_file, 'thickness_patches', 'feature_vector', 'target_exit_amp', ...
     'target_ratio_opposite_real', 'target_ratio_opposite_imag', ...
     'target_phase_error_same', 'target_phase_error_opposite', ...
     'x_mm', 'y_mm', 'radius_mm', 'edge_distance_mm', 'row_idx_export', 'col_idx_export', ...
-    'material_params', 'run_meta');
+    'material_params', 'run_meta', 'feature_names');
 save(summary_file, 'run_meta', 'run_metrics', 'summary_stats');
 fprintf('研究样本已导出: %s\n', sample_file);
 fprintf('研究摘要已导出: %s\n', summary_file);
