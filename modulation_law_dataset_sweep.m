@@ -35,6 +35,10 @@ for case_idx = 1:height(case_table)
     if cfg.resume && exist(metrics_path, 'file')
         loaded = load(metrics_path, 'metrics');
         metrics = loaded.metrics;
+        if cfg.export_field_validation && ~exist(modulation_field_validation_path(case_dir, metrics.case_label), 'file')
+            loaded_field = load(metrics_path, 'board', 'sim');
+            export_modulation_field_validation_case(case_dir, metrics, loaded_field.board, loaded_field.sim, base, cfg);
+        end
         fprintf('[%03d/%03d] skip existing %s | mode %s | PCC %.4f\n', ...
             case_idx, height(case_table), case_label, cfg.study_mode, metrics.target_pcc);
     else
@@ -47,6 +51,9 @@ for case_idx = 1:height(case_table)
 
         if cfg.export_exit_surrogate && isfield(sim, 'exit_amp_norm') && any(isfinite(sim.exit_amp_norm(:)))
             export_modulation_surrogate_case(case_dir, metrics, board, sim, base, cfg);
+        end
+        if cfg.export_field_validation && isfield(sim, 'exit_complex') && any(isfinite(abs(sim.exit_complex(:))))
+            export_modulation_field_validation_case(case_dir, metrics, board, sim, base, cfg);
         end
     end
 
@@ -95,6 +102,7 @@ cfg.output_dir = getenv_default('HDSP_MODULATION_OUTPUT_DIR', fullfile(pwd, 'mod
 cfg.resume = strcmpi(getenv_default('HDSP_MODULATION_RESUME', '1'), '1');
 cfg.max_cases = str2double(getenv_default('HDSP_MODULATION_MAX_CASES', '0'));
 cfg.export_exit_surrogate = strcmpi(getenv_default('HDSP_MODULATION_EXPORT_SURROGATE', '1'), '1');
+cfg.export_field_validation = strcmpi(getenv_default('HDSP_MODULATION_EXPORT_FIELD_VALIDATION', '1'), '1');
 cfg.patch_size = 9;
 cfg.sample_stride = str2double(getenv_default('HDSP_MODULATION_SAMPLE_STRIDE', '2'));
 cfg.max_samples_per_run = str2double(getenv_default('HDSP_MODULATION_MAX_SAMPLES', '30000'));
@@ -503,6 +511,47 @@ export_exit_amp_surrogate_run( ...
     base.circle_mask_board, base.x, base.y, cfg.dx, board.net_num_board, ...
     board.aperture_edge_distance_mm, board.local_thickness_mean, board.local_thickness_std, ...
     sim.complex_ratio_same, sim.complex_ratio_opposite);
+end
+
+function export_modulation_field_validation_case(case_dir, metrics, board, sim, base, cfg)
+field_file = modulation_field_validation_path(case_dir, metrics.case_label);
+run_meta = struct( ...
+    'run_label', metrics.case_label, ...
+    'patch_size', cfg.patch_size, ...
+    'Nx', cfg.Nx, 'Ny', cfg.Ny, 'dx', cfg.dx, 'dy', cfg.dy, 'dz', cfg.dz, ...
+    'f0', cfg.f0, 'Lx', cfg.Lx, 'z_target_dist', cfg.z_target_dist, ...
+    'z_exit_probe_offset_mm', cfg.exit_probe_after_board_m * 1e3, ...
+    'c_water', cfg.c_water, 'density_water', cfg.density_water, 'alpha_coeff_water', cfg.alpha_coeff_water, ...
+    'c_board', cfg.c_board, 'density_board', cfg.density_board, 'alpha_coeff_board', cfg.alpha_coeff_board);
+valid_mask = logical(base.circle_mask_board);
+x_mm = single(base.x(:)' * 1e3);
+y_mm = single(base.y(:)' * 1e3);
+thickness_map = single(board.thickness_map);
+thickness_grad_norm = single(board.thickness_grad_norm);
+local_thickness_mean = single(board.local_thickness_mean);
+local_thickness_std = single(board.local_thickness_std);
+aperture_edge_distance_mm = single(board.aperture_edge_distance_mm);
+net_num_board = single(board.net_num_board);
+board_phase = single(board.phase);
+exit_amp_norm = single(sim.exit_amp_norm);
+ideal_complex_real = single(real(sim.ideal_complex));
+ideal_complex_imag = single(imag(sim.ideal_complex));
+exit_complex_real = single(real(sim.exit_complex));
+exit_complex_imag = single(imag(sim.exit_complex));
+ratio_same_real = single(real(sim.complex_ratio_same));
+ratio_same_imag = single(imag(sim.complex_ratio_same));
+ratio_opposite_real = single(real(sim.complex_ratio_opposite));
+ratio_opposite_imag = single(imag(sim.complex_ratio_opposite));
+save(field_file, 'run_meta', 'valid_mask', 'x_mm', 'y_mm', ...
+    'thickness_map', 'thickness_grad_norm', 'local_thickness_mean', 'local_thickness_std', ...
+    'aperture_edge_distance_mm', 'net_num_board', 'board_phase', 'exit_amp_norm', ...
+    'ideal_complex_real', 'ideal_complex_imag', 'exit_complex_real', 'exit_complex_imag', ...
+    'ratio_same_real', 'ratio_same_imag', 'ratio_opposite_real', 'ratio_opposite_imag');
+fprintf('Field validation package exported: %s\n', field_file);
+end
+
+function field_file = modulation_field_validation_path(case_dir, case_label)
+field_file = fullfile(case_dir, sprintf('%s_field_validation.mat', case_label));
 end
 
 function [holo_phase, net_num_board, phase_bias_seed] = run_iasa_phase_refinement_local( ...
