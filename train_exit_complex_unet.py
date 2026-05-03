@@ -23,7 +23,7 @@ def parse_args():
     parser.add_argument("--output-dir", default=None, help="Defaults to <data-dir>/unet_model_outputs.")
     parser.add_argument("--case", default="case_004_same_bias-0.79_layer+0_round", help="Holdout case substring.")
     parser.add_argument("--ratio-sign", choices=["opposite", "same"], default="opposite")
-    parser.add_argument("--target-mode", choices=["complex", "amp_phase"], default="complex")
+    parser.add_argument("--target-mode", choices=["complex", "amp_phase", "amp_only", "phase_only"], default="complex")
     parser.add_argument("--target", choices=["complex_ratio_opposite", "complex_ratio_same"], default=None)
     parser.add_argument("--amp-loss-weight", type=float, default=3.0)
     parser.add_argument("--phase-loss-weight", type=float, default=1.0)
@@ -82,12 +82,30 @@ def complex_to_target(real, imag, target_mode: str):
     amp = np.abs(ratio).astype(np.float32)
     phase = np.angle(ratio).astype(np.float32)
     log_amp = np.log(np.maximum(amp, 1e-4)).astype(np.float32)
+    if target_mode == "amp_only":
+        return log_amp[None].astype(np.float32)
+    if target_mode == "phase_only":
+        return np.stack([np.sin(phase), np.cos(phase)], axis=0).astype(np.float32)
     return np.stack([log_amp, np.sin(phase), np.cos(phase)], axis=0).astype(np.float32)
 
 
-def target_to_complex(target_values, target_mode: str):
+def target_to_complex(target_values, target_mode: str, reference_complex=None):
     if target_mode == "complex":
         return target_values[0] + 1j * target_values[1]
+    if target_mode == "phase_only":
+        if reference_complex is None:
+            raise ValueError("phase_only reconstruction needs reference_complex for amplitude.")
+        amp = np.abs(reference_complex)
+        phase_vec = target_values[0] + 1j * target_values[1]
+        phase_vec = phase_vec / (np.abs(phase_vec) + 1e-6)
+        return amp * phase_vec
+    if target_mode == "amp_only":
+        if reference_complex is None:
+            raise ValueError("amp_only reconstruction needs reference_complex for phase.")
+        log_amp = np.clip(target_values[0], -9.0, 3.0)
+        amp = np.exp(log_amp)
+        phase_vec = reference_complex / (np.abs(reference_complex) + 1e-6)
+        return amp * phase_vec
     log_amp = np.clip(target_values[0], -9.0, 3.0)
     amp = np.exp(log_amp)
     phase_vec = target_values[1] + 1j * target_values[2]
@@ -295,6 +313,10 @@ def masked_smooth_l1(pred, target, mask, target_mode, amp_loss_weight, phase_los
             device=loss.device,
         ).view(1, -1, 1, 1)
         loss = loss * weights
+    elif target_mode == "amp_only":
+        loss = loss * amp_loss_weight
+    elif target_mode == "phase_only":
+        loss = loss * phase_loss_weight
     loss = loss * mask
     return loss.sum() / (mask.sum() * pred.shape[1] + 1e-6)
 
@@ -319,8 +341,8 @@ def predict_case(model, case, device, target_mode):
     with torch.no_grad():
         pred = model(x).cpu().numpy()[0]
     mask = case["mask"][0] > 0
-    pred_complex = target_to_complex(pred, target_mode)
     true_complex = case["target_complex"][0] + 1j * case["target_complex"][1]
+    pred_complex = target_to_complex(pred, target_mode, true_complex)
     y_true = np.stack([true_complex.real[mask], true_complex.imag[mask]], axis=1)
     y_pred = np.stack([pred_complex.real[mask], pred_complex.imag[mask]], axis=1)
     return y_true, y_pred, pred_complex
