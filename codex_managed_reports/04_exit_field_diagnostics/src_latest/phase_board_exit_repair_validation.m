@@ -37,7 +37,12 @@ exposure_time = 0.06;
 exit_probe_offsets_voxels = [0, 2, 4, 8, 12, 16, 24, 32];
 exit_phase_amp_threshold_ratio = 0.10;
 asm_focus_scan_step_voxels = 2;
-run_repaired_full_simulation = strcmpi(getenv('RUN_REPAIRED_FULL_KWAVE'), '1');
+% Set true here when you want the second full k-Wave propagation run.
+run_repaired_full_simulation = true;
+env_run_full = getenv('RUN_REPAIRED_FULL_KWAVE');
+if ~isempty(env_run_full)
+    run_repaired_full_simulation = strcmpi(env_run_full, '1');
+end
 
 dx = Lx / Nx;
 dy = dx;
@@ -270,9 +275,9 @@ summary_scalars.exit_amp_cv = exit_amp_cv;
 summary_scalars.exit_amp_min_ratio = exit_amp_min_ratio;
 summary_scalars.best_repaired_signed_pcc = exit_phase_scan.best_repaired.summary.repaired_signed_best_pcc;
 summary_scalars.best_repaired_signed_z_mm = exit_phase_scan.best_repaired.summary.repaired_signed_best_z_mm;
-summary_scalars.local_raw_signed_pcc = local_exit_diagnostic.metrics.raw.summary.repaired_signed_best_pcc;
-summary_scalars.local_comp_plus_signed_pcc = local_exit_diagnostic.metrics.comp_plus.summary.repaired_signed_best_pcc;
-summary_scalars.local_comp_minus_signed_pcc = local_exit_diagnostic.metrics.comp_minus.summary.repaired_signed_best_pcc;
+summary_scalars.local_raw_signed_pcc = local_exit_diagnostic.metrics.raw.repaired_signed_best_pcc;
+summary_scalars.local_comp_plus_signed_pcc = local_exit_diagnostic.metrics.comp_plus.repaired_signed_best_pcc;
+summary_scalars.local_comp_minus_signed_pcc = local_exit_diagnostic.metrics.comp_minus.repaired_signed_best_pcc;
 summary_scalars.cure_iou = cure_result.metrics.IoU;
 summary_scalars.cure_dice = cure_result.metrics.Dice;
 write_exit_repair_summary(fullfile(out_dir, 'summary.txt'), summary_scalars, out_dir);
