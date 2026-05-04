@@ -4,7 +4,9 @@
 
 - Stable source: `src_stable/`
 - Source branch: `codex_managed`
+- Primary entry: `src_stable/run_cure_prediction_demo.m`
 - Tests: `src_stable/tests/`
+- Runtime outputs: `outputs/`
 
 ## Included Files
 
@@ -14,7 +16,17 @@
 - `compute_cure_feedback_terms.m`
 - `compute_thermal_aux_increment.m`
 - `evaluate_cure_prediction.m`
+- `run_cure_prediction_demo.m`
 - `select_cure_threshold.m`
+
+## Output Contract
+
+Running `src_stable/run_cure_prediction_demo.m` writes `outputs/` with:
+
+- `summary.txt` and `summary.json` for scalar cure metrics;
+- `cure_prediction_demo_results.mat` for pressure, cavitation maps, dose
+  fields, cure score and cured mask;
+- `cure_prediction_demo_overview.png` for the module-level visual overview.
 
 ## Current Status
 
@@ -37,4 +49,3 @@ The cure module is now mature enough to report independently from the acoustic f
 ## Decision
 
 Keep this module stable while acoustic field correction remains exploratory. Future changes should include tests in `src_stable/tests/`.
-

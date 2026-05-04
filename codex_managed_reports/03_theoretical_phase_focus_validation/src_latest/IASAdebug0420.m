@@ -175,7 +175,8 @@ kwave_iasa_metrics = calc_image_metrics(iasa_result.amp_norm, target_norm);
 kwave_pure_iasa_metrics = calc_image_metrics(pure_iasa_result.amp_norm, target_norm);
 
 %% 5. Visualization and export
-out_dir = fullfile(fileparts(mfilename('fullpath')), 'IASAdebug0420_outputs');
+work_dir = fileparts(fileparts(mfilename('fullpath')));
+out_dir = fullfile(work_dir, 'outputs');
 if ~exist(out_dir, 'dir')
     mkdir(out_dir);
 end
@@ -255,6 +256,30 @@ ylim([0, 1]); ylabel('PCC'); title('PCC Comparison');
 grid on;
 
 exportgraphics(fig2, fullfile(out_dir, 'phase_validation_centerline_metrics.png'), 'Resolution', 300);
+
+results = struct();
+results.phase_step = phase_step;
+results.phase_bias_python_iasa = phase_bias_python_iasa;
+results.phase_bias_pure_iasa = phase_bias_pure_iasa;
+results.asm_python = asm_python_metrics;
+results.asm_python_iasa = asm_iasa_metrics;
+results.asm_pure_iasa = asm_pure_iasa_metrics;
+results.kwave_python = kwave_python_metrics;
+results.kwave_python_iasa = kwave_iasa_metrics;
+results.kwave_pure_iasa = kwave_pure_iasa_metrics;
+results.grid = struct('Nx', Nx, 'Ny', Ny, 'Nz', Nz, 'dx_m', dx, 'dz_m', dz, ...
+    'f0_hz', f0, 'z_target_dist_m', z_target_dist);
+save(fullfile(out_dir, 'phase_focus_validation_results.mat'), ...
+    'results', 'imag_target', 'imag_target_design', 'phase_projected_init', ...
+    'holo_phase', 'pure_iasa_phase', 'net_num_board', 'pure_num_board', ...
+    'asm_python_norm', 'asm_iasa_norm', 'asm_pure_iasa_norm', ...
+    'python_result', 'iasa_result', 'pure_iasa_result', 'x', 'y', '-v7.3');
+write_phase_validation_summary(fullfile(out_dir, 'summary.txt'), results, out_dir);
+fid_json = fopen(fullfile(out_dir, 'summary.json'), 'w');
+if fid_json > 0
+    fwrite(fid_json, jsonencode(results));
+    fclose(fid_json);
+end
 
 %% 6. Summary
 fprintf('\n==================================================\n');
@@ -349,6 +374,28 @@ end
 
 holo_phase = mod(net_num_board * phase_step, 2 * pi);
 holo_phase(~circle_mask_board) = 0;
+end
+
+function write_phase_validation_summary(summary_path, results, out_dir)
+fid = fopen(summary_path, 'w');
+if fid < 0
+    return;
+end
+fprintf(fid, 'Theoretical phase focus validation summary\n');
+fprintf(fid, 'Outputs: %s\n\n', out_dir);
+fprintf(fid, 'ASM Python PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
+    results.asm_python.pcc, results.asm_python.ssim, results.asm_python.nmse, results.asm_python.ee * 100);
+fprintf(fid, 'ASM Python+IASA PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
+    results.asm_python_iasa.pcc, results.asm_python_iasa.ssim, results.asm_python_iasa.nmse, results.asm_python_iasa.ee * 100);
+fprintf(fid, 'ASM Pure IASA PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
+    results.asm_pure_iasa.pcc, results.asm_pure_iasa.ssim, results.asm_pure_iasa.nmse, results.asm_pure_iasa.ee * 100);
+fprintf(fid, 'k-Wave Python PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
+    results.kwave_python.pcc, results.kwave_python.ssim, results.kwave_python.nmse, results.kwave_python.ee * 100);
+fprintf(fid, 'k-Wave Python+IASA PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
+    results.kwave_python_iasa.pcc, results.kwave_python_iasa.ssim, results.kwave_python_iasa.nmse, results.kwave_python_iasa.ee * 100);
+fprintf(fid, 'k-Wave Pure IASA PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
+    results.kwave_pure_iasa.pcc, results.kwave_pure_iasa.ssim, results.kwave_pure_iasa.nmse, results.kwave_pure_iasa.ee * 100);
+fclose(fid);
 end
 
 function result = run_direct_phase_validation(phase_map, source_mask, target_img, ...

@@ -5,6 +5,7 @@
 - Latest source: `src_latest/`
 - Source branch: `codex/phase-board-modulation-diagnosis`
 - Main exploratory entry: `src_latest/IASAdebug0420.m`
+- Runtime outputs: `outputs/`
 
 ## Included Files
 
@@ -12,6 +13,16 @@
 - `compute_asm_focus_field.m`
 - `project_phase_to_board.m`
 - `error_diffuse_quantize_layers.m`
+
+## Output Contract
+
+Running `src_latest/IASAdebug0420.m` writes `outputs/` with:
+
+- `summary.txt` and `summary.json` for ASM/k-Wave scalar metrics;
+- `phase_focus_validation_results.mat` for target, phase maps, layer maps,
+  ASM fields and direct-phase k-Wave results;
+- `phase_validation_overview.png` and
+  `phase_validation_centerline_metrics.png`.
 
 ## Current Status
 
@@ -39,4 +50,3 @@ The previously observed `16.00 / 18.79 mm` gap should be handled as a real focus
 ## Decision
 
 Keep this as a diagnostic work stream. It should not be merged into cure-model logic.
-

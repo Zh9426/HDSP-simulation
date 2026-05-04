@@ -4,6 +4,7 @@
 
 - Latest source: `src_latest/`
 - Source branch: `codex/phase-board-modulation-diagnosis`
+- Runtime outputs: `outputs/modulation_law_dataset/`
 
 ## Included Files
 
@@ -20,6 +21,17 @@
 `src_latest/` contains the MATLAB helpers needed by the sweep script, so the
 surrogate work directory can be copied or run independently from the root
 workspace.
+
+## Output Contract
+
+Running `src_latest/modulation_law_dataset_sweep.m` writes
+`outputs/modulation_law_dataset/` by default with:
+
+- `summary.txt`, `summary.json`, `modulation_dataset_summary.csv` and
+  `modulation_dataset_summary.mat`;
+- one case directory per sweep case containing `case_metrics.mat`, surrogate
+  samples and field-validation packages;
+- `modulation_sweep_overview.png` for case-level trends.
 
 ## Current Status
 

@@ -15,6 +15,7 @@ modulation_law_dataset/case_001_same_bias-0.79_layer-1_dither/case_metrics.json
 # HDSP local experiment data and model outputs
 modulation_law_dataset/
 phase_board_exit_repair_outputs/
+codex_managed_reports/**/outputs/
 *_outputs/
 *model_outputs*/
 *.mat

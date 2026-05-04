@@ -4,6 +4,8 @@
 
 - Latest source: `src_latest/`
 - Source branch: `codex/phase-board-modulation-diagnosis`
+- Primary entry: `src_latest/phase_board_exit_repair_validation.m`
+- Runtime outputs: `outputs/`
 
 ## Included Files
 
@@ -22,6 +24,16 @@
 
 `src_latest/` is intended to run without depending on `02_cure_prediction_module`
 or the repository root being on the MATLAB path.
+
+## Output Contract
+
+Running `src_latest/phase_board_exit_repair_validation.m` writes `outputs/` with:
+
+- `summary.txt` and `summary.json` for exit-repair scalar diagnostics;
+- `phase_board_exit_repair_results.mat` for thickness, layer map, exit complex
+  field, repaired fields, local-exit diagnostics, focal field and cure result;
+- `phase_board_exit_repair_overview.png`, `local_exit_diagnostic.png` and
+  `exit_phase_probe_scan.png`.
 
 ## Current Status
 

@@ -72,11 +72,86 @@ end
 
 summary_table = struct2table(summary_rows);
 save(fullfile(cfg.output_dir, 'modulation_dataset_summary.mat'), 'summary_table', 'cfg', 'case_table');
+write_modulation_sweep_outputs(cfg.output_dir, summary_table, cfg);
 fprintf('\nDataset sweep complete. Summary: %s\n', fullfile(cfg.output_dir, 'modulation_dataset_summary.csv'));
 
 try
     reset(gpuDevice);
 catch
+end
+
+function write_modulation_sweep_outputs(output_dir, summary_table, cfg)
+if isempty(summary_table)
+    return;
+end
+
+summary_txt = fullfile(output_dir, 'summary.txt');
+fid = fopen(summary_txt, 'w');
+if fid > 0
+    fprintf(fid, 'Modulation-law dataset sweep summary\n');
+    fprintf(fid, 'Output directory: %s\n', output_dir);
+    fprintf(fid, 'Study mode: %s\n', cfg.study_mode);
+    fprintf(fid, 'Cases: %d\n', height(summary_table));
+    if ismember('asm_pcc', summary_table.Properties.VariableNames)
+        fprintf(fid, 'ASM PCC mean/min/max: %.4f / %.4f / %.4f\n', ...
+            mean(summary_table.asm_pcc, 'omitnan'), min(summary_table.asm_pcc, [], 'omitnan'), ...
+            max(summary_table.asm_pcc, [], 'omitnan'));
+    end
+    if ismember('exit_amp_cv', summary_table.Properties.VariableNames)
+        fprintf(fid, 'Exit amp CV mean/min/max: %.4f / %.4f / %.4f\n', ...
+            mean(summary_table.exit_amp_cv, 'omitnan'), min(summary_table.exit_amp_cv, [], 'omitnan'), ...
+            max(summary_table.exit_amp_cv, [], 'omitnan'));
+    end
+    if ismember('multi_factor_r2', summary_table.Properties.VariableNames)
+        fprintf(fid, 'Exit amp linear R2 mean/min/max: %.4f / %.4f / %.4f\n', ...
+            mean(summary_table.multi_factor_r2, 'omitnan'), min(summary_table.multi_factor_r2, [], 'omitnan'), ...
+            max(summary_table.multi_factor_r2, [], 'omitnan'));
+    end
+    fclose(fid);
+end
+
+summary_json = fullfile(output_dir, 'summary.json');
+summary_struct = struct();
+summary_struct.study_mode = cfg.study_mode;
+summary_struct.num_cases = height(summary_table);
+summary_struct.output_dir = output_dir;
+if ismember('asm_pcc', summary_table.Properties.VariableNames)
+    summary_struct.asm_pcc_mean = mean(summary_table.asm_pcc, 'omitnan');
+end
+if ismember('exit_amp_cv', summary_table.Properties.VariableNames)
+    summary_struct.exit_amp_cv_mean = mean(summary_table.exit_amp_cv, 'omitnan');
+end
+if ismember('multi_factor_r2', summary_table.Properties.VariableNames)
+    summary_struct.multi_factor_r2_mean = mean(summary_table.multi_factor_r2, 'omitnan');
+end
+fid_json = fopen(summary_json, 'w');
+if fid_json > 0
+    fwrite(fid_json, jsonencode(summary_struct));
+    fclose(fid_json);
+end
+
+fig = figure('Color', 'w', 'Position', [80, 80, 1400, 480], 'Visible', 'off');
+tiledlayout(1, 3, 'Padding', 'compact', 'TileSpacing', 'compact');
+plot_summary_metric(summary_table, 'asm_pcc', 'ASM PCC');
+plot_summary_metric(summary_table, 'exit_amp_cv', 'Exit amp CV');
+plot_summary_metric(summary_table, 'multi_factor_r2', 'Exit amp linear R2');
+exportgraphics(fig, fullfile(output_dir, 'modulation_sweep_overview.png'), 'Resolution', 250);
+close(fig);
+end
+
+function plot_summary_metric(summary_table, metric_name, metric_title)
+nexttile;
+if ismember(metric_name, summary_table.Properties.VariableNames)
+    values = summary_table.(metric_name);
+    plot(1:numel(values), values, 'o-', 'LineWidth', 1.2);
+    grid on;
+    xlabel('case index');
+    ylabel(metric_title);
+else
+    axis off;
+    text(0.05, 0.5, sprintf('%s not exported', metric_title), 'FontSize', 11);
+end
+title(metric_title);
 end
 
 function cfg = default_modulation_sweep_config()
@@ -107,7 +182,9 @@ cfg.pad_factor = 2;
 cfg.pml_size = 10;
 cfg.cfl = 0.3;
 cfg.transport_dir = getenv_default('HDSP_TRANSPORT_DIR', 'C:\Users\Zh89\Desktop\transport');
-cfg.output_dir = getenv_default('HDSP_MODULATION_OUTPUT_DIR', fullfile(pwd, 'modulation_law_dataset'));
+script_dir = fileparts(mfilename('fullpath'));
+work_dir = fileparts(script_dir);
+cfg.output_dir = getenv_default('HDSP_MODULATION_OUTPUT_DIR', fullfile(work_dir, 'outputs', 'modulation_law_dataset'));
 cfg.resume = strcmpi(getenv_default('HDSP_MODULATION_RESUME', '1'), '1');
 cfg.max_cases = str2double(getenv_default('HDSP_MODULATION_MAX_CASES', '0'));
 cfg.export_exit_surrogate = strcmpi(getenv_default('HDSP_MODULATION_EXPORT_SURROGATE', '1'), '1');

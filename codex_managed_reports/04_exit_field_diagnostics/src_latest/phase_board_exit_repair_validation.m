@@ -229,7 +229,8 @@ else
 end
 
 %% 6. Export artifacts and report
-out_dir = fullfile(fileparts(mfilename('fullpath')), 'phase_board_exit_repair_outputs');
+work_dir = fileparts(fileparts(mfilename('fullpath')));
+out_dir = fullfile(work_dir, 'outputs');
 if ~exist(out_dir, 'dir')
     mkdir(out_dir);
 end
@@ -258,6 +259,28 @@ save(fullfile(out_dir, 'phase_board_exit_repair_results.mat'), ...
     'p_exit_complex', 'theory_exit', 'theory_exit_same', 'theory_exit_opposite', ...
     'exit_phase_scan', 'local_exit_diagnostic', 'p_focal', 'p_focal_norm', ...
     'target_norm', 'target_mask', 'cure_result', 'x', 'y', '-v7.3');
+
+summary_scalars = struct();
+summary_scalars.design_asm_pcc = asm_iasa_metrics.pcc;
+summary_scalars.actual_exit_asm_pcc = actual_exit_asm_metrics.pcc;
+summary_scalars.repaired_exit_asm_same_pcc = theory_exit_same_asm_metrics.pcc;
+summary_scalars.repaired_exit_asm_selected_pcc = theory_exit_asm_metrics.pcc;
+summary_scalars.repaired_exit_phase_sign = char(selected_repaired_phase_sign);
+summary_scalars.exit_amp_cv = exit_amp_cv;
+summary_scalars.exit_amp_min_ratio = exit_amp_min_ratio;
+summary_scalars.best_repaired_signed_pcc = exit_phase_scan.best_repaired.summary.repaired_signed_best_pcc;
+summary_scalars.best_repaired_signed_z_mm = exit_phase_scan.best_repaired.summary.repaired_signed_best_z_mm;
+summary_scalars.local_raw_signed_pcc = local_exit_diagnostic.metrics.raw.summary.repaired_signed_best_pcc;
+summary_scalars.local_comp_plus_signed_pcc = local_exit_diagnostic.metrics.comp_plus.summary.repaired_signed_best_pcc;
+summary_scalars.local_comp_minus_signed_pcc = local_exit_diagnostic.metrics.comp_minus.summary.repaired_signed_best_pcc;
+summary_scalars.cure_iou = cure_result.metrics.IoU;
+summary_scalars.cure_dice = cure_result.metrics.Dice;
+write_exit_repair_summary(fullfile(out_dir, 'summary.txt'), summary_scalars, out_dir);
+fid_json = fopen(fullfile(out_dir, 'summary.json'), 'w');
+if fid_json > 0
+    fwrite(fid_json, jsonencode(summary_scalars));
+    fclose(fid_json);
+end
 
 fig = figure('Color', 'w', 'Position', [60, 60, 1600, 920]);
 tiledlayout(3, 4, 'Padding', 'compact', 'TileSpacing', 'compact');
@@ -1022,4 +1045,26 @@ cure_result.metrics = struct( ...
     'under_cure_ratio', NaN, ...
     'cured_coverage', NaN, ...
     'cured_mask', empty_map);
+end
+
+function write_exit_repair_summary(summary_path, s, out_dir)
+fid = fopen(summary_path, 'w');
+if fid < 0
+    return;
+end
+fprintf(fid, 'Exit-field diagnostics summary\n');
+fprintf(fid, 'Outputs: %s\n\n', out_dir);
+fprintf(fid, 'Design ASM PCC: %.4f\n', s.design_asm_pcc);
+fprintf(fid, 'Actual exit ASM PCC: %.4f\n', s.actual_exit_asm_pcc);
+fprintf(fid, 'Repaired same ASM PCC: %.4f\n', s.repaired_exit_asm_same_pcc);
+fprintf(fid, 'Repaired selected ASM PCC: %.4f (%s)\n', ...
+    s.repaired_exit_asm_selected_pcc, s.repaired_exit_phase_sign);
+fprintf(fid, 'Exit amp CV/min-max: %.4f / %.4f\n', s.exit_amp_cv, s.exit_amp_min_ratio);
+fprintf(fid, 'Best signed repaired PCC/z: %.4f / %.2f mm\n', ...
+    s.best_repaired_signed_pcc, s.best_repaired_signed_z_mm);
+fprintf(fid, 'Local raw signed PCC: %.4f\n', s.local_raw_signed_pcc);
+fprintf(fid, 'Local comp +kdz signed PCC: %.4f\n', s.local_comp_plus_signed_pcc);
+fprintf(fid, 'Local comp -kdz signed PCC: %.4f\n', s.local_comp_minus_signed_pcc);
+fprintf(fid, 'Cure IoU/Dice: %.4f / %.4f\n', s.cure_iou, s.cure_dice);
+fclose(fid);
 end

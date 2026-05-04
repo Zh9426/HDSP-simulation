@@ -5,6 +5,7 @@
 - Stable source: `src_stable/`
 - Source branch: `codex_managed`
 - Primary entry: `src_stable/HDSPdebug.m`
+- Runtime outputs: `outputs/`
 
 ## Included Files
 
@@ -26,6 +27,16 @@
 `src_stable/` is intended to be runnable as a standalone mainline snapshot.
 It duplicates the cure and export helpers used by `HDSPdebug.m` instead of
 requiring sibling report directories to be added to the MATLAB path.
+
+## Output Contract
+
+Running `src_stable/HDSPdebug.m` writes `outputs/` with:
+
+- `summary.txt` and `summary.json` for printed scalar results;
+- `mainline_full_pipeline_results.mat` for target, thickness, exit complex
+  field, focal pressure, cure score, cured mask, z-scan records and selected
+  scan record;
+- `figure_*.png` snapshots of the generated MATLAB figures.
 
 ## Current Status
 

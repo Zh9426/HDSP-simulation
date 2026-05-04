@@ -5,8 +5,9 @@ This directory is organized as one folder per work stream. Each work folder cont
 - `report.md` - latest written status, conclusions, and next decision.
 - `src_stable/` - stable source snapshot used by the current `codex_managed` branch, when available.
 - `src_latest/` - latest exploratory source snapshot from the relevant research branch, when different from the stable version.
+- `outputs/` - runtime-generated summaries, figures, and matrix data produced by the work stream's primary entry script.
 
-Generated data, MAT files, figures, checkpoints, and local output directories are intentionally excluded.
+Generated data, MAT files, figures, checkpoints, and local output directories remain intentionally excluded from git.
 
 ## Work Streams
 
@@ -17,4 +18,3 @@ Generated data, MAT files, figures, checkpoints, and local output directories ar
 | `03_theoretical_phase_focus_validation/` | Theoretical phase and focal-plane validation. |
 | `04_exit_field_diagnostics/` | Phase-board exit complex field diagnosis and repair validation. |
 | `05_modulation_law_surrogate/` | Modulation-law dataset and surrogate model exploration. |
-
