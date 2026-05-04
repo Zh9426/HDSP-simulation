@@ -13,6 +13,15 @@
 - `make_idealized_exit_field.m`
 - `validate_exit_complex_gpu.py`
 - `compute_asm_focus_field.m`
+- `project_phase_to_board.m`
+- `error_diffuse_quantize_layers.m`
+- `compute_cavitation_activity_map.m`
+- `compute_cavitation_cure_score.m`
+- `compute_cavitation_dose_rate.m`
+- `evaluate_cure_prediction.m`
+
+`src_latest/` is intended to run without depending on `02_cure_prediction_module`
+or the repository root being on the MATLAB path.
 
 ## Current Status
 
@@ -32,4 +41,3 @@ The exit field cannot be treated as pure phase-only modulation. Sample-point val
 ## Decision
 
 Keep this work stream exploratory. Promote scripts into the main branch only after the diagnostic workflow is stable and can be rerun without manual interpretation.
-

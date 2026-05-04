@@ -15,6 +15,11 @@
 - `validate_exit_complex_gpu.py`
 - `project_phase_to_board.m`
 - `error_diffuse_quantize_layers.m`
+- `compute_asm_focus_field.m`
+
+`src_latest/` contains the MATLAB helpers needed by the sweep script, so the
+surrogate work directory can be copied or run independently from the root
+workspace.
 
 ## Current Status
 
@@ -49,4 +54,3 @@ Pause model scaling. Before further training, run physics and data diagnostics:
 2. gradient/edge amplitude baseline;
 3. per-case distribution shift analysis;
 4. target-definition review: ratio field vs absolute exit field vs correction map.
-
