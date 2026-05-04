@@ -221,7 +221,8 @@ for p_idx = 1:numel(pressure_scan)
 end
 
 %% 6. Visualization and export
-out_dir = fullfile(fileparts(mfilename('fullpath')), 'IASAdebug0420_cure_outputs');
+work_dir = fileparts(fileparts(mfilename('fullpath')));
+out_dir = fullfile(work_dir, 'outputs');
 if ~exist(out_dir, 'dir')
     mkdir(out_dir);
 end
@@ -286,6 +287,55 @@ save(fullfile(out_dir, 'python_iasa_cure_validation.mat'), ...
     'phase_step', 'phase_bias_python_iasa', 'iasa_result', 'asm_iasa_metrics', ...
     'kwave_iasa_metrics', 'scan_records', 'best', 'cavitation_model', ...
     'cure_model', 'dx', 'dy', 'dz', 'f0', 'z_target_dist', '-v7.3');
+
+summary = struct();
+summary.asm_pcc = asm_iasa_metrics.pcc;
+summary.asm_ssim = asm_iasa_metrics.ssim;
+summary.asm_nmse = asm_iasa_metrics.nmse;
+summary.asm_ee = asm_iasa_metrics.ee;
+summary.kwave_pcc = kwave_iasa_metrics.pcc;
+summary.kwave_ssim = kwave_iasa_metrics.ssim;
+summary.kwave_nmse = kwave_iasa_metrics.nmse;
+summary.kwave_ee = kwave_iasa_metrics.ee;
+summary.best_roi_median_pressure_mpa = best.target_median_pressure / 1e6;
+summary.best_exposure_time_s = best.exposure_time;
+summary.cure_threshold = cure_model.threshold;
+summary.cavitation_dose_peak = max(best.cavitation_dose(:));
+summary.cavitation_dose_roi_mean = mean(best.cavitation_dose(target_mask));
+summary.quality_risk_roi_mean = mean(best.cure_components.quality_risk(target_mask));
+summary.quality_risk_peak = max(best.cure_components.quality_risk(:));
+summary.cured_coverage = best.metrics.cured_coverage;
+summary.over_cure_ratio = best.metrics.over_cure_ratio;
+summary.under_cure_ratio = best.metrics.under_cure_ratio;
+summary.iou = best.metrics.IoU;
+summary.dice = best.metrics.Dice;
+
+fid = fopen(fullfile(out_dir, 'summary.txt'), 'w');
+if fid > 0
+    fprintf(fid, 'IASA0420 cure validation summary\n');
+    fprintf(fid, 'Outputs: %s\n\n', out_dir);
+    fprintf(fid, 'ASM PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
+        summary.asm_pcc, summary.asm_ssim, summary.asm_nmse, summary.asm_ee * 100);
+    fprintf(fid, 'k-Wave PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
+        summary.kwave_pcc, summary.kwave_ssim, summary.kwave_nmse, summary.kwave_ee * 100);
+    fprintf(fid, 'Best ROI median pressure: %.2f MPa\n', summary.best_roi_median_pressure_mpa);
+    fprintf(fid, 'Best exposure: %.2f s\n', summary.best_exposure_time_s);
+    fprintf(fid, 'Cure threshold: %.2f\n', summary.cure_threshold);
+    fprintf(fid, 'Cavitation dose peak/ROI mean: %.4f / %.4f\n', ...
+        summary.cavitation_dose_peak, summary.cavitation_dose_roi_mean);
+    fprintf(fid, 'Quality risk ROI/peak: %.4f / %.4f\n', ...
+        summary.quality_risk_roi_mean, summary.quality_risk_peak);
+    fprintf(fid, 'Coverage/Over/Under: %.1f%% / %.1f%% / %.1f%%\n', ...
+        summary.cured_coverage * 100, summary.over_cure_ratio * 100, summary.under_cure_ratio * 100);
+    fprintf(fid, 'IoU/Dice: %.4f / %.4f\n', summary.iou, summary.dice);
+    fclose(fid);
+end
+
+fid_json = fopen(fullfile(out_dir, 'summary.json'), 'w');
+if fid_json > 0
+    fwrite(fid_json, jsonencode(summary));
+    fclose(fid_json);
+end
 
 %% 7. Summary
 fprintf('\n==================================================\n');
