@@ -1,18 +1,20 @@
-# Codex Managed Work Reports
+# Codex Managed Work Archive
 
-This directory is the branch-level reporting hub for HDSP simulation work. It keeps code-facing research status separate from generated data, model checkpoints, and figures.
+This directory is organized as one folder per work stream. Each work folder contains:
 
-## Directory Map
+- `report.md` - latest written status, conclusions, and next decision.
+- `src_stable/` - stable source snapshot used by the current `codex_managed` branch, when available.
+- `src_latest/` - latest exploratory source snapshot from the relevant research branch, when different from the stable version.
 
-- `00_status/` - latest integrated status and report cadence.
-- `01_mainline/` - current `HDSPdebug.m` main pipeline notes.
-- `02_cure_prediction/` - cavitation-led cure prediction module status.
-- `03_focus_validation/` - theoretical phase and focal-plane validation notes.
-- `04_exit_field_analysis/` - phase-board exit-field diagnostics and repair attempts.
-- `05_modulation_law/` - modulation-law dataset and surrogate-model exploration.
-- `99_templates/` - recurring report templates.
+Generated data, MAT files, figures, checkpoints, and local output directories are intentionally excluded.
 
-## Current Rule
+## Work Streams
 
-Commit source code and status notes only. Keep local simulation outputs, MAT files, model checkpoints, and figures ignored by `.gitignore`.
+| Directory | Purpose |
+|---|---|
+| `01_mainline_full_pipeline/` | Current HDSP mainline script and stable runnable pipeline. |
+| `02_cure_prediction_module/` | Cavitation-led cure prediction and threshold selection. |
+| `03_theoretical_phase_focus_validation/` | Theoretical phase and focal-plane validation. |
+| `04_exit_field_diagnostics/` | Phase-board exit complex field diagnosis and repair validation. |
+| `05_modulation_law_surrogate/` | Modulation-law dataset and surrogate model exploration. |
 
