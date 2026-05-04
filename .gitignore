@@ -9,3 +9,13 @@ tmp_surrogate_outputs_v2/
 tmp_surrogate_smoke/
 translation_source.pdf
 untitled_preview.png
+*.png
+modulation_law_dataset/case_001_same_bias-0.79_layer-1_dither/case_metrics.json
+
+# HDSP local experiment data and model outputs
+modulation_law_dataset/
+phase_board_exit_repair_outputs/
+*_outputs/
+*model_outputs*/
+*.mat
+*.pt
