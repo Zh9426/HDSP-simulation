@@ -7,7 +7,8 @@ This directory is organized as one folder per work stream. Each work folder cont
 - `src_latest/` - latest exploratory source snapshot from the relevant research branch, when different from the stable version.
 - `outputs/` - runtime-generated summaries, figures, and matrix data produced by the work stream's primary entry script.
 
-Generated data, MAT files, figures, checkpoints, and local output directories remain intentionally excluded from git.
+`codex_managed_reports/*/outputs/` is allowed in git and is the only endorsed place for committed runtime artifacts.
+Root-level experiment outputs, temporary datasets, checkpoints, and other ad hoc local output directories remain excluded.
 
 ## Work Streams
 
