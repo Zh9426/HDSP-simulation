@@ -9,3 +9,7 @@ tmp_surrogate_outputs_v2/
 tmp_surrogate_smoke/
 translation_source.pdf
 untitled_preview.png
+codex_managed_reports/**/outputs/
+IASAdebug0420_cure_outputs/
+modulation_law_dataset/
+phase_board_exit_repair_outputs/
