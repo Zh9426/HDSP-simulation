@@ -20,6 +20,8 @@ phase_board_exit_repair_outputs/
 *.mat
 *.pt
 
-# Keep tracked outputs under codex-managed work archives.
-!codex_managed_reports/**/outputs/
-!codex_managed_reports/**/outputs/**
+# Ignore local codex report helper metadata.
+codex_managed_reports/.claude/
+
+# Ignore large output artifacts under managed reports.
+codex_managed_reports/**/outputs/

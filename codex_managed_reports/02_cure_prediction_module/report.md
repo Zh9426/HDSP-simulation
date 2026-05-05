@@ -14,6 +14,7 @@
 - `compute_cavitation_activity_map.m`
 - `compute_cavitation_cure_score.m`
 - `compute_cavitation_dose_rate.m`
+- `compute_cure_feedback_terms.m`
 - `compute_thermal_aux_from_pressure_map.m`
 - `compute_thermal_aux_increment.m`
 - `default_cure_model_params.m`
@@ -22,8 +23,11 @@
 - `build_hdsp_validation_target.m`
 - `build_pressure_validation_cases.m`
 - `run_cure_model_sanity_suite.m`
+- `run_cure_prediction_demo.m`
+- `select_cure_threshold.m`
 - `select_cure_visualization_cases.m`
 - `simulate_cure_from_pressure_map.m`
+- `tests/`
 
 ## Output Contract
 
@@ -52,6 +56,13 @@ target -> Python+IASA phase -> direct-phase k-Wave field -> pressure scan/exposu
 This module is not an abstract demo. The current stable validation path on this
 branch is `IASAdebug0420_cure_validation.m`, and the report archive should
 mirror that exact workflow.
+
+## Archive Gap
+
+The current committed outputs contain the overview figure and MAT payload, but
+do not include `summary.txt` or `summary.json`. The figure reports a stronger
+direct-phase validation result than the mainline flow, but those metrics should
+be exported as machine-readable files before they are used as thesis evidence.
 
 ## Decision
 

@@ -10,6 +10,11 @@ This directory is organized as one folder per work stream. Each work folder cont
 `codex_managed_reports/*/outputs/` is allowed in git and is the only endorsed place for committed runtime artifacts.
 Root-level experiment outputs, temporary datasets, checkpoints, and other ad hoc local output directories remain excluded.
 
+## Project-Level Audit
+
+- `task_alignment_research_audit.md` - Chinese research audit aligned to the task book, current archived outputs, and HDSP/DSP literature. It summarizes what has been achieved, what is still below the task-book requirements, and which optimization path should be prioritized next.
+- `.claude/` worktrees are local tool scratch space and are intentionally excluded from git.
+
 ## Work Streams
 
 | Directory | Purpose |

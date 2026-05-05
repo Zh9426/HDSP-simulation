@@ -58,6 +58,14 @@ full-field context matters;
 amplitude and phase should not be forced into a naive joint target.
 ```
 
+## Archive Gap
+
+This directory currently contains source snapshots and written conclusions, but
+no committed `outputs/` payload. Treat the model findings above as historical
+analysis until a reproducible sweep is rerun and `summary.txt`, `summary.json`,
+`modulation_dataset_summary.csv`, and case-level validation artifacts are
+committed under `outputs/modulation_law_dataset/`.
+
 ## Decision
 
 Pause model scaling. Before further training, run physics and data diagnostics:
