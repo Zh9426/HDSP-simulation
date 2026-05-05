@@ -38,7 +38,7 @@ exit_probe_offsets_voxels = [0, 2, 4, 8, 12, 16, 24, 32];
 exit_phase_amp_threshold_ratio = 0.10;
 asm_focus_scan_step_voxels = 2;
 % Set true here when you want the second full k-Wave propagation run.
-run_repaired_full_simulation = true;
+run_repaired_full_simulation = false;
 env_run_full = getenv('RUN_REPAIRED_FULL_KWAVE');
 if ~isempty(env_run_full)
     run_repaired_full_simulation = strcmpi(env_run_full, '1');
