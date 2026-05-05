@@ -13,9 +13,11 @@ function result = HDSP_sonoink_fullflow_validation(varargin)
 %   result = HDSP_sonoink_fullflow_validation('dry_run', true);
 
 opts = parse_options(varargin{:});
-repo_root = fileparts(fileparts(mfilename('fullpath')));
+script_dir = fileparts(mfilename('fullpath'));
+repo_root = fileparts(script_dir);
+addpath(script_dir);
 addpath(repo_root);
-if exist(opts.external_hdsp_path, 'dir')
+if ~isempty(opts.external_hdsp_path) && exist(opts.external_hdsp_path, 'dir')
     addpath(opts.external_hdsp_path);
 end
 
@@ -187,7 +189,7 @@ parser = inputParser;
 parser.addParameter('dry_run', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('transport_dir', 'C:\Users\Zh89\Desktop\transport', @ischar);
 parser.addParameter('output_dir', '', @ischar);
-parser.addParameter('external_hdsp_path', 'F:\MATLAB\code\HDSP\HDSP\HDSP0420', @ischar);
+parser.addParameter('external_hdsp_path', '', @ischar);
 parser.addParameter('pressure_scan', (0.6:0.1:2.6) * 1e6, @isnumeric);
 parser.addParameter('exposure_scan', 0.10:0.05:1.20, @isnumeric);
 parser.parse(varargin{:});
@@ -660,4 +662,3 @@ end
 fprintf('Figures and data saved to: %s\n', out_dir);
 fprintf('==================================================\n');
 end
-
