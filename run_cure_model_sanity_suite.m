@@ -28,11 +28,14 @@ fprintf('monotonic_exposure | %.3f -> %.3f s | coverage %.1f%% -> %.1f%% | mean 
     short_run.metrics.cured_coverage * 100, long_run.metrics.cured_coverage * 100, ...
     mean(short_run.cure_score(target)), mean(long_run.cure_score(target)));
 
+system_report = run_cure_system_profile_suite();
+
 report = struct();
 report.records = records;
 report.simulations = simulations;
 report.short_exposure = short_run;
 report.long_exposure = long_run;
+report.system_report = system_report;
 end
 
 function p_amp = pressure_case(target, target_pressure, background_pressure)
