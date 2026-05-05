@@ -25,7 +25,10 @@ verifyEqual(testCase, params.cure_temp_C, 67.0, 'AbsTol', 1e-12);
 verifyEqual(testCase, params.arrhenius_Ea_J_mol, 171e3, 'AbsTol', 1e-9);
 verifyEqual(testCase, params.gel_time_ref_s, 1.9, 'AbsTol', 1e-12);
 verifyEqual(testCase, params.gel_time_ref_temp_C, 80.0, 'AbsTol', 1e-12);
-verifyGreaterThan(testCase, params.absorption_gain_high, params.absorption_gain_low);
+verifyEqual(testCase, params.thermal_pressure_min, 35e6, 'AbsTol', 1e-6);
+verifyEqual(testCase, params.thermal_pressure_max, 55e6, 'AbsTol', 1e-6);
+verifyEqual(testCase, params.sonothermal_rate_low_C_s, 4.8, 'AbsTol', 1e-12);
+verifyEqual(testCase, params.sonothermal_rate_high_C_s, 11.3, 'AbsTol', 1e-12);
 end
 
 function testUnknownSystemFailsClearly(testCase)

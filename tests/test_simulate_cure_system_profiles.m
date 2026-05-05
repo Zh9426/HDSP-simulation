@@ -30,18 +30,30 @@ end
 function testSonoinkSelfEnhancementRaisesGelDose(testCase)
 target = squareTarget();
 dx = 1.0e-4;
-water = build_cure_system_profile('water_arrhenius', dx);
 sonoink = build_cure_system_profile('sonoink_self_enhancing', dx);
-p_amp = pressureCase(target, 2.10e6, 1.20e6);
+p_amp = pressureCase(target, 55e6, 5e6);
 
-water_result = simulate_cure_from_pressure_map(p_amp, 0.60, water, target);
-sono_result = simulate_cure_from_pressure_map(p_amp, 0.60, sonoink, target);
+short_result = simulate_cure_from_pressure_map(p_amp, 0.50, sonoink, target);
+long_result = simulate_cure_from_pressure_map(p_amp, 5.00, sonoink, target);
 
-verifyEqual(testCase, sono_result.model_name, 'sonoink_self_enhancing');
-verifyGreaterThan(testCase, mean(sono_result.cure_score(target)), ...
-    mean(water_result.cure_score(target)));
-verifyGreaterThan(testCase, max(sono_result.temperature_C(:)), ...
-    max(water_result.temperature_C(:)));
+verifyEqual(testCase, long_result.model_name, 'sonoink_self_enhancing');
+verifyGreaterThan(testCase, mean(long_result.cure_score(target)), ...
+    mean(short_result.cure_score(target)));
+verifyGreaterThan(testCase, max(long_result.temperature_C(:)), ...
+    max(short_result.temperature_C(:)));
+verifyGreaterThanOrEqual(testCase, max(long_result.temperature_C(:)), ...
+    sonoink.cure_temp_C);
+end
+
+function testSonoinkDoesNotCureAtPdmsPressureScale(testCase)
+target = squareTarget();
+sonoink = build_cure_system_profile('sonoink_self_enhancing', 1.0e-4);
+p_amp = pressureCase(target, 2.50e6, 1.20e6);
+
+result = simulate_cure_from_pressure_map(p_amp, 0.60, sonoink, target);
+
+verifyLessThan(testCase, max(result.temperature_C(:)), 30.0);
+verifyEqual(testCase, nnz(result.cured_mask), 0);
 end
 
 function target = squareTarget()

@@ -18,6 +18,7 @@ Default workflow:
 - Run Python-initialized IASA.
 - Build the phase board and propagate through board + water-rich sonoink medium.
 - Apply the `sonoink_self_enhancing` cure system profile to the simulated focal pressure.
+- Use the Kuang 2023 pressure / exposure scale by default: 35-55 MPa peak-pressure scan and 0.5-5.0 s exposure scan.
 - Export `outputs/sonoink_fullflow_overview.png` and `outputs/sonoink_fullflow_validation.mat`.
 
 External requirements:
