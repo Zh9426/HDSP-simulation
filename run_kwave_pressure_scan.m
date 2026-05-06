@@ -44,7 +44,7 @@ sensor.record_start_index = max(1, kgrid.Nt - round(4 / cfg.f0 / kgrid.dt));
 input_args = {'PMLInside', true, 'PMLSize', pml_size, 'PlotPML', false, ...
     'PlotSim', false, 'DataCast', 'gpuArray-single'};
 using_gpu = true;
-reset_kwave_gpu(label, 'before k-Wave');
+reset_kwave_gpu(label, 'before k-Wave', cfg.gpu_cooldown_seconds);
 try
     sensor_data = kspaceFirstOrder3D(kgrid, medium, source, sensor, input_args{:});
 catch gpu_error
@@ -57,7 +57,7 @@ end
 p_raw = gather(sensor_data.p);
 clear sensor_data;
 if using_gpu
-    reset_kwave_gpu(label, 'after k-Wave gather');
+    reset_kwave_gpu(label, 'after k-Wave gather', 0);
 end
 t_record = kgrid.t_array(sensor.record_start_index:kgrid.Nt);
 demod_ref = exp(-1i * 2 * pi * cfg.f0 * reshape(t_record, [], 1));
@@ -112,10 +112,14 @@ if isempty(Nz)
 end
 end
 
-function reset_kwave_gpu(label, stage)
+function reset_kwave_gpu(label, stage, cooldown_seconds)
 try
     reset(gpuDevice);
     fprintf('[%s] GPU reset %s.\n', label, stage);
+    if cooldown_seconds > 0
+        fprintf('[%s] Waiting %.1f s after GPU reset.\n', label, cooldown_seconds);
+        pause(cooldown_seconds);
+    end
 catch reset_error
     fprintf('[%s] GPU reset skipped %s: %s\n', label, stage, reset_error.message);
 end

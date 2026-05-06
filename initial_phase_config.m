@@ -20,6 +20,7 @@ cfg.rng_seed = 9426;
 cfg.source_radius = 32e-3;
 cfg.source_pressure_pa = 1.0e5;
 cfg.focus_scan_offsets_m = (-1.0e-3:0.5e-3:1.0e-3);
+cfg.gpu_cooldown_seconds = 30;
 
 cfg.a_height = 20e-3;
 cfg.a_base_width = 15e-3;
