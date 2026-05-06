@@ -21,7 +21,8 @@ export_pann_transport_input(cfg, target);
 wait_for_python_phase_output(cfg);
 
 python_data = load(cfg.python_output_mat, 'optimal_initial_phase', 'optimal_phase_bias', ...
-    'optimal_layer_map', 'target_dose_design', 'line_target_mask', 'halo_target_mask');
+    'optimal_layer_map', 'target_dose_design', 'line_target_mask', 'halo_target_mask', ...
+    'python_loss_history', 'python_metrics', 'python_asm_amp_norm');
 phase_python = wrap_phase(python_data.optimal_initial_phase);
 phase_python(~target.source_mask) = 0;
 
@@ -42,6 +43,12 @@ phase_cases(1).phase = phase_python;
 phase_cases(1).asm_amp = python_focus.amp;
 phase_cases(1).asm_amp_norm = python_focus.amp_norm;
 phase_cases(1).history = [];
+if isfield(python_data, 'python_loss_history')
+    phase_cases(1).history = python_data.python_loss_history;
+end
+if isfield(python_data, 'python_metrics')
+    phase_cases(1).optimizer_metrics = python_data.python_metrics;
+end
 
 phase_cases(2).label = 'Python + IASA';
 phase_cases(2).phase = python_iasa.phase;
@@ -58,6 +65,8 @@ phase_cases(3).history = pure_iasa.history;
 for idx = 1:numel(phase_cases)
     phase_cases(idx).asm_metrics = calculate_pressure_metrics( ...
         phase_cases(idx).asm_amp, target.amp, target.mask, target.x, target.y);
+    phase_cases(idx).phase_metrics = calculate_phase_metrics( ...
+        phase_cases(idx).phase, target.source_mask, target.amp, phase_cases(idx).asm_amp, phase_cases(idx).label);
 end
 
 for idx = 1:numel(phase_cases)

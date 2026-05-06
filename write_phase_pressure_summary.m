@@ -24,8 +24,21 @@ for idx = 1:numel(results.phase_cases)
     fprintf(fid, 'target_uniformity_cv: %.6f\n', m.target_uniformity_cv);
     fprintf(fid, 'focus_contrast: %.6f\n', m.focus_contrast);
     fprintf(fid, 'energy_efficiency: %.6f\n', m.energy_efficiency);
+    fprintf(fid, 'target_energy_uniformity_score: %.6f\n', m.target_energy_uniformity_score);
+    fprintf(fid, 'dark_energy_leakage: %.6f\n', m.dark_energy_leakage);
+    fprintf(fid, 'peak_sidelobe_ratio: %.6f\n', m.peak_sidelobe_ratio);
+    fprintf(fid, 'target_pressure_coverage_50: %.6f\n', m.target_pressure_coverage_50);
+    fprintf(fid, 'target_pressure_coverage_70: %.6f\n', m.target_pressure_coverage_70);
     fprintf(fid, 'pcc: %.6f\n', m.pcc);
     fprintf(fid, 'nmse: %.6f\n\n', m.nmse);
+
+    pm = case_now.phase_metrics;
+    fprintf(fid, 'phase_circular_variance: %.6f\n', pm.phase_circular_variance);
+    fprintf(fid, 'phase_gradient_mean_rad: %.6f\n', pm.phase_gradient_mean_rad);
+    fprintf(fid, 'phase_gradient_p90_rad: %.6f\n', pm.phase_gradient_p90_rad);
+    fprintf(fid, 'phase_wrap_fraction: %.6f\n', pm.phase_wrap_fraction);
+    fprintf(fid, 'asm_target_pcc: %.6f\n', pm.asm_target_pcc);
+    fprintf(fid, 'asm_nmse: %.6f\n\n', pm.asm_nmse);
 
     summary.cases(idx).label = case_now.label;
     summary.cases(idx).best_z_offset_mm = case_now.kwave.best_z_offset_m * 1e3;
@@ -34,8 +47,22 @@ for idx = 1:numel(results.phase_cases)
     summary.cases(idx).target_uniformity_cv = m.target_uniformity_cv;
     summary.cases(idx).focus_contrast = m.focus_contrast;
     summary.cases(idx).energy_efficiency = m.energy_efficiency;
+    summary.cases(idx).target_energy_uniformity_score = m.target_energy_uniformity_score;
+    summary.cases(idx).dark_energy_leakage = m.dark_energy_leakage;
+    summary.cases(idx).peak_sidelobe_ratio = m.peak_sidelobe_ratio;
+    summary.cases(idx).target_pressure_coverage_50 = m.target_pressure_coverage_50;
+    summary.cases(idx).target_pressure_coverage_70 = m.target_pressure_coverage_70;
     summary.cases(idx).pcc = m.pcc;
     summary.cases(idx).nmse = m.nmse;
+    summary.cases(idx).phase_circular_variance = pm.phase_circular_variance;
+    summary.cases(idx).phase_gradient_mean_rad = pm.phase_gradient_mean_rad;
+    summary.cases(idx).phase_gradient_p90_rad = pm.phase_gradient_p90_rad;
+    summary.cases(idx).phase_wrap_fraction = pm.phase_wrap_fraction;
+    summary.cases(idx).asm_target_pcc = pm.asm_target_pcc;
+    summary.cases(idx).asm_nmse = pm.asm_nmse;
+    if isfield(case_now, 'optimizer_metrics')
+        summary.cases(idx).optimizer_metrics = case_now.optimizer_metrics;
+    end
 end
 fclose(fid);
 

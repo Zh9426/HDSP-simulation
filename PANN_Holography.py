@@ -1,6 +1,7 @@
 
 import math
 import os
+import json
 
 import numpy as np
 import scipy.io as sio
@@ -84,6 +85,9 @@ def error_diffusion_quantize_layers(layer_continuous, mask, min_base_layers, max
 transport_dir = r"C:\Users\Zh89\Desktop\transport"
 input_file = os.path.join(transport_dir, "target_for_python.mat")
 output_file = os.path.join(transport_dir, "dl_phase_init.mat")
+repo_dir = os.path.dirname(os.path.abspath(__file__))
+branch_output_dir = os.path.join(repo_dir, "initial_phase_outputs")
+os.makedirs(branch_output_dir, exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("\n[INFO] PANN-Thermal-Holo start: quantization-aware + dose-aware + jittered init")
@@ -175,6 +179,7 @@ epochs = 5000
 
 best_loss = float("inf")
 best_state = None
+history = []
 
 for epoch in range(epochs):
     optimizer.zero_grad()
@@ -215,6 +220,30 @@ for epoch in range(epochs):
         + 0.15 * loss_layer_margin
     )
 
+    with torch.no_grad():
+        target_mean = torch.mean(pred_amp[target_binary > 0.5]) if torch.any(target_binary > 0.5) else torch.tensor(0.0, device=device)
+        target_std = torch.std(pred_amp[target_binary > 0.5]) if torch.sum(target_binary > 0.5) > 1 else torch.tensor(0.0, device=device)
+        target_cv = target_std / (target_mean + 1e-8)
+        far_dark_mean = torch.mean(pred_amp[far_dark_mask > 0.5]) if torch.any(far_dark_mask > 0.5) else torch.tensor(0.0, device=device)
+        target_dark_contrast = target_mean / (far_dark_mean + 1e-8)
+        phase_margin = torch.mean(torch.abs(layer_continuous - torch.round(layer_continuous)))
+        history.append(
+            [
+                epoch + 1,
+                float(total_loss.detach().cpu()),
+                float((1.0 - loss_dose_corr).detach().cpu()),
+                float(current_ee.detach().cpu()),
+                float(loss_dose_wmse.detach().cpu()),
+                float(loss_uniformity.detach().cpu()),
+                float(loss_halo.detach().cpu()),
+                float(loss_dark.detach().cpu()),
+                float(raw_mismatch.detach().cpu()),
+                float(phase_margin.detach().cpu()),
+                float(target_cv.detach().cpu()),
+                float(target_dark_contrast.detach().cpu()),
+            ]
+        )
+
     total_loss.backward()
     optimizer.step()
     scheduler.step()
@@ -247,6 +276,29 @@ dithered_layers = error_diffusion_quantize_layers(layer_continuous, mask_np, min
 dithered_phase = np.mod(dithered_layers * phase_step, TWO_PI).astype(np.float32)
 dithered_phase *= mask_np.astype(np.float32)
 
+history_np = np.array(history, dtype=np.float32)
+best_source_field = torch.exp(1j * torch.tensor(dithered_phase, dtype=torch.float32, device=device)) * source_mask
+best_target_field = propagate_asm(best_source_field)
+best_amp = torch.abs(best_target_field)
+best_amp_norm = normalize_map(best_amp)
+best_energy = normalize_map(best_amp**2)
+best_target_vals = best_amp_norm[target_binary > 0.5]
+best_dark_vals = best_amp_norm[far_dark_mask > 0.5]
+best_metrics = {
+    "best_loss": float(best_loss),
+    "final_epoch": int(epochs),
+    "device": str(device),
+    "dose_corr": float(1.0 - pearson_correlation_loss(normalize_map(gaussian_blur2d(best_energy, thermal_sigma_px)), target_dose).detach().cpu()),
+    "energy_efficiency": float((torch.sum(best_energy * target_binary) / (torch.sum(best_energy) + 1e-8)).detach().cpu()),
+    "target_uniformity_cv": float((torch.std(best_target_vals) / (torch.mean(best_target_vals) + 1e-8)).detach().cpu()) if best_target_vals.numel() > 1 else 0.0,
+    "dark_mean_norm": float(torch.mean(best_dark_vals).detach().cpu()) if best_dark_vals.numel() > 1 else 0.0,
+    "phase_bias_rad": float(phase_bias_final.item()),
+    "phase_step_rad": float(phase_step),
+    "layer_min": int(np.min(dithered_layers[mask_np > 0.5])),
+    "layer_max": int(np.max(dithered_layers[mask_np > 0.5])),
+    "layer_std": float(np.std(dithered_layers[mask_np > 0.5])),
+}
+
 sio.savemat(
     output_file,
     {
@@ -257,7 +309,62 @@ sio.savemat(
         "target_dose_design": target_dose.detach().cpu().numpy().astype(np.float32),
         "line_target_mask": target_binary.detach().cpu().numpy().astype(np.float32),
         "halo_target_mask": halo_mask.detach().cpu().numpy().astype(np.float32),
+        "python_loss_history": history_np,
+        "python_metrics": best_metrics,
+        "python_asm_amp_norm": best_amp_norm.detach().cpu().numpy().astype(np.float32),
     },
 )
 
+sio.savemat(
+    os.path.join(branch_output_dir, "pann_phase_output_snapshot.mat"),
+    {
+        "optimal_initial_phase": dithered_phase,
+        "optimal_phase_bias": np.array([[phase_bias_final.item()]], dtype=np.float32),
+        "optimal_layer_map": dithered_layers.astype(np.float32),
+        "python_loss_history": history_np,
+        "python_metrics": best_metrics,
+        "python_asm_amp_norm": best_amp_norm.detach().cpu().numpy().astype(np.float32),
+    },
+)
+
+np.savetxt(
+    os.path.join(branch_output_dir, "pann_training_history.csv"),
+    history_np,
+    delimiter=",",
+    header="epoch,total_loss,dose_corr,energy_efficiency,dose_wmse,uniformity_loss,halo_loss,dark_loss,raw_mismatch,phase_margin,target_cv,target_dark_contrast",
+    comments="",
+)
+
+with open(os.path.join(branch_output_dir, "pann_training_summary.json"), "w", encoding="utf-8") as f:
+    json.dump(best_metrics, f, indent=2)
+
+try:
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(2, 2, figsize=(11, 8), constrained_layout=True)
+    axes[0, 0].plot(history_np[:, 0], history_np[:, 1])
+    axes[0, 0].set_title("Total loss")
+    axes[0, 0].set_xlabel("Epoch")
+    axes[0, 0].grid(True, alpha=0.3)
+    axes[0, 1].plot(history_np[:, 0], history_np[:, 2], label="Dose corr")
+    axes[0, 1].plot(history_np[:, 0], history_np[:, 3], label="Energy efficiency")
+    axes[0, 1].set_title("Field quality proxies")
+    axes[0, 1].set_xlabel("Epoch")
+    axes[0, 1].legend()
+    axes[0, 1].grid(True, alpha=0.3)
+    axes[1, 0].plot(history_np[:, 0], history_np[:, 10], label="Target CV")
+    axes[1, 0].plot(history_np[:, 0], history_np[:, 11], label="Target/dark contrast")
+    axes[1, 0].set_title("Uniformity and contrast")
+    axes[1, 0].set_xlabel("Epoch")
+    axes[1, 0].legend()
+    axes[1, 0].grid(True, alpha=0.3)
+    axes[1, 1].imshow(best_amp_norm.detach().cpu().numpy(), cmap="hot")
+    axes[1, 1].set_title("Best ASM amplitude")
+    axes[1, 1].axis("off")
+    fig.savefig(os.path.join(branch_output_dir, "pann_training_metrics.png"), dpi=220)
+    plt.close(fig)
+except Exception as plot_error:
+    print(f"[WARN] Could not write PANN metric figure: {plot_error}")
+
 print(f"\n[OK] Phase initialization written to: {output_file}")
+print(f"[OK] Branch metrics written to: {branch_output_dir}")

@@ -31,6 +31,11 @@ Runtime outputs are written to `initial_phase_outputs/`. This directory is ignor
 
 - `initial_phase_pressure_results.mat`
 - `initial_phase_pressure_overview.png`
+- `initial_phase_pressure_metrics.png`
+- `pann_phase_output_snapshot.mat`
+- `pann_training_history.csv`
+- `pann_training_summary.json`
+- `pann_training_metrics.png`
 - `summary.txt`
 - `summary.json`
 
@@ -40,3 +45,5 @@ The Python transport files are outside the repo:
 - `C:\Users\Zh89\Desktop\transport\dl_phase_init.mat`
 
 Do not commit generated data or figures from this branch.
+
+When asking Codex to evaluate a run, point it at `initial_phase_outputs/`. The analysis should combine these output files with the current git diff/log to decide the next phase-optimizer iteration.
