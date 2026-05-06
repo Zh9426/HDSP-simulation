@@ -19,6 +19,10 @@ phase_board_exit_repair_outputs/
 *model_outputs*/
 *.mat
 *.pt
+initial_phase_outputs/
+initial_phase_outputs/**
+summary.json
+summary.txt
 
 # Keep tracked outputs under codex-managed work archives.
 !codex_managed_reports/**/outputs/
