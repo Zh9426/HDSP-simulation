@@ -21,7 +21,12 @@ phase_board_exit_repair_outputs/
 *.pt
 
 # Ignore local codex report helper metadata.
-codex_managed_reports/.claude/
+codexreport/.claude/
 
-# Ignore large output artifacts under managed reports.
-codex_managed_reports/**/outputs/
+# Ignore generated artifacts under report and module directories.
+codexreport/**/outputs/
+codex_modules/**/outputs/
+codex_modules/**/output/
+codex_modules/**/runs/
+codex_modules/**/checkpoints/
+codex_modules/**/modulation_law_dataset/

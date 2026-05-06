@@ -2,11 +2,11 @@
 
 ## Source Snapshot
 
-- Stable source: `src_stable/`
+- Stable source: `../../codex_modules/05_cure_prediction/v1_direct_phase_cavitation/`
 - Source branch: `codex/cure-analysis`
-- Primary entry: `src_stable/IASAdebug0420_cure_validation.m`
-- Auxiliary entry: `src_stable/run_cure_model_sanity_suite.m`
-- Runtime outputs: `outputs/`
+- Primary entry: `../../codex_modules/05_cure_prediction/v1_direct_phase_cavitation/IASAdebug0420_cure_validation.m`
+- Auxiliary entry: `../../codex_modules/05_cure_prediction/v1_direct_phase_cavitation/run_cure_model_sanity_suite.m`
+- Runtime outputs: generated locally and intentionally excluded from git
 
 ## Included Files
 
@@ -31,7 +31,7 @@
 
 ## Output Contract
 
-Running `src_stable/IASAdebug0420_cure_validation.m` writes `outputs/` with:
+Running the module entry script writes local outputs with:
 
 - `python_iasa_cure_validation_overview.png`
 - `python_iasa_cure_validation.mat`
@@ -59,7 +59,7 @@ mirror that exact workflow.
 
 ## Archive Gap
 
-The current committed outputs contain the overview figure and MAT payload, but
+The historical local outputs contained the overview figure and MAT payload, but
 do not include `summary.txt` or `summary.json`. The figure reports a stronger
 direct-phase validation result than the mainline flow, but those metrics should
 be exported as machine-readable files before they are used as thesis evidence.

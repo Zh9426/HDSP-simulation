@@ -2,10 +2,10 @@
 
 ## Source Snapshot
 
-- Latest source: `src_latest/`
+- Latest source: `../../codex_modules/07_exit_field_diagnostics/v1_phase_board_repair/`
 - Source branch: `codex/phase-board-modulation-diagnosis`
-- Primary entry: `src_latest/phase_board_exit_repair_validation.m`
-- Runtime outputs: `outputs/`
+- Primary entry: `../../codex_modules/07_exit_field_diagnostics/v1_phase_board_repair/phase_board_exit_repair_validation.m`
+- Runtime outputs: generated locally and intentionally excluded from git
 
 ## Included Files
 
@@ -22,12 +22,12 @@
 - `compute_cavitation_dose_rate.m`
 - `evaluate_cure_prediction.m`
 
-`src_latest/` is intended to run without depending on `02_cure_prediction_module`
+The module directory is intended to run without depending on `02_cure_prediction_module`
 or the repository root being on the MATLAB path.
 
 ## Output Contract
 
-Running `src_latest/phase_board_exit_repair_validation.m` writes `outputs/` with:
+Running the module entry script writes local outputs with:
 
 - `summary.txt` and `summary.json` for exit-repair scalar diagnostics;
 - `phase_board_exit_repair_results.mat` for thickness, layer map, exit complex

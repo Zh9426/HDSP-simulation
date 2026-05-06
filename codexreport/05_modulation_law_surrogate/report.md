@@ -2,9 +2,9 @@
 
 ## Source Snapshot
 
-- Latest source: `src_latest/`
+- Latest source: `../../codex_modules/08_modulation_surrogate/v1_dataset_and_models/`
 - Source branch: `codex/phase-board-modulation-diagnosis`
-- Runtime outputs: `outputs/modulation_law_dataset/`
+- Runtime outputs: generated locally and intentionally excluded from git
 
 ## Included Files
 
@@ -18,14 +18,13 @@
 - `error_diffuse_quantize_layers.m`
 - `compute_asm_focus_field.m`
 
-`src_latest/` contains the MATLAB helpers needed by the sweep script, so the
+The module directory contains the MATLAB helpers needed by the sweep script, so the
 surrogate work directory can be copied or run independently from the root
 workspace.
 
 ## Output Contract
 
-Running `src_latest/modulation_law_dataset_sweep.m` writes
-`outputs/modulation_law_dataset/` by default with:
+Running the module entry script writes local dataset outputs by default with:
 
 - `summary.txt`, `summary.json`, `modulation_dataset_summary.csv` and
   `modulation_dataset_summary.mat`;
@@ -61,10 +60,10 @@ amplitude and phase should not be forced into a naive joint target.
 ## Archive Gap
 
 This directory currently contains source snapshots and written conclusions, but
-no committed `outputs/` payload. Treat the model findings above as historical
+no committed output payload. Treat the model findings above as historical
 analysis until a reproducible sweep is rerun and `summary.txt`, `summary.json`,
 `modulation_dataset_summary.csv`, and case-level validation artifacts are
-committed under `outputs/modulation_law_dataset/`.
+regenerated locally before use as evidence.
 
 ## Decision
 

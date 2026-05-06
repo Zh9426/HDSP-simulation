@@ -2,10 +2,10 @@
 
 ## Source Snapshot
 
-- Latest source: `src_latest/`
+- Latest source: `../../codex_modules/02_phase_retrieval/v1_theoretical_iasa_focus/`
 - Source branch: `codex/phase-board-modulation-diagnosis`
-- Main exploratory entry: `src_latest/IASAdebug0420.m`
-- Runtime outputs: `outputs/`
+- Main exploratory entry: `../../codex_modules/02_phase_retrieval/v1_theoretical_iasa_focus/IASAdebug0420.m`
+- Runtime outputs: generated locally and intentionally excluded from git
 
 ## Included Files
 
@@ -16,7 +16,7 @@
 
 ## Output Contract
 
-Running `src_latest/IASAdebug0420.m` writes `outputs/` with:
+Running the module entry script writes local outputs with:
 
 - `summary.txt` and `summary.json` for ASM/k-Wave scalar metrics;
 - `phase_focus_validation_results.mat` for target, phase maps, layer maps,

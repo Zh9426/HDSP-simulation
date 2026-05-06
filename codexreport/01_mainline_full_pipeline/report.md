@@ -2,10 +2,11 @@
 
 ## Source Snapshot
 
-- Stable source: `src_stable/`
+- Stable source: `../../codex_modules/04_kwave_modeling/v1_mainline_report_snapshot/`
+- Current root snapshot: `../../codex_modules/04_kwave_modeling/v2_mainline_current_root/`
 - Source branch: `codex_managed`
-- Primary entry: `src_stable/HDSPdebug.m`
-- Runtime outputs: `outputs/`
+- Primary entry: `../../codex_modules/04_kwave_modeling/v1_mainline_report_snapshot/HDSPdebug.m`
+- Runtime outputs: generated locally and intentionally excluded from git
 
 ## Included Files
 
@@ -24,13 +25,13 @@
 - `project_phase_to_board.m`
 - `select_cure_threshold.m`
 
-`src_stable/` is intended to be runnable as a standalone mainline snapshot.
+The module directory is intended to be runnable as a standalone mainline snapshot.
 It duplicates the cure and export helpers used by `HDSPdebug.m` instead of
 requiring sibling report directories to be added to the MATLAB path.
 
 ## Output Contract
 
-Running `src_stable/HDSPdebug.m` writes `outputs/` with:
+Running the module entry script writes local outputs with:
 
 - `summary.txt` and `summary.json` for printed scalar results;
 - `mainline_full_pipeline_results.mat` for target, thickness, exit complex
