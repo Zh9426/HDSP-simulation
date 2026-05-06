@@ -2,10 +2,10 @@
 
 ## Source Snapshot
 
-- Stable source: `../../codex_modules/05_cure_prediction/v1_direct_phase_cavitation/`
+- Stable source: `../../codex_modules/05_cure_prediction/cavitation/V1_direct_phase_threshold/`
 - Source branch: `codex/cure-analysis`
-- Primary entry: `../../codex_modules/05_cure_prediction/v1_direct_phase_cavitation/IASAdebug0420_cure_validation.m`
-- Auxiliary entry: `../../codex_modules/05_cure_prediction/v1_direct_phase_cavitation/run_cure_model_sanity_suite.m`
+- Primary entry: `../../codex_modules/05_cure_prediction/cavitation/V1_direct_phase_threshold/IASAdebug0420_cure_validation.m`
+- Auxiliary entry: `../../codex_modules/05_cure_prediction/cavitation/V1_direct_phase_threshold/run_cure_model_sanity_suite.m`
 - Runtime outputs: generated locally and intentionally excluded from git
 
 ## Included Files

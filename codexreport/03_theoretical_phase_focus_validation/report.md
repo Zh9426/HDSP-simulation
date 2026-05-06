@@ -2,9 +2,9 @@
 
 ## Source Snapshot
 
-- Latest source: `../../codex_modules/02_phase_retrieval/v1_theoretical_iasa_focus/`
+- Latest source: `../../codex_modules/02_initial_phase/IASA_python_1_focus_check/`
 - Source branch: `codex/phase-board-modulation-diagnosis`
-- Main exploratory entry: `../../codex_modules/02_phase_retrieval/v1_theoretical_iasa_focus/IASAdebug0420.m`
+- Main exploratory entry: `../../codex_modules/02_initial_phase/IASA_python_1_focus_check/IASAdebug0420.m`
 - Runtime outputs: generated locally and intentionally excluded from git
 
 ## Included Files

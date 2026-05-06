@@ -2,9 +2,9 @@
 
 ## Source Snapshot
 
-- Latest source: `../../codex_modules/07_exit_field_diagnostics/v1_phase_board_repair/`
+- Latest source: `../../codex_modules/07_exit_field_diagnosis/exit_complex_repair/V1_phase_board_repair/`
 - Source branch: `codex/phase-board-modulation-diagnosis`
-- Primary entry: `../../codex_modules/07_exit_field_diagnostics/v1_phase_board_repair/phase_board_exit_repair_validation.m`
+- Primary entry: `../../codex_modules/07_exit_field_diagnosis/exit_complex_repair/V1_phase_board_repair/phase_board_exit_repair_validation.m`
 - Runtime outputs: generated locally and intentionally excluded from git
 
 ## Included Files

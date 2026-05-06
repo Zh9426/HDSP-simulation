@@ -2,7 +2,7 @@
 
 ## Source Snapshot
 
-- Latest source: `../../codex_modules/08_modulation_surrogate/v1_dataset_and_models/`
+- Latest source: `../../codex_modules/08_surrogate_model/exit_field_UNet/V1_dataset_and_train/`
 - Source branch: `codex/phase-board-modulation-diagnosis`
 - Runtime outputs: generated locally and intentionally excluded from git
 

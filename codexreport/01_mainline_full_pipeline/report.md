@@ -2,10 +2,10 @@
 
 ## Source Snapshot
 
-- Stable source: `../../codex_modules/04_kwave_modeling/v1_mainline_report_snapshot/`
-- Current root snapshot: `../../codex_modules/04_kwave_modeling/v2_mainline_current_root/`
+- Stable source: `../../codex_modules/04_kwave_simulation/KWAVE_full_pipeline_report_snapshot/`
+- Current root snapshot: `../../codex_modules/04_kwave_simulation/KWAVE_full_pipeline_current/`
 - Source branch: `codex_managed`
-- Primary entry: `../../codex_modules/04_kwave_modeling/v1_mainline_report_snapshot/HDSPdebug.m`
+- Primary entry: `../../codex_modules/04_kwave_simulation/KWAVE_full_pipeline_report_snapshot/HDSPdebug.m`
 - Runtime outputs: generated locally and intentionally excluded from git
 
 ## Included Files

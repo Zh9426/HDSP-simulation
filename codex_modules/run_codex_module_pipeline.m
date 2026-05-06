@@ -3,11 +3,11 @@ function run_codex_module_pipeline(profile_name)
 %
 % Examples:
 %   run_codex_module_pipeline list
-%   run_codex_module_pipeline mainline_v2_current_root
-%   run_codex_module_pipeline phase_focus_v1_theoretical_iasa
+%   run_codex_module_pipeline KWAVE_full_pipeline_current
+%   run_codex_module_pipeline IASA_python_1_focus_check
 
 if nargin < 1 || isempty(profile_name)
-    profile_name = 'mainline_v2_current_root';
+    profile_name = 'KWAVE_full_pipeline_current';
 end
 if isstring(profile_name)
     profile_name = char(profile_name);
