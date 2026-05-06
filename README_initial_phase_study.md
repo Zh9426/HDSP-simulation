@@ -1,10 +1,10 @@
 # Initial Phase Study Branch
 
-This branch is scoped to initial-phase calculation only. It compares three phase sources:
+This branch is scoped to initial-phase calculation only. It now keeps only the pure Python phase path:
 
-1. Pure Python continuous phase optimization.
-2. Python initialization refined by continuous-phase IASA.
-3. Pure IASA initialized from a random source phase.
+1. PANN generates the initial phase through the established transport-file workflow.
+2. MATLAB validates that phase with ASM and k-Wave pressure-field metrics.
+3. IASA refinement is disabled because the measured run showed that Python+IASA reduced the Python-designed energy utilization, uniformity, and sidelobe behavior.
 
 The workflow stops at pressure-field analysis. It does not run curing, cavitation, thermal dose, thickness-board construction, or surrogate training.
 
@@ -20,10 +20,10 @@ The MATLAB entry script writes `C:\Users\Zh89\Desktop\transport\target_for_pytho
 
 The workflow uses:
 
-- `PANN_Holography.py` for the pure Python initial phase. This keeps the established transport-file workflow.
-- `run_iasa_phase_optimizer.m` for continuous IASA refinement.
+- `PANN_Holography.py` for the pure Python initial phase. This keeps the established transport-file workflow and optimizes pressure-energy quality directly.
 - `run_kwave_pressure_scan.m` for homogeneous-water k-Wave pressure propagation.
 - `calculate_pressure_metrics.m` for pressure-centered metrics.
+- `calculate_phase_metrics.m` for phase-computation metrics.
 
 ## Outputs
 

@@ -10,7 +10,7 @@ if ~exist(cfg.transport_dir, 'dir')
 end
 
 fprintf('==================================================\n');
-fprintf('Initial phase study: Python vs Python+IASA vs Pure IASA\n');
+fprintf('Initial phase study: Pure Python phase optimization\n');
 fprintf('No curing module. k-Wave evaluates pressure amplitude only.\n');
 fprintf('Grid: %d x %d | dx %.4f mm | target z %.2f mm\n', ...
     cfg.Nx, cfg.Ny, cfg.dx * 1e3, cfg.z_target_dist * 1e3);
@@ -21,21 +21,12 @@ export_pann_transport_input(cfg, target);
 wait_for_python_phase_output(cfg);
 
 python_data = load(cfg.python_output_mat, 'optimal_initial_phase', 'optimal_phase_bias', ...
-    'optimal_layer_map', 'target_dose_design', 'line_target_mask', 'halo_target_mask', ...
-    'python_loss_history', 'python_metrics', 'python_asm_amp_norm');
+    'optimal_layer_map', 'python_loss_history', 'python_metrics', 'python_asm_amp_norm');
 phase_python = wrap_phase(python_data.optimal_initial_phase);
 phase_python(~target.source_mask) = 0;
 
 propagator = make_asm_propagator(cfg);
 python_focus = compute_asm_focus_field(phase_python, target.source_mask, propagator);
-
-python_iasa = run_iasa_phase_optimizer( ...
-    phase_python, target.amp, target.source_mask, propagator, cfg, 'Python + IASA');
-
-pure_iasa_seed = zeros(cfg.Nx, cfg.Ny);
-pure_iasa_seed(target.source_mask) = 2 * pi * rand(nnz(target.source_mask), 1);
-pure_iasa = run_iasa_phase_optimizer( ...
-    pure_iasa_seed, target.amp, target.source_mask, propagator, cfg, 'Pure IASA');
 
 phase_cases = struct([]);
 phase_cases(1).label = 'Pure Python';
@@ -49,18 +40,6 @@ end
 if isfield(python_data, 'python_metrics')
     phase_cases(1).optimizer_metrics = python_data.python_metrics;
 end
-
-phase_cases(2).label = 'Python + IASA';
-phase_cases(2).phase = python_iasa.phase;
-phase_cases(2).asm_amp = python_iasa.asm_amp;
-phase_cases(2).asm_amp_norm = python_iasa.asm_amp_norm;
-phase_cases(2).history = python_iasa.history;
-
-phase_cases(3).label = 'Pure IASA';
-phase_cases(3).phase = pure_iasa.phase;
-phase_cases(3).asm_amp = pure_iasa.asm_amp;
-phase_cases(3).asm_amp_norm = pure_iasa.asm_amp_norm;
-phase_cases(3).history = pure_iasa.history;
 
 for idx = 1:numel(phase_cases)
     phase_cases(idx).asm_metrics = calculate_pressure_metrics( ...
