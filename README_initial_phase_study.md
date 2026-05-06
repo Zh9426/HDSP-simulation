@@ -16,7 +16,9 @@ Run in MATLAB:
 run_initial_phase_study
 ```
 
-The MATLAB entry script calls:
+The MATLAB entry script writes `initial_phase_outputs/python_phase_input.mat`, prints the Python command, and pauses. Run the printed Python command manually in PowerShell, then return to MATLAB and press any key to continue.
+
+The workflow uses:
 
 - `python_initial_phase_optimizer.py` for the pure Python initial phase.
 - `run_iasa_phase_optimizer.m` for continuous IASA refinement.

@@ -15,7 +15,7 @@ fprintf('==================================================\n');
 
 target = build_a_phase_target(cfg);
 save(cfg.python_input_mat, 'target', 'cfg', '-v7');
-run_python_phase_optimizer(cfg);
+wait_for_python_phase_output(cfg);
 
 python_data = load(cfg.python_output_mat, 'phase_python', 'python_loss_history', 'python_asm_amp');
 phase_python = wrap_phase(python_data.phase_python);
@@ -81,17 +81,17 @@ end
 fprintf('Outputs written under ignored directory: %s\n', cfg.output_dir);
 fprintf('==================================================\n');
 
-function run_python_phase_optimizer(cfg)
+function wait_for_python_phase_output(cfg)
 command = sprintf('"%s" "%s" --input "%s" --output "%s" --epochs %d --lr %.8g', ...
     cfg.python_executable, cfg.python_script, cfg.python_input_mat, ...
     cfg.python_output_mat, cfg.python_epochs, cfg.python_learning_rate);
-fprintf('\nRunning Python optimizer:\n%s\n', command);
-[status, output] = system(command);
-fprintf('%s\n', output);
-if status ~= 0
-    error('Python phase optimizer failed with status %d.', status);
-end
+fprintf('\n==================================================\n');
+fprintf('Python optimizer input written to:\n%s\n\n', cfg.python_input_mat);
+fprintf('Run this command manually in PowerShell, then return to MATLAB and press any key:\n%s\n', command);
+fprintf('Expected Python output:\n%s\n', cfg.python_output_mat);
+fprintf('==================================================\n\n');
+pause;
 if ~exist(cfg.python_output_mat, 'file')
-    error('Python optimizer did not create expected output: %s', cfg.python_output_mat);
+    error('Python optimizer output not found: %s', cfg.python_output_mat);
 end
 end
