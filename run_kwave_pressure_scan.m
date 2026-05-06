@@ -61,7 +61,7 @@ phase_volume = zeros(cfg.Nx, cfg.Ny, Nz);
 amp_volume(sensor.mask) = abs(p_complex_vec);
 phase_volume(sensor.mask) = angle(p_complex_vec);
 
-plane_metrics = struct([]);
+plane_metrics = [];
 best_idx = 1;
 best_peak = -inf;
 for idx = 1:numel(target_plane_indices)
@@ -70,7 +70,12 @@ for idx = 1:numel(target_plane_indices)
     metrics_now = calculate_pressure_metrics(amp_now, target.amp, target.mask, target.x, target.y);
     metrics_now.z_offset_m = cfg.focus_scan_offsets_m(idx);
     metrics_now.z_distance_m = scan_distances(idx);
-    plane_metrics(idx) = metrics_now;
+    if idx == 1
+        plane_metrics = repmat(orderfields(metrics_now), numel(target_plane_indices), 1);
+    else
+        metrics_now = orderfields(metrics_now, plane_metrics);
+    end
+    plane_metrics(idx) = metrics_now; %#ok<AGROW> Template is allocated from the first metric struct.
     if metrics_now.peak_target_pressure_pa > best_peak
         best_peak = metrics_now.peak_target_pressure_pa;
         best_idx = idx;
