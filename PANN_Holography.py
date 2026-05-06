@@ -175,6 +175,7 @@ scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=2500, eta_min=
 epochs = 5000
 
 best_loss = float("inf")
+best_quality_score = -float("inf")
 best_state = None
 history = []
 
@@ -205,27 +206,48 @@ for epoch in range(epochs):
         else torch.tensor(0.0, device=device)
     )
 
+    target_mean_amp = torch.mean(inside_amp_vals) if inside_amp_vals.numel() > 4 else torch.tensor(0.0, device=device)
+    target_floor = 0.55 * target_mean_amp
+    loss_target_floor = (
+        torch.mean(torch.relu(target_floor - inside_amp_vals) ** 2) / (target_mean_amp**2 + 1e-8)
+        if inside_amp_vals.numel() > 4
+        else torch.tensor(0.0, device=device)
+    )
+
     halo_vals = pred_energy[halo_mask > 0.5]
     loss_halo = torch.mean(halo_vals) if halo_vals.numel() > 4 else torch.tensor(0.0, device=device)
-    dark_vals = pred_energy[far_dark_mask > 0.5]
-    loss_dark = torch.mean(dark_vals)
+    dark_energy_vals = pred_energy[far_dark_mask > 0.5]
+    dark_amp_vals = pred_amp_norm[far_dark_mask > 0.5]
+    loss_dark = torch.mean(dark_energy_vals)
+    dark_area_floor = 0.35 * target_mean_amp
+    loss_dark_area = (
+        torch.mean(torch.relu(dark_amp_vals - dark_area_floor) ** 2) / (target_mean_amp**2 + 1e-8)
+        if dark_amp_vals.numel() > 4
+        else torch.tensor(0.0, device=device)
+    )
 
     current_ee = torch.sum(pred_energy * target_binary) / (torch.sum(pred_energy) + 1e-8)
     loss_ee = 1.0 - current_ee
 
-    target_peak = torch.max(pred_amp_norm[target_binary > 0.5]) if torch.any(target_binary > 0.5) else torch.max(pred_amp_norm)
-    dark_peak = torch.max(pred_amp_norm[far_dark_mask > 0.5]) if torch.any(far_dark_mask > 0.5) else torch.tensor(0.0, device=device)
-    loss_sidelobe = dark_peak / (target_peak + 1e-8)
     loss_layer_margin = torch.mean((layer_continuous - torch.round(layer_continuous)) ** 2)
+    quality_score = (
+        3.0 * current_ee
+        + 1.4 * (1.0 - loss_amp_corr)
+        - 1.6 * loss_energy_uniformity
+        - 1.4 * loss_target_floor
+        - 0.9 * loss_dark_area
+        - 0.3 * loss_halo
+    )
 
     total_loss = (
-        4.0 * loss_ee
-        + 4.0 * loss_energy_uniformity
-        + 1.5 * loss_amp_uniformity
-        + 3.0 * loss_dark
-        + 2.0 * loss_sidelobe
+        5.0 * loss_ee
+        + 3.0 * loss_energy_uniformity
+        + 2.0 * loss_target_floor
+        + 1.0 * loss_amp_uniformity
+        + 2.0 * loss_dark_area
+        + 1.0 * loss_dark
         + 1.2 * loss_amp_corr
-        + 1.5 * loss_amp_wmse
+        + 1.0 * loss_amp_wmse
         + 0.8 * loss_halo
         + 0.15 * loss_layer_margin
     )
@@ -234,7 +256,10 @@ for epoch in range(epochs):
         target_mean = torch.mean(pred_amp[target_binary > 0.5]) if torch.any(target_binary > 0.5) else torch.tensor(0.0, device=device)
         target_std = torch.std(pred_amp[target_binary > 0.5]) if torch.sum(target_binary > 0.5) > 1 else torch.tensor(0.0, device=device)
         target_cv = target_std / (target_mean + 1e-8)
+        target_p10 = torch.quantile(inside_amp_vals, 0.10) if inside_amp_vals.numel() > 4 else torch.tensor(0.0, device=device)
+        target_p50 = torch.quantile(inside_amp_vals, 0.50) if inside_amp_vals.numel() > 4 else torch.tensor(0.0, device=device)
         far_dark_mean = torch.mean(pred_amp[far_dark_mask > 0.5]) if torch.any(far_dark_mask > 0.5) else torch.tensor(0.0, device=device)
+        dark_area_fraction = torch.mean((dark_amp_vals > dark_area_floor).float()) if dark_amp_vals.numel() > 4 else torch.tensor(0.0, device=device)
         target_dark_contrast = target_mean / (far_dark_mean + 1e-8)
         phase_margin = torch.mean(torch.abs(layer_continuous - torch.round(layer_continuous)))
         history.append(
@@ -247,10 +272,14 @@ for epoch in range(epochs):
                 float(loss_energy_uniformity.detach().cpu()),
                 float(loss_halo.detach().cpu()),
                 float(loss_dark.detach().cpu()),
-                float(loss_sidelobe.detach().cpu()),
+                float(loss_dark_area.detach().cpu()),
                 float(phase_margin.detach().cpu()),
                 float(target_cv.detach().cpu()),
                 float(target_dark_contrast.detach().cpu()),
+                float(loss_target_floor.detach().cpu()),
+                float((target_p10 / (target_p50 + 1e-8)).detach().cpu()),
+                float(dark_area_fraction.detach().cpu()),
+                float(quality_score.detach().cpu()),
             ]
         )
 
@@ -263,16 +292,21 @@ for epoch in range(epochs):
 
     if total_loss.item() < best_loss:
         best_loss = total_loss.item()
+
+    if quality_score.item() > best_quality_score:
+        best_quality_score = quality_score.item()
         best_state = {
             "phase_map": phase_map.detach().clone(),
             "phase_bias": phase_bias.detach().clone(),
+            "epoch": epoch + 1,
         }
 
     if (epoch + 1) % 100 == 0:
         print(
             f"Epoch [{epoch + 1}/{epochs}] | AmpCorr: {1.0 - loss_amp_corr.item():.4f} "
             f"| EE: {current_ee.item() * 100:.2f}% | EnergyUni: {loss_energy_uniformity.item():.4f} "
-            f"| Dark: {loss_dark.item():.4f} | Sidelobe: {loss_sidelobe.item():.4f} | Loss: {total_loss.item():.4f}"
+            f"| TargetFloor: {loss_target_floor.item():.4f} | DarkArea: {loss_dark_area.item():.4f} "
+            f"| Quality: {quality_score.item():.4f} | Loss: {total_loss.item():.4f}"
         )
 
 # 4. export dithered result
@@ -294,14 +328,26 @@ best_amp_norm = normalize_map(best_amp)
 best_energy = normalize_map(best_amp**2)
 best_target_vals = best_amp_norm[target_binary > 0.5]
 best_dark_vals = best_amp_norm[far_dark_mask > 0.5]
+best_target_p10 = torch.quantile(best_target_vals, 0.10) if best_target_vals.numel() > 4 else torch.tensor(0.0, device=device)
+best_target_p50 = torch.quantile(best_target_vals, 0.50) if best_target_vals.numel() > 4 else torch.tensor(0.0, device=device)
+best_dark_area_floor = 0.35 * torch.mean(best_target_vals) if best_target_vals.numel() > 4 else torch.tensor(0.0, device=device)
+best_dark_area_fraction = (
+    torch.mean((best_dark_vals > best_dark_area_floor).float())
+    if best_dark_vals.numel() > 4
+    else torch.tensor(0.0, device=device)
+)
 best_metrics = {
     "best_loss": float(best_loss),
+    "best_quality_score": float(best_quality_score),
+    "selected_epoch": int(best_state["epoch"]),
     "final_epoch": int(epochs),
     "device": str(device),
     "amplitude_corr": float(1.0 - pearson_correlation_loss(best_amp_norm, target_raw_norm).detach().cpu()),
     "energy_efficiency": float((torch.sum(best_energy * target_binary) / (torch.sum(best_energy) + 1e-8)).detach().cpu()),
     "target_uniformity_cv": float((torch.std(best_target_vals) / (torch.mean(best_target_vals) + 1e-8)).detach().cpu()) if best_target_vals.numel() > 1 else 0.0,
+    "target_p10_over_p50": float((best_target_p10 / (best_target_p50 + 1e-8)).detach().cpu()),
     "dark_mean_norm": float(torch.mean(best_dark_vals).detach().cpu()) if best_dark_vals.numel() > 1 else 0.0,
+    "dark_area_fraction": float(best_dark_area_fraction.detach().cpu()),
     "phase_bias_rad": float(phase_bias_final.item()),
     "phase_step_rad": float(phase_step),
     "layer_min": int(np.min(dithered_layers[mask_np > 0.5])),
@@ -340,7 +386,7 @@ np.savetxt(
     os.path.join(branch_output_dir, "pann_training_history.csv"),
     history_np,
     delimiter=",",
-    header="epoch,total_loss,amplitude_corr,energy_efficiency,amplitude_wmse,energy_uniformity_loss,halo_loss,dark_loss,sidelobe_loss,phase_margin,target_cv,target_dark_contrast",
+    header="epoch,total_loss,amplitude_corr,energy_efficiency,amplitude_wmse,energy_uniformity_loss,halo_loss,dark_mean_loss,dark_area_loss,phase_margin,target_cv,target_dark_contrast,target_floor_loss,target_p10_over_p50,dark_area_fraction,quality_score",
     comments="",
 )
 
@@ -362,8 +408,9 @@ try:
     axes[0, 1].legend()
     axes[0, 1].grid(True, alpha=0.3)
     axes[1, 0].plot(history_np[:, 0], history_np[:, 10], label="Target CV")
-    axes[1, 0].plot(history_np[:, 0], history_np[:, 11], label="Target/dark contrast")
-    axes[1, 0].set_title("Uniformity and contrast")
+    axes[1, 0].plot(history_np[:, 0], history_np[:, 13], label="Target P10/P50")
+    axes[1, 0].plot(history_np[:, 0], history_np[:, 14], label="Dark area fraction")
+    axes[1, 0].set_title("Cure-quality constraints")
     axes[1, 0].set_xlabel("Epoch")
     axes[1, 0].legend()
     axes[1, 0].grid(True, alpha=0.3)
