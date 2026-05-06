@@ -7,7 +7,7 @@ This index records historical code versions exported from Git history. Files are
 | Folder | Source | Meaning |
 |---|---|---|
 | `grid_scaffold_circle_current/` | current organized code | Current circular grid scaffold target. |
-| `edge_blur_target_0302/` | `1225f33` | Embedded target definition with edge blur / softening in the 0302-era main script. |
+| `A_letter_edge_blur_0302/` | `1225f33` | A-letter target definition with Gaussian edge blur / softening in the 0302-era main script. |
 
 Later target copies can be added beside these with direct names such as `A_letter`, `Kou_frame`, or `grid_scaffold_circle_2x2_pool`.
 
@@ -15,7 +15,7 @@ Later target copies can be added beside these with direct names such as `A_lette
 
 | Folder | Source | Meaning |
 |---|---|---|
-| `IASA_0211_basic/` | `4269d1c` | Early standalone IASA implementation. |
+| `IASA_0211_basic/` | `4269d1c` | Early padded IASA implementation refactored into `compute_initial_phase_IASA_0211`. |
 | `IASA_apod_unwrap_impedance_0223/` | `a67d2a5` | IASA-era script with amplitude compensation, apodization, phase unwrapping, and impedance matching toggles. |
 | `IASA_python_1_focus_check/` | current organized code | Python initial phase plus IASA refinement used for focus validation. |
 | `PANN_python_quantized_initial/` | current organized code | Current PANN/Python quantized initial phase optimizer. |
@@ -45,7 +45,7 @@ Later target copies can be added beside these with direct names such as `A_lette
 | Folder | Source | Meaning |
 |---|---|---|
 | `thermal_Arrhenius/V1_tempdebug_2MPa_024s/` | `82dd56b` | Arrhenius thermal cure snapshot with stable 2 MPa / 0.24 s setting noted in commit history. |
-| `cavitation/V0_trigger_activity_map/` | `3f84a40` | Trigger-led cavitation activity-map model. |
+| `cavitation/V0_trigger_activity_map/` | `3f84a40` | Trigger-led cavitation activity-map model, refactored to keep only `compute_cavitation_activity_map`. |
 | `cavitation/V1_direct_phase_threshold/` | current organized code | Direct-phase cavitation threshold validation module. |
 | `cavitation/V2_cloud_consistency_dose/` | `35df2a6` | Cavitation cloud consistency dose-rate model. |
 | `cavitation/V3_dose_led_score/` | `bdce8db` | Cavitation dose-led cure score model. |

@@ -17,6 +17,7 @@ Historical implementations exported from Git history are listed in `HISTORY_INDE
 | `06_result_metrics/` | Field and cure quality metrics. |
 | `07_exit_field_diagnosis/` | Exit complex-field diagnosis and repair workflows. |
 | `08_surrogate_model/` | Dataset generation and surrogate training code. |
+| `09_integration_examples/` | Small code-only examples that compose functionized modules. |
 
 ## Running Profiles
 
@@ -25,6 +26,7 @@ Use `run_codex_module_pipeline.m` as the switchboard:
 ```matlab
 run_codex_module_pipeline list
 run_codex_module_pipeline KWAVE_full_pipeline_current
+run_codex_module_pipeline A_letter_IASA_0211_smoke
 run_codex_module_pipeline IASA_python_1_focus_check
 run_codex_module_pipeline cavitation_V1_direct_phase_threshold
 run_codex_module_pipeline exit_complex_repair_V1
@@ -36,12 +38,13 @@ The current profile system loads one self-contained version directory at a time.
 ## Version Notes
 
 - `01_target_pattern/grid_scaffold_circle_current/` is the current circular grid scaffold target. Add later targets as names such as `A_letter` or `Kou_frame`.
-- `01_target_pattern/edge_blur_target_0302/` preserves an older embedded target with edge blur / softening.
-- `02_initial_phase/IASA_0211_basic/`, `PANN_python_discrete_grid_loss/`, and `GD_Holo_v5_physics_gradient/` preserve older initial-phase directions from history.
+- `01_target_pattern/A_letter_edge_blur_0302/` preserves the older A-letter target with edge blur / softening as a standalone function.
+- `02_initial_phase/IASA_0211_basic/` is the early padded IASA loop refactored into a callable initial-phase function.
+- `02_initial_phase/PANN_python_discrete_grid_loss/` and `GD_Holo_v5_physics_gradient/` preserve older initial-phase directions from history and still need function-level extraction before they are mixed with other modules.
 - `02_initial_phase/IASA_python_1_focus_check/` keeps the Python initial phase plus IASA focus-check workflow.
 - `02_initial_phase/PANN_python_quantized_initial/` keeps the Python/PANN quantized initial-phase optimizer.
 - `03_phase_board/thickness_built_*` keeps older thickness construction versions.
 - `04_kwave_simulation/KWAVE_full_pipeline_current/` is the current full k-Wave workflow moved out of the repository root.
-- `05_cure_prediction/cavitation/V0_trigger_activity_map/`, `V1_direct_phase_threshold/`, `V2_cloud_consistency_dose/`, and `V3_dose_led_score/` keep the tracked cavitation-model evolution.
+- `05_cure_prediction/cavitation/V0_trigger_activity_map/` now keeps only the cavitation activity-map function; `V1_direct_phase_threshold/`, `V2_cloud_consistency_dose/`, and `V3_dose_led_score/` keep the tracked cavitation-model evolution.
 - `07_exit_field_diagnosis/exit_complex_repair/V1_phase_board_repair/` keeps the current exit complex-field repair workflow.
 - `08_surrogate_model/exit_field_UNet/V1_dataset_and_train/` contains code only; generated datasets are intentionally excluded.
