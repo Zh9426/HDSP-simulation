@@ -21,7 +21,13 @@ Historical implementations exported from Git history are listed in `HISTORY_INDE
 
 ## Running Profiles
 
-Use `run_codex_module_pipeline.m` as the switchboard:
+Use `run_hdsp_lightweight_main.m` as the readable modular main script. Its top
+section contains only selection keys such as `target_model`,
+`initial_phase_model`, `phase_board_model`, `kwave_model`, `cure_model`, and
+`metrics_model`.
+
+Use `run_codex_module_pipeline.m` when you need to run older self-contained
+profiles:
 
 ```matlab
 run_codex_module_pipeline list
