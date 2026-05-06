@@ -710,16 +710,16 @@ for phase = 1:2
     if phase == 1
         %曝光时间，声压与冷却时间粗查
         fprintf('\n[第一阶段:粗扫]...\n');
-        P_list = (1.40 : 0.04 : 1.56) * 1e6;
-        E_list = 0.48 : 0.03 : 0.60;
-        C_list = [0.44, 0.54];
+        P_list = (1.44 : 0.04 : 1.68) * 1e6;
+        E_list = 0.54 : 0.03 : 0.69;
+        C_list = [0.36, 0.44, 0.54];
     else
         %细查
          fprintf('\n[第二阶段: 微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
             best_coarse.P/1e6, best_coarse.E, best_coarse.C);
-        P_list = max(1.36e6, best_coarse.P - 0.04e6) : 0.02e6 : (best_coarse.P + 0.04e6);
-        E_list = max(0.44, best_coarse.E - 0.03) : 0.01 : min(0.64, best_coarse.E + 0.03);
-        C_list = best_coarse.C;
+        P_list = max(1.40e6, best_coarse.P - 0.06e6) : 0.02e6 : min(1.76e6, best_coarse.P + 0.08e6);
+        E_list = max(0.48, best_coarse.E - 0.04) : 0.01 : min(0.76, best_coarse.E + 0.05);
+        C_list = unique(max(0.28, min(0.64, best_coarse.C + [-0.08, 0, 0.08])));
     end
 
     [Pg, Eg, Cg] = ndgrid(P_list, E_list, C_list);
