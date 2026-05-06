@@ -5,6 +5,9 @@ rng(cfg.rng_seed);
 if ~exist(cfg.output_dir, 'dir')
     mkdir(cfg.output_dir);
 end
+if ~exist(cfg.transport_dir, 'dir')
+    mkdir(cfg.transport_dir);
+end
 
 fprintf('==================================================\n');
 fprintf('Initial phase study: Python vs Python+IASA vs Pure IASA\n');
@@ -14,11 +17,12 @@ fprintf('Grid: %d x %d | dx %.4f mm | target z %.2f mm\n', ...
 fprintf('==================================================\n');
 
 target = build_a_phase_target(cfg);
-save(cfg.python_input_mat, 'target', 'cfg', '-v7');
+export_pann_transport_input(cfg, target);
 wait_for_python_phase_output(cfg);
 
-python_data = load(cfg.python_output_mat, 'phase_python', 'python_loss_history', 'python_asm_amp');
-phase_python = wrap_phase(python_data.phase_python);
+python_data = load(cfg.python_output_mat, 'optimal_initial_phase', 'optimal_phase_bias', ...
+    'optimal_layer_map', 'target_dose_design', 'line_target_mask', 'halo_target_mask');
+phase_python = wrap_phase(python_data.optimal_initial_phase);
 phase_python(~target.source_mask) = 0;
 
 propagator = make_asm_propagator(cfg);
@@ -37,7 +41,7 @@ phase_cases(1).label = 'Pure Python';
 phase_cases(1).phase = phase_python;
 phase_cases(1).asm_amp = python_focus.amp;
 phase_cases(1).asm_amp_norm = python_focus.amp_norm;
-phase_cases(1).history = python_data.python_loss_history;
+phase_cases(1).history = [];
 
 phase_cases(2).label = 'Python + IASA';
 phase_cases(2).phase = python_iasa.phase;
@@ -81,10 +85,28 @@ end
 fprintf('Outputs written under ignored directory: %s\n', cfg.output_dir);
 fprintf('==================================================\n');
 
+function export_pann_transport_input(cfg, target)
+imag_target = target.amp;
+imag_target_design = target.amp;
+Nx = cfg.Nx;
+Ny = cfg.Ny;
+Lx = cfg.Lx;
+lambda_water = cfg.lambda_water;
+z_target_dist = cfg.z_target_dist;
+dx = cfg.dx;
+dz = cfg.dz;
+f0 = cfg.f0;
+c_water = cfg.c_water;
+c_board = cfg.c_board;
+thermal_sigma_px = cfg.target_blur_sigma_px;
+min_base_layers = cfg.min_base_layers;
+save(cfg.python_input_mat, 'imag_target', 'imag_target_design', 'Nx', 'Ny', 'Lx', ...
+    'lambda_water', 'z_target_dist', 'dx', 'dz', 'f0', 'c_water', ...
+    'c_board', 'thermal_sigma_px', 'min_base_layers');
+end
+
 function wait_for_python_phase_output(cfg)
-command = sprintf('"%s" "%s" --input "%s" --output "%s" --epochs %d --lr %.8g', ...
-    cfg.python_executable, cfg.python_script, cfg.python_input_mat, ...
-    cfg.python_output_mat, cfg.python_epochs, cfg.python_learning_rate);
+command = sprintf('"%s" "%s"', cfg.python_executable, cfg.python_script);
 fprintf('\n==================================================\n');
 fprintf('Python optimizer input written to:\n%s\n\n', cfg.python_input_mat);
 fprintf('Run this command manually in PowerShell, then return to MATLAB and press any key:\n%s\n', command);

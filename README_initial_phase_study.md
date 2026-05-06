@@ -16,11 +16,11 @@ Run in MATLAB:
 run_initial_phase_study
 ```
 
-The MATLAB entry script writes `initial_phase_outputs/python_phase_input.mat`, prints the Python command, and pauses. Run the printed Python command manually in PowerShell, then return to MATLAB and press any key to continue.
+The MATLAB entry script writes `C:\Users\Zh89\Desktop\transport\target_for_python.mat`, prints the Python command, and pauses. Run the printed PANN command manually in PowerShell, then return to MATLAB and press any key to continue.
 
 The workflow uses:
 
-- `python_initial_phase_optimizer.py` for the pure Python initial phase.
+- `PANN_Holography.py` for the pure Python initial phase. This keeps the established transport-file workflow.
 - `run_iasa_phase_optimizer.m` for continuous IASA refinement.
 - `run_kwave_pressure_scan.m` for homogeneous-water k-Wave pressure propagation.
 - `calculate_pressure_metrics.m` for pressure-centered metrics.
@@ -29,11 +29,14 @@ The workflow uses:
 
 Runtime outputs are written to `initial_phase_outputs/`. This directory is ignored by git. The expected output files are:
 
-- `python_phase_input.mat`
-- `python_phase_output.mat`
 - `initial_phase_pressure_results.mat`
 - `initial_phase_pressure_overview.png`
 - `summary.txt`
 - `summary.json`
+
+The Python transport files are outside the repo:
+
+- `C:\Users\Zh89\Desktop\transport\target_for_python.mat`
+- `C:\Users\Zh89\Desktop\transport\dl_phase_init.mat`
 
 Do not commit generated data or figures from this branch.
