@@ -43,18 +43,26 @@ sensor.record_start_index = max(1, kgrid.Nt - round(4 / cfg.f0 / kgrid.dt));
 
 input_args = {'PMLInside', true, 'PMLSize', pml_size, 'PlotPML', false, ...
     'PlotSim', false, 'DataCast', 'gpuArray-single'};
+using_gpu = true;
+reset_kwave_gpu(label, 'before k-Wave');
 try
     sensor_data = kspaceFirstOrder3D(kgrid, medium, source, sensor, input_args{:});
 catch gpu_error
     fprintf('[%s] GPU path failed: %s\n', label, gpu_error.message);
+    using_gpu = false;
     input_args = {'PMLInside', true, 'PMLSize', pml_size, 'PlotPML', false, 'PlotSim', false};
     sensor_data = kspaceFirstOrder3D(kgrid, medium, source, sensor, input_args{:});
 end
 
 p_raw = gather(sensor_data.p);
+clear sensor_data;
+if using_gpu
+    reset_kwave_gpu(label, 'after k-Wave gather');
+end
 t_record = kgrid.t_array(sensor.record_start_index:kgrid.Nt);
 demod_ref = exp(-1i * 2 * pi * cfg.f0 * reshape(t_record, [], 1));
 p_complex_vec = (2 / numel(t_record)) * (p_raw * demod_ref);
+clear p_raw;
 
 amp_volume = zeros(cfg.Nx, cfg.Ny, Nz);
 phase_volume = zeros(cfg.Nx, cfg.Ny, Nz);
@@ -101,5 +109,14 @@ preferred = [128, 160, 192, 216, 256, 300, 384, 512];
 Nz = preferred(find(preferred >= Nz_min, 1));
 if isempty(Nz)
     Nz = 2 ^ nextpow2(Nz_min);
+end
+end
+
+function reset_kwave_gpu(label, stage)
+try
+    reset(gpuDevice);
+    fprintf('[%s] GPU reset %s.\n', label, stage);
+catch reset_error
+    fprintf('[%s] GPU reset skipped %s: %s\n', label, stage, reset_error.message);
 end
 end
