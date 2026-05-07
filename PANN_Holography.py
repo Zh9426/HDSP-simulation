@@ -90,12 +90,27 @@ def matlab_string(value):
     return str(arr.squeeze())
 
 
+def current_git_commit_short(repo_path):
+    head_path = os.path.join(repo_path, ".git", "HEAD")
+    try:
+        with open(head_path, "r", encoding="utf-8") as f:
+            head = f.read().strip()
+        if head.startswith("ref:"):
+            ref_path = os.path.join(repo_path, ".git", head.split(" ", 1)[1])
+            with open(ref_path, "r", encoding="utf-8") as f:
+                return f.read().strip()[:7]
+        return head[:7]
+    except OSError:
+        return "nogit"
+
+
 # 0. physical config
 transport_dir = r"C:\Users\Zh89\Desktop\transport"
 input_file = os.path.join(transport_dir, "target_for_python.mat")
 output_file = os.path.join(transport_dir, "dl_phase_init.mat")
 repo_dir = os.path.dirname(os.path.abspath(__file__))
-branch_output_dir = os.path.join(repo_dir, "initial_phase_outputs")
+git_commit_short = current_git_commit_short(repo_dir)
+branch_output_dir = os.path.join(repo_dir, "initial_phase_outputs", git_commit_short)
 os.makedirs(branch_output_dir, exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -106,8 +121,15 @@ if not os.path.exists(input_file):
 
 data = sio.loadmat(input_file)
 if "branch_output_dir" in data:
-    branch_output_dir = matlab_string(data["branch_output_dir"])
-    os.makedirs(branch_output_dir, exist_ok=True)
+    transport_output_dir = matlab_string(data["branch_output_dir"])
+    if os.path.basename(os.path.normpath(transport_output_dir)) == git_commit_short:
+        branch_output_dir = transport_output_dir
+        os.makedirs(branch_output_dir, exist_ok=True)
+    else:
+        print(
+            f"[WARN] Ignoring stale branch_output_dir from transport: {transport_output_dir}. "
+            f"Using current commit output: {branch_output_dir}"
+        )
 design_key = "imag_target_design" if "imag_target_design" in data else "imag_target"
 target_amp = torch.tensor(data[design_key], dtype=torch.float32, device=device)
 target_amp_raw = torch.tensor(data["imag_target"], dtype=torch.float32, device=device)

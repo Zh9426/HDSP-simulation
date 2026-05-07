@@ -33,7 +33,7 @@ cfg.target_mask_threshold = 0.45;
 cfg.target_threshold_norm = 0.60;
 cfg.low_quantile_goal = 0.88;
 cfg.target_mean_amp_goal_ratio = 0.12;
-cfg.python_z_constraint_offsets_m = [-0.5e-3, 0, 0.5e-3];
+cfg.python_z_constraint_offsets_m = 0;
 cfg.min_base_layers = 2;
 
 cfg.iasa_epochs = 150;
