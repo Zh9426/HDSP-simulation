@@ -10,6 +10,53 @@ def masked_values(field, mask):
     return field[mask > 0.5]
 
 
+def stack_term(terms_by_z, key):
+    return torch.stack([terms[key] for terms in terms_by_z])
+
+
+def aggregate_z_quality_terms(terms_by_z):
+    """Aggregate per-z cure metrics with explicit worst-plane penalties."""
+    coverage = stack_term(terms_by_z, "target_coverage")
+    p10_over_p50 = stack_term(terms_by_z, "target_p10_over_p50")
+    target_cv = stack_term(terms_by_z, "target_cv")
+    quality_score = stack_term(terms_by_z, "quality_score")
+
+    mean_target_coverage = torch.mean(coverage)
+    worst_target_coverage = torch.min(coverage)
+    mean_p10_over_p50 = torch.mean(p10_over_p50)
+    worst_p10_over_p50 = torch.min(p10_over_p50)
+    mean_target_cv = torch.mean(target_cv)
+    worst_target_cv = torch.max(target_cv)
+
+    return {
+        "mean_threshold_loss": torch.mean(stack_term(terms_by_z, "threshold_loss")),
+        "mean_low_quantile_loss": torch.mean(stack_term(terms_by_z, "low_quantile_loss")),
+        "mean_target_mean_amp_loss": torch.mean(stack_term(terms_by_z, "target_mean_amp_loss")),
+        "mean_amp_uniformity_loss": torch.mean(stack_term(terms_by_z, "amp_uniformity_loss")),
+        "mean_energy_uniformity_loss": torch.mean(stack_term(terms_by_z, "energy_uniformity_loss")),
+        "mean_energy_efficiency": torch.mean(stack_term(terms_by_z, "energy_efficiency")),
+        "mean_target_contrast_loss": torch.mean(stack_term(terms_by_z, "target_contrast_loss")),
+        "mean_amp_corr_proxy": torch.mean(quality_score),
+        "mean_dark_area_loss": torch.mean(stack_term(terms_by_z, "dark_area_loss")),
+        "mean_dark_mean_loss": torch.mean(stack_term(terms_by_z, "dark_mean_loss")),
+        "mean_halo_loss": torch.mean(stack_term(terms_by_z, "halo_loss")),
+        "mean_quality_score": torch.mean(quality_score),
+        "worst_quality_score": torch.min(quality_score),
+        "mean_target_coverage": mean_target_coverage,
+        "worst_target_coverage": worst_target_coverage,
+        "worst_target_coverage_loss": torch.relu(1.0 - worst_target_coverage) ** 2,
+        "mean_target_p10_over_p50": mean_p10_over_p50,
+        "worst_target_p10_over_p50": worst_p10_over_p50,
+        "worst_low_quantile_loss": torch.max(stack_term(terms_by_z, "low_quantile_loss")),
+        "mean_target_cv": mean_target_cv,
+        "worst_target_cv": worst_target_cv,
+        "worst_cv_loss": worst_target_cv**2,
+        "mean_dark_area_fraction": torch.mean(stack_term(terms_by_z, "dark_area_fraction")),
+        "mean_target_mean_raw": torch.mean(stack_term(terms_by_z, "target_mean_raw")),
+        "mean_target_to_global_mean": torch.mean(stack_term(terms_by_z, "target_to_global_mean")),
+    }
+
+
 def compute_cure_quality_terms(
     pred_amp_norm,
     target_binary,

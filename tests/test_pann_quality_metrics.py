@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pann_quality_metrics import compute_cure_quality_terms
+from pann_quality_metrics import aggregate_z_quality_terms, compute_cure_quality_terms
 
 
 def make_masks():
@@ -80,7 +80,25 @@ def test_cure_quality_prefers_absolute_target_strength_when_shape_matches():
     assert strong_terms["quality_score"] > weak_terms["quality_score"]
 
 
+def test_z_quality_aggregation_penalizes_the_worst_plane():
+    target, halo, far_dark = make_masks()
+    good = torch.zeros((8, 8), dtype=torch.float32)
+    good[target > 0.5] = 0.75
+
+    weak = torch.zeros((8, 8), dtype=torch.float32)
+    weak[target > 0.5] = 0.55
+
+    good_terms = compute_cure_quality_terms(good, target, halo, far_dark)
+    weak_terms = compute_cure_quality_terms(weak, target, halo, far_dark)
+    aggregate = aggregate_z_quality_terms([good_terms, weak_terms])
+
+    assert aggregate["mean_target_coverage"] > aggregate["worst_target_coverage"]
+    assert aggregate["worst_target_coverage_loss"] > 0
+    assert aggregate["worst_low_quantile_loss"] >= 0
+
+
 if __name__ == "__main__":
     test_cure_quality_prefers_uniform_target_over_hot_partial_target()
     test_dark_area_loss_ignores_single_hotspot_more_than_area_leakage()
     test_cure_quality_prefers_absolute_target_strength_when_shape_matches()
+    test_z_quality_aggregation_penalizes_the_worst_plane()
