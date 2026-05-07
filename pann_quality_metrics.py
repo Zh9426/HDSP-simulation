@@ -78,6 +78,8 @@ def aggregate_z_quality_terms(terms_by_z):
         "worst_target_p95_over_mean": torch.max(p95_over_mean),
         "worst_target_peak_over_mean": torch.max(peak_over_mean),
         "mean_dark_area_fraction": torch.mean(stack_term(terms_by_z, "dark_area_fraction")),
+        "mean_dump_energy_fraction": torch.mean(stack_term(terms_by_z, "dump_energy_fraction")),
+        "mean_non_dump_dark_energy_fraction": torch.mean(stack_term(terms_by_z, "non_dump_dark_energy_fraction")),
         "mean_target_mean_raw": torch.mean(stack_term(terms_by_z, "target_mean_raw")),
         "mean_target_to_global_mean": torch.mean(stack_term(terms_by_z, "target_to_global_mean")),
     }
@@ -88,6 +90,7 @@ def compute_cure_quality_terms(
     target_binary,
     halo_mask,
     far_dark_mask,
+    dump_mask=None,
     pred_amp_raw=None,
     threshold_norm=0.60,
     low_quantile_goal=0.88,
@@ -101,14 +104,18 @@ def compute_cure_quality_terms(
     """
     if pred_amp_raw is None:
         pred_amp_raw = pred_amp_norm
+    if dump_mask is None:
+        dump_mask = torch.zeros_like(target_binary)
 
     pred_energy = normalize_energy_from_amplitude(pred_amp_norm)
     inside_amp_vals = masked_values(pred_amp_norm, target_binary)
     inside_energy_vals = masked_values(pred_energy, target_binary)
     inside_raw_vals = masked_values(pred_amp_raw, target_binary)
     all_raw_vals = pred_amp_raw.reshape(-1)
-    dark_amp_vals = masked_values(pred_amp_norm, far_dark_mask)
-    dark_energy_vals = masked_values(pred_energy, far_dark_mask)
+    non_dump_dark_mask = torch.clamp(far_dark_mask * (1.0 - dump_mask), min=0.0, max=1.0)
+    dark_amp_vals = masked_values(pred_amp_norm, non_dump_dark_mask)
+    dark_energy_vals = masked_values(pred_energy, non_dump_dark_mask)
+    dump_energy_vals = masked_values(pred_energy, dump_mask)
     halo_energy_vals = masked_values(pred_energy, halo_mask)
 
     zero = torch.tensor(0.0, dtype=pred_amp_norm.dtype, device=pred_amp_norm.device)
@@ -118,6 +125,7 @@ def compute_cure_quality_terms(
             "target_amp_vals": inside_amp_vals,
             "target_energy_vals": inside_energy_vals,
             "dark_amp_vals": dark_amp_vals,
+            "dump_energy_vals": dump_energy_vals,
             "target_mean": zero,
             "target_mean_raw": zero,
             "target_mean_amp_loss": zero,
@@ -142,6 +150,8 @@ def compute_cure_quality_terms(
             "dark_mean_loss": zero,
             "dark_area_loss": zero,
             "dark_area_fraction": zero,
+            "dump_energy_fraction": zero,
+            "non_dump_dark_energy_fraction": zero,
             "halo_loss": zero,
             "energy_efficiency": zero,
             "quality_score": zero,
@@ -177,16 +187,16 @@ def compute_cure_quality_terms(
     low_quantile_target = torch.tensor(low_quantile_goal, dtype=pred_amp_norm.dtype, device=pred_amp_norm.device)
     low_quantile_loss = torch.relu(low_quantile_target - target_p10_over_p50) ** 2
     peak_balance_loss = (
-        torch.relu(target_p90_over_mean - 1.12) ** 2
-        + 1.5 * torch.relu(target_p95_over_mean - 1.18) ** 2
-        + 0.8 * torch.relu(target_peak_over_mean - 1.45) ** 2
+        torch.relu(target_p90_over_mean - 1.18) ** 2
+        + 1.5 * torch.relu(target_p95_over_mean - 1.25) ** 2
+        + 0.8 * torch.relu(target_peak_over_mean - 1.60) ** 2
     )
     target_band_loss = (
-        1.8 * torch.relu(0.90 - target_p05_over_p50) ** 2
-        + 2.4 * torch.relu(0.94 - target_p10_over_p50) ** 2
-        + 1.4 * torch.relu(target_p90_over_p50 - 1.08) ** 2
-        + 2.0 * torch.relu(target_p95_over_p50 - 1.12) ** 2
-        + 0.8 * torch.relu(target_peak_over_p50 - 1.45) ** 2
+        0.6 * torch.relu(0.76 - target_p05_over_p50) ** 2
+        + 1.0 * torch.relu(0.84 - target_p10_over_p50) ** 2
+        + 0.5 * torch.relu(target_p90_over_p50 - 1.20) ** 2
+        + 0.8 * torch.relu(target_p95_over_p50 - 1.30) ** 2
+        + 0.4 * torch.relu(target_peak_over_p50 - 1.75) ** 2
     )
     target_mean_amp_loss = zero
     if target_mean_amp_goal is not None:
@@ -206,6 +216,11 @@ def compute_cure_quality_terms(
         else zero
     )
     halo_loss = torch.mean(halo_energy_vals) if halo_energy_vals.numel() > 4 else zero
+    dump_energy_sum = torch.sum(dump_energy_vals) if dump_energy_vals.numel() > 4 else zero
+    non_dump_dark_energy_sum = torch.sum(dark_energy_vals) if dark_energy_vals.numel() > 4 else zero
+    total_energy_sum = torch.sum(pred_energy) + 1e-8
+    dump_energy_fraction = dump_energy_sum / total_energy_sum
+    non_dump_dark_energy_fraction = non_dump_dark_energy_sum / total_energy_sum
     energy_efficiency = torch.sum(pred_energy * target_binary) / (torch.sum(pred_energy) + 1e-8)
 
     quality_score = (
@@ -217,7 +232,8 @@ def compute_cure_quality_terms(
         + 0.4 * torch.log1p(target_to_global_mean)
         - 0.7 * target_mean_amp_loss
         - 1.2 * peak_balance_loss
-        - 2.0 * target_band_loss
+        - 0.5 * target_band_loss
+        + 0.4 * torch.sqrt(dump_energy_fraction + 1e-8)
         - 0.8 * dark_area_fraction
         - 0.2 * halo_loss
     )
@@ -227,6 +243,7 @@ def compute_cure_quality_terms(
         "target_amp_vals": inside_amp_vals,
         "target_energy_vals": inside_energy_vals,
         "dark_amp_vals": dark_amp_vals,
+        "dump_energy_vals": dump_energy_vals,
         "target_mean": target_mean,
         "target_mean_raw": target_mean_raw,
         "target_mean_amp_loss": target_mean_amp_loss,
@@ -251,6 +268,8 @@ def compute_cure_quality_terms(
         "dark_mean_loss": dark_mean_loss,
         "dark_area_loss": dark_area_loss,
         "dark_area_fraction": dark_area_fraction,
+        "dump_energy_fraction": dump_energy_fraction,
+        "non_dump_dark_energy_fraction": non_dump_dark_energy_fraction,
         "halo_loss": halo_loss,
         "energy_efficiency": energy_efficiency,
         "quality_score": quality_score,

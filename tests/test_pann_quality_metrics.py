@@ -88,6 +88,23 @@ def test_dark_area_loss_ignores_single_hotspot_more_than_area_leakage():
     assert single_terms["dark_area_loss"] < area_terms["dark_area_loss"]
 
 
+def test_dump_zone_is_excluded_from_non_dump_dark_penalty():
+    target, halo, far_dark = make_masks()
+    amp = torch.zeros((8, 8), dtype=torch.float32)
+    amp[target > 0.5] = 0.7
+    amp[0:2, :] = 0.8
+
+    dump = torch.zeros_like(target)
+    dump[0:2, :] = 1.0
+
+    no_dump_terms = compute_cure_quality_terms(amp, target, halo, far_dark)
+    dump_terms = compute_cure_quality_terms(amp, target, halo, far_dark, dump_mask=dump)
+
+    assert dump_terms["dump_energy_fraction"] > 0
+    assert dump_terms["dark_area_fraction"] < no_dump_terms["dark_area_fraction"]
+    assert dump_terms["non_dump_dark_energy_fraction"] < no_dump_terms["non_dump_dark_energy_fraction"]
+
+
 def test_cure_quality_prefers_absolute_target_strength_when_shape_matches():
     target, halo, far_dark = make_masks()
     amp_norm = torch.zeros((8, 8), dtype=torch.float32)
@@ -139,5 +156,6 @@ if __name__ == "__main__":
     test_cure_quality_penalizes_target_internal_spikes()
     test_cure_quality_prefers_narrow_target_pressure_band()
     test_dark_area_loss_ignores_single_hotspot_more_than_area_leakage()
+    test_dump_zone_is_excluded_from_non_dump_dark_penalty()
     test_cure_quality_prefers_absolute_target_strength_when_shape_matches()
     test_z_quality_aggregation_penalizes_the_worst_plane()
