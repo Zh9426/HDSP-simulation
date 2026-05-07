@@ -36,22 +36,22 @@ for idx = 1:numel(cases)
     nexttile;
     imagesc(target.x * 1e3, target.y * 1e3, cases(idx).kwave.amp_norm);
     axis image; colormap(gca, 'jet'); colorbar;
-    title(sprintf('k-Wave %s\\nPeak %.2g Pa | PCC %.4f', cases(idx).label, ...
-        cases(idx).kwave.metrics.peak_target_pressure_pa, cases(idx).kwave.metrics.pcc));
+    title(sprintf('k-Wave %s\\nMean %.2g Pa | CV %.3f', cases(idx).label, ...
+        cases(idx).kwave.metrics.mean_target_pressure_pa, cases(idx).kwave.metrics.target_uniformity_cv));
     xlabel('x (mm)'); ylabel('y (mm)');
 end
 
 nexttile;
 labels = categorical({cases.label});
 labels = reordercats(labels, {cases.label});
-peak_vals = arrayfun(@(c) c.kwave.metrics.peak_target_pressure_pa, cases);
+mean_vals = arrayfun(@(c) c.kwave.metrics.mean_target_pressure_pa, cases);
 xpos = 1:numel(cases);
 yyaxis left;
-bar(xpos, peak_vals);
-ylabel('Target peak pressure (Pa)');
+bar(xpos, mean_vals);
+ylabel('Target mean pressure (Pa)');
 yyaxis right;
-plot(xpos, arrayfun(@(c) c.kwave.metrics.energy_efficiency * 100, cases), 'ko-', 'LineWidth', 1.6);
-ylabel('Energy efficiency (%)');
+plot(xpos, arrayfun(@(c) c.kwave.metrics.target_peak_over_mean, cases), 'ko-', 'LineWidth', 1.6);
+ylabel('Target peak / mean');
 set(gca, 'XTick', xpos, 'XTickLabel', cellstr(labels));
 title('k-Wave Pressure Metrics');
 grid on;
@@ -71,25 +71,25 @@ title('Energy Utilization');
 grid on;
 
 nexttile;
-bar(xpos, arrayfun(@(c) c.kwave.metrics.target_energy_uniformity_score, cases));
+bar(xpos, arrayfun(@(c) c.kwave.metrics.target_uniformity_score, cases));
 set(gca, 'XTick', xpos, 'XTickLabel', cellstr(labels));
 ylim([0, 1]);
-ylabel('1 / (1 + energy CV)');
-title('Energy Uniformity');
+ylabel('1 / (1 + pressure CV)');
+title('Pressure Uniformity');
 grid on;
 
 nexttile;
-bar(xpos, arrayfun(@(c) c.kwave.metrics.peak_sidelobe_ratio, cases));
+bar(xpos, arrayfun(@(c) c.kwave.metrics.target_p10_over_p50, cases));
 set(gca, 'XTick', xpos, 'XTickLabel', cellstr(labels));
-ylabel('Target peak / dark peak');
-title('Sidelobe Suppression');
+ylabel('Target P10 / P50');
+title('Low Quantile Coverage');
 grid on;
 
 nexttile;
-bar(xpos, arrayfun(@(c) c.phase_metrics.phase_circular_variance, cases));
+bar(xpos, arrayfun(@(c) c.kwave.metrics.target_peak_over_mean, cases));
 set(gca, 'XTick', xpos, 'XTickLabel', cellstr(labels));
-ylabel('Circular variance');
-title('Phase Diversity');
+ylabel('Target peak / mean');
+title('Target Spike Penalty');
 grid on;
 
 nexttile;

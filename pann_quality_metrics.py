@@ -17,12 +17,18 @@ def stack_term(terms_by_z, key):
 def aggregate_z_quality_terms(terms_by_z):
     """Aggregate per-z cure metrics with explicit worst-plane penalties."""
     coverage = stack_term(terms_by_z, "target_coverage")
+    p05_over_p50 = stack_term(terms_by_z, "target_p05_over_p50")
     p10_over_p50 = stack_term(terms_by_z, "target_p10_over_p50")
+    p90_over_mean = stack_term(terms_by_z, "target_p90_over_mean")
+    p95_over_mean = stack_term(terms_by_z, "target_p95_over_mean")
+    peak_over_mean = stack_term(terms_by_z, "target_peak_over_mean")
     target_cv = stack_term(terms_by_z, "target_cv")
     quality_score = stack_term(terms_by_z, "quality_score")
 
     mean_target_coverage = torch.mean(coverage)
     worst_target_coverage = torch.min(coverage)
+    mean_p05_over_p50 = torch.mean(p05_over_p50)
+    worst_p05_over_p50 = torch.min(p05_over_p50)
     mean_p10_over_p50 = torch.mean(p10_over_p50)
     worst_p10_over_p50 = torch.min(p10_over_p50)
     mean_target_cv = torch.mean(target_cv)
@@ -47,10 +53,19 @@ def aggregate_z_quality_terms(terms_by_z):
         "worst_target_coverage_loss": torch.relu(1.0 - worst_target_coverage) ** 2,
         "mean_target_p10_over_p50": mean_p10_over_p50,
         "worst_target_p10_over_p50": worst_p10_over_p50,
+        "mean_target_p05_over_p50": mean_p05_over_p50,
+        "worst_target_p05_over_p50": worst_p05_over_p50,
         "worst_low_quantile_loss": torch.max(stack_term(terms_by_z, "low_quantile_loss")),
         "mean_target_cv": mean_target_cv,
         "worst_target_cv": worst_target_cv,
         "worst_cv_loss": worst_target_cv**2,
+        "mean_peak_balance_loss": torch.mean(stack_term(terms_by_z, "peak_balance_loss")),
+        "worst_peak_balance_loss": torch.max(stack_term(terms_by_z, "peak_balance_loss")),
+        "mean_target_p90_over_mean": torch.mean(p90_over_mean),
+        "mean_target_p95_over_mean": torch.mean(p95_over_mean),
+        "mean_target_peak_over_mean": torch.mean(peak_over_mean),
+        "worst_target_p95_over_mean": torch.max(p95_over_mean),
+        "worst_target_peak_over_mean": torch.max(peak_over_mean),
         "mean_dark_area_fraction": torch.mean(stack_term(terms_by_z, "dark_area_fraction")),
         "mean_target_mean_raw": torch.mean(stack_term(terms_by_z, "target_mean_raw")),
         "mean_target_to_global_mean": torch.mean(stack_term(terms_by_z, "target_to_global_mean")),
@@ -103,7 +118,12 @@ def compute_cure_quality_terms(
             "threshold_loss": zero,
             "target_coverage": zero,
             "low_quantile_loss": zero,
+            "peak_balance_loss": zero,
+            "target_p05_over_p50": zero,
             "target_p10_over_p50": zero,
+            "target_p90_over_mean": zero,
+            "target_p95_over_mean": zero,
+            "target_peak_over_mean": zero,
             "dark_mean_loss": zero,
             "dark_area_loss": zero,
             "dark_area_fraction": zero,
@@ -127,9 +147,22 @@ def compute_cure_quality_terms(
 
     target_p10 = torch.quantile(inside_amp_vals, 0.10)
     target_p50 = torch.quantile(inside_amp_vals, 0.50)
+    target_p90 = torch.quantile(inside_amp_vals, 0.90)
+    target_p95 = torch.quantile(inside_amp_vals, 0.95)
+    target_peak = torch.max(inside_amp_vals)
+    target_p05 = torch.quantile(inside_amp_vals, 0.05)
+    target_p05_over_p50 = target_p05 / (target_p50 + 1e-8)
     target_p10_over_p50 = target_p10 / (target_p50 + 1e-8)
+    target_p90_over_mean = target_p90 / (target_mean + 1e-8)
+    target_p95_over_mean = target_p95 / (target_mean + 1e-8)
+    target_peak_over_mean = target_peak / (target_mean + 1e-8)
     low_quantile_target = torch.tensor(low_quantile_goal, dtype=pred_amp_norm.dtype, device=pred_amp_norm.device)
     low_quantile_loss = torch.relu(low_quantile_target - target_p10_over_p50) ** 2
+    peak_balance_loss = (
+        torch.relu(target_p90_over_mean - 1.18) ** 2
+        + 1.5 * torch.relu(target_p95_over_mean - 1.25) ** 2
+        + 0.8 * torch.relu(target_peak_over_mean - 1.60) ** 2
+    )
     target_mean_amp_loss = zero
     if target_mean_amp_goal is not None:
         target_mean_goal = torch.tensor(target_mean_amp_goal, dtype=pred_amp_norm.dtype, device=pred_amp_norm.device)
@@ -152,11 +185,13 @@ def compute_cure_quality_terms(
 
     quality_score = (
         4.0 * target_coverage
+        + 1.5 * target_p05_over_p50
         + 2.5 * target_p10_over_p50
         + 1.5 / (1.0 + target_cv)
         + 0.8 * energy_efficiency
         + 0.4 * torch.log1p(target_to_global_mean)
         - 0.7 * target_mean_amp_loss
+        - 1.2 * peak_balance_loss
         - 0.8 * dark_area_fraction
         - 0.2 * halo_loss
     )
@@ -177,7 +212,12 @@ def compute_cure_quality_terms(
         "threshold_loss": threshold_loss,
         "target_coverage": target_coverage,
         "low_quantile_loss": low_quantile_loss,
+        "peak_balance_loss": peak_balance_loss,
+        "target_p05_over_p50": target_p05_over_p50,
         "target_p10_over_p50": target_p10_over_p50,
+        "target_p90_over_mean": target_p90_over_mean,
+        "target_p95_over_mean": target_p95_over_mean,
+        "target_peak_over_mean": target_peak_over_mean,
         "dark_mean_loss": dark_mean_loss,
         "dark_area_loss": dark_area_loss,
         "dark_area_fraction": dark_area_fraction,

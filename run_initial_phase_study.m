@@ -66,9 +66,9 @@ write_phase_pressure_summary(results, fullfile(cfg.output_dir, 'summary.txt'), f
 fprintf('\n==================================================\n');
 for idx = 1:numel(phase_cases)
     m = phase_cases(idx).kwave.metrics;
-    fprintf('%-14s | best z offset %+5.2f mm | target peak %.3g Pa | PCC %.4f | EE %.2f%% | contrast %.2f\n', ...
+    fprintf('%-14s | best z offset %+5.2f mm | target mean %.3g Pa | peak/mean %.2f | CV %.3f | EE %.2f%%\n', ...
         phase_cases(idx).label, phase_cases(idx).kwave.best_z_offset_m * 1e3, ...
-        m.peak_target_pressure_pa, m.pcc, m.energy_efficiency * 100, m.focus_contrast);
+        m.mean_target_pressure_pa, m.target_peak_over_mean, m.target_uniformity_cv, m.energy_efficiency * 100);
 end
 fprintf('Outputs written under ignored directory: %s\n', cfg.output_dir);
 fprintf('==================================================\n');

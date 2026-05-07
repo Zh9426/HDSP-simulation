@@ -71,7 +71,7 @@ phase_volume(sensor.mask) = angle(p_complex_vec);
 
 plane_metrics = [];
 best_idx = 1;
-best_peak = -inf;
+best_quality = -inf;
 for idx = 1:numel(target_plane_indices)
     plane = target_plane_indices(idx);
     amp_now = amp_volume(:, :, plane);
@@ -84,8 +84,8 @@ for idx = 1:numel(target_plane_indices)
         metrics_now = orderfields(metrics_now, plane_metrics);
     end
     plane_metrics(idx) = metrics_now; %#ok<AGROW> Template is allocated from the first metric struct.
-    if metrics_now.peak_target_pressure_pa > best_peak
-        best_peak = metrics_now.peak_target_pressure_pa;
+    if metrics_now.target_pressure_quality_score > best_quality
+        best_quality = metrics_now.target_pressure_quality_score;
         best_idx = idx;
     end
 end

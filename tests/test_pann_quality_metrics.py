@@ -32,6 +32,25 @@ def test_cure_quality_prefers_uniform_target_over_hot_partial_target():
     assert uniform_terms["quality_score"] > partial_terms["quality_score"]
     assert uniform_terms["target_coverage"] > partial_terms["target_coverage"]
     assert uniform_terms["target_p10_over_p50"] > partial_terms["target_p10_over_p50"]
+    assert uniform_terms["target_peak_over_mean"] < partial_terms["target_peak_over_mean"]
+    assert uniform_terms["peak_balance_loss"] < partial_terms["peak_balance_loss"]
+
+
+def test_cure_quality_penalizes_target_internal_spikes():
+    target, halo, far_dark = make_masks()
+    balanced = torch.zeros((8, 8), dtype=torch.float32)
+    balanced[target > 0.5] = 0.72
+
+    spiky = torch.zeros((8, 8), dtype=torch.float32)
+    spiky[target > 0.5] = 0.55
+    spiky[2:3, 2:6] = 1.0
+
+    balanced_terms = compute_cure_quality_terms(balanced, target, halo, far_dark)
+    spiky_terms = compute_cure_quality_terms(spiky, target, halo, far_dark)
+
+    assert balanced_terms["target_p95_over_mean"] < spiky_terms["target_p95_over_mean"]
+    assert balanced_terms["target_peak_over_mean"] < spiky_terms["target_peak_over_mean"]
+    assert balanced_terms["peak_balance_loss"] < spiky_terms["peak_balance_loss"]
 
 
 def test_dark_area_loss_ignores_single_hotspot_more_than_area_leakage():
@@ -99,6 +118,7 @@ def test_z_quality_aggregation_penalizes_the_worst_plane():
 
 if __name__ == "__main__":
     test_cure_quality_prefers_uniform_target_over_hot_partial_target()
+    test_cure_quality_penalizes_target_internal_spikes()
     test_dark_area_loss_ignores_single_hotspot_more_than_area_leakage()
     test_cure_quality_prefers_absolute_target_strength_when_shape_matches()
     test_z_quality_aggregation_penalizes_the_worst_plane()
