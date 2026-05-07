@@ -104,6 +104,20 @@ def current_git_commit_short(repo_path):
         return "nogit"
 
 
+def damped_restart_lr_lambda(epoch, restart_cycle, restart_decay, min_ratio):
+    """Cosine warm restarts with a smaller peak after every restart."""
+    cycle_len = max(1, int(restart_cycle))
+    remaining = int(epoch)
+    cycle_idx = 0
+    while remaining >= cycle_len:
+        remaining -= cycle_len
+        cycle_idx += 1
+
+    peak_ratio = max(min_ratio, float(restart_decay) ** cycle_idx)
+    cosine_pos = remaining / max(cycle_len, 1)
+    return min_ratio + (peak_ratio - min_ratio) * 0.5 * (1.0 + math.cos(math.pi * cosine_pos))
+
+
 # 0. physical config
 transport_dir = r"C:\Users\Zh89\Desktop\transport"
 input_file = os.path.join(transport_dir, "target_for_python.mat")
@@ -155,6 +169,10 @@ min_epochs = int(data["python_min_epochs"].item()) if "python_min_epochs" in dat
 early_stop_patience = (
     int(data["python_early_stop_patience"].item()) if "python_early_stop_patience" in data else 1400
 )
+python_rng_seed = int(data["python_rng_seed"].item()) if "python_rng_seed" in data else 9426
+lr_restart_cycle = int(data["python_lr_restart_cycle"].item()) if "python_lr_restart_cycle" in data else 3500
+lr_restart_decay = float(data["python_lr_restart_decay"].item()) if "python_lr_restart_decay" in data else 0.55
+lr_min_ratio = float(data["python_lr_min_ratio"].item()) if "python_lr_min_ratio" in data else 0.015
 if transport_is_current and "python_z_constraint_offsets_m" in data:
     z_constraint_offsets = np.asarray(data["python_z_constraint_offsets_m"], dtype=np.float32).reshape(-1)
 else:
@@ -225,12 +243,18 @@ target_weight = 1.0 + 5.0 * target_binary
 dark_weight = 1.0 + 1.0 * halo_mask + 1.5 * far_dark_mask
 weight_map = target_weight + dark_weight
 
+torch.manual_seed(python_rng_seed)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(python_rng_seed)
 initial_phase = (torch.rand(Nx, Ny, device=device) * TWO_PI) - math.pi
 phase_map = torch.nn.Parameter(initial_phase)
 phase_bias = torch.nn.Parameter(torch.zeros(1, device=device))
 
 optimizer = optim.AdamW([phase_map, phase_bias], lr=learning_rate, weight_decay=0.0)
-scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=max(learning_rate * 0.015, 5e-4))
+scheduler = optim.lr_scheduler.LambdaLR(
+    optimizer,
+    lr_lambda=lambda epoch: damped_restart_lr_lambda(epoch, lr_restart_cycle, lr_restart_decay, lr_min_ratio),
+)
 
 best_loss = float("inf")
 best_quality_score = -float("inf")
@@ -453,6 +477,11 @@ best_metrics = {
     "stop_reason": stop_reason,
     "selected_learning_rate": float(best_state["learning_rate"]),
     "initial_learning_rate": float(learning_rate),
+    "rng_seed": int(python_rng_seed),
+    "lr_schedule": "damped_cosine_warm_restarts",
+    "lr_restart_cycle": int(lr_restart_cycle),
+    "lr_restart_decay": float(lr_restart_decay),
+    "lr_min_ratio": float(lr_min_ratio),
     "min_epochs": int(min_epochs),
     "early_stop_patience": int(early_stop_patience),
     "top_quality_records_json": json.dumps(top_quality_records),
