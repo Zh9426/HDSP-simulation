@@ -120,12 +120,14 @@ if not os.path.exists(input_file):
     raise FileNotFoundError(f"Cannot find transport input: {input_file}")
 
 data = sio.loadmat(input_file)
+transport_is_current = True
 if "branch_output_dir" in data:
     transport_output_dir = matlab_string(data["branch_output_dir"])
     if os.path.basename(os.path.normpath(transport_output_dir)) == git_commit_short:
         branch_output_dir = transport_output_dir
         os.makedirs(branch_output_dir, exist_ok=True)
     else:
+        transport_is_current = False
         print(
             f"[WARN] Ignoring stale branch_output_dir from transport: {transport_output_dir}. "
             f"Using current commit output: {branch_output_dir}"
@@ -147,10 +149,10 @@ min_base_layers = int(data["min_base_layers"].item()) if "min_base_layers" in da
 target_threshold_norm = float(data["target_threshold_norm"].item()) if "target_threshold_norm" in data else 0.60
 low_quantile_goal = float(data["low_quantile_goal"].item()) if "low_quantile_goal" in data else 0.88
 target_mean_amp_goal_ratio = float(data["target_mean_amp_goal_ratio"].item()) if "target_mean_amp_goal_ratio" in data else 0.12
-if "python_z_constraint_offsets_m" in data:
+if transport_is_current and "python_z_constraint_offsets_m" in data:
     z_constraint_offsets = np.asarray(data["python_z_constraint_offsets_m"], dtype=np.float32).reshape(-1)
 else:
-    z_constraint_offsets = np.array([-0.5e-3, 0.0, 0.5e-3], dtype=np.float32)
+    z_constraint_offsets = np.array([0.0], dtype=np.float32)
 if not np.any(np.isclose(z_constraint_offsets, 0.0)):
     z_constraint_offsets = np.sort(np.append(z_constraint_offsets, 0.0)).astype(np.float32)
 
