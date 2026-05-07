@@ -44,11 +44,11 @@ cfg.iasa_target_gain_limit = 8.0;
 cfg.python_epochs = 10000;
 cfg.python_learning_rate = 0.06;
 cfg.python_min_epochs = 6500;
-cfg.python_early_stop_patience = 1400;
+cfg.python_early_stop_patience = 4200;
 cfg.python_rng_seed = cfg.rng_seed;
-cfg.python_lr_restart_cycle = 3500;
-cfg.python_lr_restart_decay = 0.55;
-cfg.python_lr_min_ratio = 0.015;
+cfg.python_lr_restart_cycle = 5000;
+cfg.python_lr_restart_decay = 0.82;
+cfg.python_lr_min_ratio = 0.05;
 cfg.python_executable = 'python';
 
 cfg.git_commit_short = get_git_commit_short();

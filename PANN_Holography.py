@@ -104,18 +104,16 @@ def current_git_commit_short(repo_path):
         return "nogit"
 
 
-def damped_restart_lr_lambda(epoch, restart_cycle, restart_decay, min_ratio):
-    """Cosine warm restarts with a smaller peak after every restart."""
+def damped_periodic_lr_lambda(epoch, restart_cycle, restart_decay, min_ratio):
+    """Periodic cosine exploration with a decaying peak each full cycle."""
     cycle_len = max(1, int(restart_cycle))
-    remaining = int(epoch)
-    cycle_idx = 0
-    while remaining >= cycle_len:
-        remaining -= cycle_len
-        cycle_idx += 1
+    epoch_now = int(epoch)
+    cycle_idx = epoch_now // cycle_len
+    position = (epoch_now % cycle_len) / cycle_len
 
     peak_ratio = max(min_ratio, float(restart_decay) ** cycle_idx)
-    cosine_pos = remaining / max(cycle_len, 1)
-    return min_ratio + (peak_ratio - min_ratio) * 0.5 * (1.0 + math.cos(math.pi * cosine_pos))
+    oscillation = 0.5 * (1.0 + math.cos(2.0 * math.pi * position))
+    return min_ratio + (peak_ratio - min_ratio) * oscillation
 
 
 # 0. physical config
@@ -167,12 +165,12 @@ epochs = int(data["python_epochs"].item()) if "python_epochs" in data else 10000
 learning_rate = float(data["python_learning_rate"].item()) if "python_learning_rate" in data else 0.06
 min_epochs = int(data["python_min_epochs"].item()) if "python_min_epochs" in data else min(6500, epochs)
 early_stop_patience = (
-    int(data["python_early_stop_patience"].item()) if "python_early_stop_patience" in data else 1400
+    int(data["python_early_stop_patience"].item()) if "python_early_stop_patience" in data else 4200
 )
 python_rng_seed = int(data["python_rng_seed"].item()) if "python_rng_seed" in data else 9426
-lr_restart_cycle = int(data["python_lr_restart_cycle"].item()) if "python_lr_restart_cycle" in data else 3500
-lr_restart_decay = float(data["python_lr_restart_decay"].item()) if "python_lr_restart_decay" in data else 0.55
-lr_min_ratio = float(data["python_lr_min_ratio"].item()) if "python_lr_min_ratio" in data else 0.015
+lr_restart_cycle = int(data["python_lr_restart_cycle"].item()) if "python_lr_restart_cycle" in data else 5000
+lr_restart_decay = float(data["python_lr_restart_decay"].item()) if "python_lr_restart_decay" in data else 0.82
+lr_min_ratio = float(data["python_lr_min_ratio"].item()) if "python_lr_min_ratio" in data else 0.05
 if transport_is_current and "python_z_constraint_offsets_m" in data:
     z_constraint_offsets = np.asarray(data["python_z_constraint_offsets_m"], dtype=np.float32).reshape(-1)
 else:
@@ -253,7 +251,7 @@ phase_bias = torch.nn.Parameter(torch.zeros(1, device=device))
 optimizer = optim.AdamW([phase_map, phase_bias], lr=learning_rate, weight_decay=0.0)
 scheduler = optim.lr_scheduler.LambdaLR(
     optimizer,
-    lr_lambda=lambda epoch: damped_restart_lr_lambda(epoch, lr_restart_cycle, lr_restart_decay, lr_min_ratio),
+    lr_lambda=lambda epoch: damped_periodic_lr_lambda(epoch, lr_restart_cycle, lr_restart_decay, lr_min_ratio),
 )
 
 best_loss = float("inf")
@@ -424,7 +422,9 @@ for epoch in range(epochs):
             f"| Quality: {quality_score.item():.4f} | Loss: {total_loss.item():.4f}"
         )
 
-    if epoch + 1 >= min_epochs and epoch + 1 - best_epoch >= early_stop_patience:
+    epochs_to_next_restart = lr_restart_cycle - ((epoch + 1) % lr_restart_cycle)
+    near_next_restart = 0 < epochs_to_next_restart <= 600
+    if epoch + 1 >= min_epochs and epoch + 1 - best_epoch >= early_stop_patience and not near_next_restart:
         stop_reason = f"early_stop_no_quality_gain_{early_stop_patience}"
         print(
             f"[INFO] Early stopping at epoch {epoch + 1}: best quality "
@@ -478,7 +478,7 @@ best_metrics = {
     "selected_learning_rate": float(best_state["learning_rate"]),
     "initial_learning_rate": float(learning_rate),
     "rng_seed": int(python_rng_seed),
-    "lr_schedule": "damped_cosine_warm_restarts",
+    "lr_schedule": "damped_periodic_cosine",
     "lr_restart_cycle": int(lr_restart_cycle),
     "lr_restart_decay": float(lr_restart_decay),
     "lr_min_ratio": float(lr_min_ratio),
