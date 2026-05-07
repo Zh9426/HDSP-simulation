@@ -19,6 +19,9 @@ def aggregate_z_quality_terms(terms_by_z):
     coverage = stack_term(terms_by_z, "target_coverage")
     p05_over_p50 = stack_term(terms_by_z, "target_p05_over_p50")
     p10_over_p50 = stack_term(terms_by_z, "target_p10_over_p50")
+    p90_over_p50 = stack_term(terms_by_z, "target_p90_over_p50")
+    p95_over_p50 = stack_term(terms_by_z, "target_p95_over_p50")
+    peak_over_p50 = stack_term(terms_by_z, "target_peak_over_p50")
     p90_over_mean = stack_term(terms_by_z, "target_p90_over_mean")
     p95_over_mean = stack_term(terms_by_z, "target_p95_over_mean")
     peak_over_mean = stack_term(terms_by_z, "target_peak_over_mean")
@@ -60,10 +63,18 @@ def aggregate_z_quality_terms(terms_by_z):
         "worst_target_cv": worst_target_cv,
         "worst_cv_loss": worst_target_cv**2,
         "mean_peak_balance_loss": torch.mean(stack_term(terms_by_z, "peak_balance_loss")),
+        "mean_target_band_loss": torch.mean(stack_term(terms_by_z, "target_band_loss")),
+        "worst_target_band_loss": torch.max(stack_term(terms_by_z, "target_band_loss")),
         "worst_peak_balance_loss": torch.max(stack_term(terms_by_z, "peak_balance_loss")),
+        "mean_target_p90_over_p50": torch.mean(p90_over_p50),
+        "mean_target_p95_over_p50": torch.mean(p95_over_p50),
+        "mean_target_peak_over_p50": torch.mean(peak_over_p50),
         "mean_target_p90_over_mean": torch.mean(p90_over_mean),
         "mean_target_p95_over_mean": torch.mean(p95_over_mean),
         "mean_target_peak_over_mean": torch.mean(peak_over_mean),
+        "worst_target_p90_over_p50": torch.max(p90_over_p50),
+        "worst_target_p95_over_p50": torch.max(p95_over_p50),
+        "worst_target_peak_over_p50": torch.max(peak_over_p50),
         "worst_target_p95_over_mean": torch.max(p95_over_mean),
         "worst_target_peak_over_mean": torch.max(peak_over_mean),
         "mean_dark_area_fraction": torch.mean(stack_term(terms_by_z, "dark_area_fraction")),
@@ -119,8 +130,12 @@ def compute_cure_quality_terms(
             "target_coverage": zero,
             "low_quantile_loss": zero,
             "peak_balance_loss": zero,
+            "target_band_loss": zero,
             "target_p05_over_p50": zero,
             "target_p10_over_p50": zero,
+            "target_p90_over_p50": zero,
+            "target_p95_over_p50": zero,
+            "target_peak_over_p50": zero,
             "target_p90_over_mean": zero,
             "target_p95_over_mean": zero,
             "target_peak_over_mean": zero,
@@ -153,15 +168,25 @@ def compute_cure_quality_terms(
     target_p05 = torch.quantile(inside_amp_vals, 0.05)
     target_p05_over_p50 = target_p05 / (target_p50 + 1e-8)
     target_p10_over_p50 = target_p10 / (target_p50 + 1e-8)
+    target_p90_over_p50 = target_p90 / (target_p50 + 1e-8)
+    target_p95_over_p50 = target_p95 / (target_p50 + 1e-8)
+    target_peak_over_p50 = target_peak / (target_p50 + 1e-8)
     target_p90_over_mean = target_p90 / (target_mean + 1e-8)
     target_p95_over_mean = target_p95 / (target_mean + 1e-8)
     target_peak_over_mean = target_peak / (target_mean + 1e-8)
     low_quantile_target = torch.tensor(low_quantile_goal, dtype=pred_amp_norm.dtype, device=pred_amp_norm.device)
     low_quantile_loss = torch.relu(low_quantile_target - target_p10_over_p50) ** 2
     peak_balance_loss = (
-        torch.relu(target_p90_over_mean - 1.18) ** 2
-        + 1.5 * torch.relu(target_p95_over_mean - 1.25) ** 2
-        + 0.8 * torch.relu(target_peak_over_mean - 1.60) ** 2
+        torch.relu(target_p90_over_mean - 1.12) ** 2
+        + 1.5 * torch.relu(target_p95_over_mean - 1.18) ** 2
+        + 0.8 * torch.relu(target_peak_over_mean - 1.45) ** 2
+    )
+    target_band_loss = (
+        1.8 * torch.relu(0.90 - target_p05_over_p50) ** 2
+        + 2.4 * torch.relu(0.94 - target_p10_over_p50) ** 2
+        + 1.4 * torch.relu(target_p90_over_p50 - 1.08) ** 2
+        + 2.0 * torch.relu(target_p95_over_p50 - 1.12) ** 2
+        + 0.8 * torch.relu(target_peak_over_p50 - 1.45) ** 2
     )
     target_mean_amp_loss = zero
     if target_mean_amp_goal is not None:
@@ -192,6 +217,7 @@ def compute_cure_quality_terms(
         + 0.4 * torch.log1p(target_to_global_mean)
         - 0.7 * target_mean_amp_loss
         - 1.2 * peak_balance_loss
+        - 2.0 * target_band_loss
         - 0.8 * dark_area_fraction
         - 0.2 * halo_loss
     )
@@ -213,8 +239,12 @@ def compute_cure_quality_terms(
         "target_coverage": target_coverage,
         "low_quantile_loss": low_quantile_loss,
         "peak_balance_loss": peak_balance_loss,
+        "target_band_loss": target_band_loss,
         "target_p05_over_p50": target_p05_over_p50,
         "target_p10_over_p50": target_p10_over_p50,
+        "target_p90_over_p50": target_p90_over_p50,
+        "target_p95_over_p50": target_p95_over_p50,
+        "target_peak_over_p50": target_peak_over_p50,
         "target_p90_over_mean": target_p90_over_mean,
         "target_p95_over_mean": target_p95_over_mean,
         "target_peak_over_mean": target_peak_over_mean,
