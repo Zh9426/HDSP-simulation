@@ -61,7 +61,7 @@ results.created_at = char(datetime('now', 'Format', 'yyyy-MM-dd HH:mm:ss'));
 
 save(fullfile(cfg.output_dir, 'initial_phase_pressure_results.mat'), 'results', '-v7.3');
 plot_phase_pressure_comparison(results, fullfile(cfg.output_dir, 'initial_phase_pressure_overview.png'));
-write_phase_pressure_summary(results, fullfile(cfg.output_dir, 'summary.txt'), fullfile(cfg.output_dir, 'summary.json'));
+summary_report = write_phase_pressure_summary(results, fullfile(cfg.output_dir, 'summary.txt'), fullfile(cfg.output_dir, 'summary.json'));
 
 fprintf('\n==================================================\n');
 for idx = 1:numel(phase_cases)
@@ -69,6 +69,18 @@ for idx = 1:numel(phase_cases)
     fprintf('%-14s | best z offset %+5.2f mm | target mean %.3g Pa | peak/mean %.2f | CV %.3f | EE %.2f%%\n', ...
         phase_cases(idx).label, phase_cases(idx).kwave.best_z_offset_m * 1e3, ...
         m.mean_target_pressure_pa, m.target_peak_over_mean, m.target_uniformity_cv, m.energy_efficiency * 100);
+end
+if isfield(summary_report, 'comparison')
+    c = summary_report.comparison;
+    fprintf('History rank    | %d / %d by %s\n', c.rank, c.num_compared_runs, c.ranking_metric);
+    fprintf('History status  | %s\n', c.status);
+    if isfield(c, 'prior_best') && isfield(c.prior_best, 'commit')
+        fprintf('Prior best      | %s | score %.4f\n', c.prior_best.commit, c.prior_best.score);
+        fprintf('Delta vs best   | score %+.4f | PCC %+.4f | EE %+.2f%% | CV %+.4f\n', ...
+            c.delta_vs_prior_best.score, c.delta_vs_prior_best.pcc, ...
+            c.delta_vs_prior_best.energy_efficiency * 100, c.delta_vs_prior_best.target_uniformity_cv);
+    end
+    fprintf('Next direction  | %s\n', c.recommendation);
 end
 fprintf('Outputs written under ignored directory: %s\n', cfg.output_dir);
 fprintf('==================================================\n');

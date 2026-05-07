@@ -1,4 +1,4 @@
-function write_phase_pressure_summary(results, txt_path, json_path)
+function summary = write_phase_pressure_summary(results, txt_path, json_path)
 %WRITE_PHASE_PRESSURE_SUMMARY Write compact text and JSON metric reports.
 fid = fopen(txt_path, 'w');
 if fid < 0
@@ -86,6 +86,30 @@ for idx = 1:numel(results.phase_cases)
         summary.cases(idx).optimizer_metrics = case_now.optimizer_metrics;
     end
 end
+
+comparison = compare_initial_phase_history(summary, results.cfg);
+summary.comparison = comparison;
+
+fprintf(fid, '[History Comparison]\n');
+fprintf(fid, 'ranking_metric: %s\n', comparison.ranking_metric);
+fprintf(fid, 'status: %s\n', comparison.status);
+fprintf(fid, 'current_commit: %s\n', comparison.current_commit);
+fprintf(fid, 'rank: %d / %d\n', comparison.rank, comparison.num_compared_runs);
+if isfield(comparison, 'current') && isfield(comparison.current, 'score')
+    fprintf(fid, 'current_score: %.6f\n', comparison.current.score);
+end
+if isfield(comparison, 'prior_best') && isfield(comparison.prior_best, 'commit')
+    fprintf(fid, 'prior_best_commit: %s\n', comparison.prior_best.commit);
+    fprintf(fid, 'prior_best_score: %.6f\n', comparison.prior_best.score);
+    d = comparison.delta_vs_prior_best;
+    fprintf(fid, 'delta_score: %.6f\n', d.score);
+    fprintf(fid, 'delta_pcc: %.6f\n', d.pcc);
+    fprintf(fid, 'delta_energy_efficiency: %.6f\n', d.energy_efficiency);
+    fprintf(fid, 'delta_target_uniformity_cv: %.6f\n', d.target_uniformity_cv);
+    fprintf(fid, 'delta_target_p10_over_p50: %.6f\n', d.target_p10_over_p50);
+    fprintf(fid, 'delta_target_peak_over_mean: %.6f\n', d.target_peak_over_mean);
+end
+fprintf(fid, 'recommendation: %s\n\n', comparison.recommendation);
 fclose(fid);
 
 fid_json = fopen(json_path, 'w');
