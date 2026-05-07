@@ -41,8 +41,10 @@ cfg.iasa_beta = 0.65;
 cfg.iasa_dark_weight = 0.02;
 cfg.iasa_target_gain_limit = 8.0;
 
-cfg.python_epochs = 2500;
-cfg.python_learning_rate = 0.35;
+cfg.python_epochs = 10000;
+cfg.python_learning_rate = 0.06;
+cfg.python_min_epochs = 6500;
+cfg.python_early_stop_patience = 1400;
 cfg.python_executable = 'python';
 
 cfg.git_commit_short = get_git_commit_short();

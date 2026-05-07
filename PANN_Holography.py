@@ -149,6 +149,12 @@ min_base_layers = int(data["min_base_layers"].item()) if "min_base_layers" in da
 target_threshold_norm = float(data["target_threshold_norm"].item()) if "target_threshold_norm" in data else 0.60
 low_quantile_goal = float(data["low_quantile_goal"].item()) if "low_quantile_goal" in data else 0.88
 target_mean_amp_goal_ratio = float(data["target_mean_amp_goal_ratio"].item()) if "target_mean_amp_goal_ratio" in data else 0.12
+epochs = int(data["python_epochs"].item()) if "python_epochs" in data else 10000
+learning_rate = float(data["python_learning_rate"].item()) if "python_learning_rate" in data else 0.06
+min_epochs = int(data["python_min_epochs"].item()) if "python_min_epochs" in data else min(6500, epochs)
+early_stop_patience = (
+    int(data["python_early_stop_patience"].item()) if "python_early_stop_patience" in data else 1400
+)
 if transport_is_current and "python_z_constraint_offsets_m" in data:
     z_constraint_offsets = np.asarray(data["python_z_constraint_offsets_m"], dtype=np.float32).reshape(-1)
 else:
@@ -223,13 +229,15 @@ initial_phase = (torch.rand(Nx, Ny, device=device) * TWO_PI) - math.pi
 phase_map = torch.nn.Parameter(initial_phase)
 phase_bias = torch.nn.Parameter(torch.zeros(1, device=device))
 
-optimizer = optim.Adam([phase_map, phase_bias], lr=0.06)
-scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=2500, eta_min=0.003)
-epochs = 10000
+optimizer = optim.AdamW([phase_map, phase_bias], lr=learning_rate, weight_decay=0.0)
+scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=max(learning_rate * 0.015, 5e-4))
 
 best_loss = float("inf")
 best_quality_score = -float("inf")
 best_state = None
+best_epoch = 0
+stop_reason = "max_epochs"
+top_quality_records = []
 history = []
 
 for epoch in range(epochs):
@@ -341,6 +349,7 @@ for epoch in range(epochs):
                 float(z_terms["mean_target_p95_over_mean"].detach().cpu()),
                 float(z_terms["mean_target_peak_over_mean"].detach().cpu()),
                 float(loss_peak_balance.detach().cpu()),
+                float(optimizer.param_groups[0]["lr"]),
             ]
         )
 
@@ -356,11 +365,28 @@ for epoch in range(epochs):
 
     if quality_score.item() > best_quality_score:
         best_quality_score = quality_score.item()
+        best_epoch = epoch + 1
         best_state = {
             "phase_map": phase_map.detach().clone(),
             "phase_bias": phase_bias.detach().clone(),
             "epoch": epoch + 1,
+            "learning_rate": optimizer.param_groups[0]["lr"],
         }
+        top_quality_records.append(
+            {
+                "epoch": epoch + 1,
+                "quality_score": float(quality_score.detach().cpu()),
+                "total_loss": float(total_loss.detach().cpu()),
+                "amplitude_corr": float((1.0 - loss_amp_corr).detach().cpu()),
+                "mean_energy_efficiency": float(current_ee.detach().cpu()),
+                "mean_target_cv": float(z_terms["mean_target_cv"].detach().cpu()),
+                "mean_target_p10_over_p50": float(z_terms["mean_target_p10_over_p50"].detach().cpu()),
+                "mean_target_peak_over_mean": float(z_terms["mean_target_peak_over_mean"].detach().cpu()),
+                "mean_target_coverage": float(z_terms["mean_target_coverage"].detach().cpu()),
+                "learning_rate": optimizer.param_groups[0]["lr"],
+            }
+        )
+        top_quality_records = sorted(top_quality_records, key=lambda item: item["quality_score"], reverse=True)[:5]
 
     if (epoch + 1) % 100 == 0:
         print(
@@ -373,6 +399,14 @@ for epoch in range(epochs):
             f"| ThrLoss: {loss_threshold.item():.4f} | DarkArea: {loss_dark_area.item():.4f} "
             f"| Quality: {quality_score.item():.4f} | Loss: {total_loss.item():.4f}"
         )
+
+    if epoch + 1 >= min_epochs and epoch + 1 - best_epoch >= early_stop_patience:
+        stop_reason = f"early_stop_no_quality_gain_{early_stop_patience}"
+        print(
+            f"[INFO] Early stopping at epoch {epoch + 1}: best quality "
+            f"{best_quality_score:.4f} was reached at epoch {best_epoch}."
+        )
+        break
 
 # 4. export dithered result
 phase_map_final = best_state["phase_map"]
@@ -414,7 +448,14 @@ best_metrics = {
     "best_loss": float(best_loss),
     "best_quality_score": float(best_quality_score),
     "selected_epoch": int(best_state["epoch"]),
-    "final_epoch": int(epochs),
+    "final_epoch": int(history_np[-1, 0]) if history_np.size else 0,
+    "configured_epochs": int(epochs),
+    "stop_reason": stop_reason,
+    "selected_learning_rate": float(best_state["learning_rate"]),
+    "initial_learning_rate": float(learning_rate),
+    "min_epochs": int(min_epochs),
+    "early_stop_patience": int(early_stop_patience),
+    "top_quality_records_json": json.dumps(top_quality_records),
     "device": str(device),
     "target_threshold_norm": float(target_threshold_norm),
     "low_quantile_goal": float(low_quantile_goal),
@@ -481,12 +522,14 @@ np.savetxt(
     os.path.join(branch_output_dir, "pann_training_history.csv"),
     history_np,
     delimiter=",",
-    header="epoch,total_loss,amplitude_corr,mean_energy_efficiency,amplitude_wmse,mean_energy_uniformity_loss,mean_halo_loss,mean_dark_loss,mean_dark_area_loss,phase_margin,mean_target_cv,worst_target_cv,mean_threshold_loss,mean_target_p10_over_p50,mean_dark_area_fraction,quality_score,mean_target_coverage,mean_low_quantile_loss,mean_target_mean_amp_loss,mean_target_mean_amp_raw,mean_target_to_global_mean,worst_target_coverage,worst_target_p10_over_p50,mean_target_p05_over_p50,mean_target_p90_over_mean,mean_target_p95_over_mean,mean_target_peak_over_mean,mean_peak_balance_loss",
+    header="epoch,total_loss,amplitude_corr,mean_energy_efficiency,amplitude_wmse,mean_energy_uniformity_loss,mean_halo_loss,mean_dark_loss,mean_dark_area_loss,phase_margin,mean_target_cv,worst_target_cv,mean_threshold_loss,mean_target_p10_over_p50,mean_dark_area_fraction,quality_score,mean_target_coverage,mean_low_quantile_loss,mean_target_mean_amp_loss,mean_target_mean_amp_raw,mean_target_to_global_mean,worst_target_coverage,worst_target_p10_over_p50,mean_target_p05_over_p50,mean_target_p90_over_mean,mean_target_p95_over_mean,mean_target_peak_over_mean,mean_peak_balance_loss,learning_rate",
     comments="",
 )
 
+json_metrics = dict(best_metrics)
+json_metrics["top_quality_records"] = top_quality_records
 with open(os.path.join(branch_output_dir, "pann_training_summary.json"), "w", encoding="utf-8") as f:
-    json.dump(best_metrics, f, indent=2)
+    json.dump(json_metrics, f, indent=2)
 
 try:
     import matplotlib.pyplot as plt
