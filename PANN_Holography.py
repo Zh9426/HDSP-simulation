@@ -225,7 +225,7 @@ phase_bias = torch.nn.Parameter(torch.zeros(1, device=device))
 
 optimizer = optim.Adam([phase_map, phase_bias], lr=0.06)
 scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=2500, eta_min=0.003)
-epochs = 5000
+epochs = 10000
 
 best_loss = float("inf")
 best_quality_score = -float("inf")
