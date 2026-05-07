@@ -211,23 +211,13 @@ x_vec = torch.linspace(-Lx / 2, Lx / 2, Nx, device=device)
 y_vec = torch.linspace(-Lx / 2, Lx / 2, Ny, device=device)
 Y_grid, X_grid = torch.meshgrid(y_vec, x_vec, indexing="ij")
 source_mask = ((X_grid**2 + Y_grid**2) <= (32e-3) ** 2).float()
-dump_center_x = torch.tensor(-24e-3, dtype=torch.float32, device=device)
-dump_center_y = torch.tensor(24e-3, dtype=torch.float32, device=device)
-dump_radius = torch.tensor(2.2e-3, dtype=torch.float32, device=device)
-dump_mask = (((X_grid - dump_center_x) ** 2 + (Y_grid - dump_center_y) ** 2) <= dump_radius**2).float()
-dump_mask = torch.clamp(dump_mask * far_dark_mask, min=0.0, max=1.0)
-non_dump_dark_mask = torch.clamp(far_dark_mask * (1.0 - dump_mask), min=0.0, max=1.0)
 target_mean_amp_goal = target_mean_amp_goal_ratio * math.sqrt(
     float(torch.sum(source_mask).detach().cpu()) / (float(torch.sum(target_binary).detach().cpu()) + 1e-8)
 )
 
-weight_map = (
-    0.2
-    + 5.0 * target_binary
-    + 1.2 * halo_mask
-    + 1.4 * non_dump_dark_mask
-    + 0.02 * dump_mask
-)
+target_weight = 1.0 + 5.0 * target_binary
+dark_weight = 1.0 + 1.0 * halo_mask + 1.5 * far_dark_mask
+weight_map = target_weight + dark_weight
 
 initial_phase = (torch.rand(Nx, Ny, device=device) * TWO_PI) - math.pi
 phase_map = torch.nn.Parameter(initial_phase)
@@ -260,7 +250,6 @@ for epoch in range(epochs):
             target_binary,
             halo_mask,
             far_dark_mask,
-            dump_mask=dump_mask,
             pred_amp_raw=pred_amp,
             threshold_norm=target_threshold_norm,
             low_quantile_goal=low_quantile_goal,
@@ -286,8 +275,6 @@ for epoch in range(epochs):
     loss_target_mean_amp = z_terms["mean_target_mean_amp_loss"]
     loss_target_contrast = z_terms["mean_target_contrast_loss"]
     loss_peak_balance = z_terms["mean_peak_balance_loss"]
-    loss_target_band = z_terms["mean_target_band_loss"]
-    loss_non_dump_dark = z_terms["mean_non_dump_dark_energy_fraction"]
     loss_halo = z_terms["mean_halo_loss"]
     loss_dark = z_terms["mean_dark_mean_loss"]
     loss_dark_area = z_terms["mean_dark_area_loss"]
@@ -307,8 +294,6 @@ for epoch in range(epochs):
         + 4.0 * z_terms["worst_target_coverage_loss"]
         + 3.0 * z_terms["worst_low_quantile_loss"]
         + 1.5 * z_terms["worst_cv_loss"]
-        + 1.2 * loss_target_band
-        + 0.5 * z_terms["worst_target_band_loss"]
         + 4.0 * loss_peak_balance
         + 2.0 * z_terms["worst_peak_balance_loss"]
         + 2.0 * loss_target_mean_amp
@@ -319,7 +304,6 @@ for epoch in range(epochs):
         + 0.7 * loss_amp_corr
         + 0.4 * loss_amp_wmse
         + 0.6 * loss_dark_area
-        + 0.4 * loss_non_dump_dark
         + 0.2 * loss_dark
         + 0.4 * loss_halo
         + 0.15 * loss_layer_margin
@@ -357,12 +341,6 @@ for epoch in range(epochs):
                 float(z_terms["mean_target_p95_over_mean"].detach().cpu()),
                 float(z_terms["mean_target_peak_over_mean"].detach().cpu()),
                 float(loss_peak_balance.detach().cpu()),
-                float(z_terms["mean_target_p90_over_p50"].detach().cpu()),
-                float(z_terms["mean_target_p95_over_p50"].detach().cpu()),
-                float(z_terms["mean_target_peak_over_p50"].detach().cpu()),
-                float(loss_target_band.detach().cpu()),
-                float(z_terms["mean_dump_energy_fraction"].detach().cpu()),
-                float(z_terms["mean_non_dump_dark_energy_fraction"].detach().cpu()),
             ]
         )
 
@@ -390,9 +368,7 @@ for epoch in range(epochs):
             f"| MeanCov: {z_terms['mean_target_coverage'].item() * 100:.2f}% | WorstCov: {z_terms['worst_target_coverage'].item() * 100:.2f}% "
             f"| WorstP10/P50: {z_terms['worst_target_p10_over_p50'].item():.4f} "
             f"| WorstCV: {z_terms['worst_target_cv'].item():.4f} | EE: {current_ee.item() * 100:.2f}% "
-            f"| P05/P50: {z_terms['mean_target_p05_over_p50'].item():.3f} | P95/P50: {z_terms['mean_target_p95_over_p50'].item():.3f} "
-            f"| Peak/P50: {z_terms['mean_target_peak_over_p50'].item():.3f} "
-            f"| DumpE: {z_terms['mean_dump_energy_fraction'].item() * 100:.2f}% "
+            f"| P95/Mean: {z_terms['mean_target_p95_over_mean'].item():.3f} | Peak/Mean: {z_terms['mean_target_peak_over_mean'].item():.3f} "
             f"| MeanAmp: {z_terms['mean_target_mean_raw'].item():.3f}/{target_mean_amp_goal:.3f} "
             f"| ThrLoss: {loss_threshold.item():.4f} | DarkArea: {loss_dark_area.item():.4f} "
             f"| Quality: {quality_score.item():.4f} | Loss: {total_loss.item():.4f}"
@@ -419,7 +395,6 @@ best_quality_terms = compute_cure_quality_terms(
     target_binary,
     halo_mask,
     far_dark_mask,
-    dump_mask=dump_mask,
     pred_amp_raw=best_amp,
     threshold_norm=target_threshold_norm,
     low_quantile_goal=low_quantile_goal,
@@ -428,7 +403,6 @@ best_quality_terms = compute_cure_quality_terms(
 best_energy = best_quality_terms["pred_energy"]
 best_target_vals = best_amp_norm[target_binary > 0.5]
 best_dark_vals = best_amp_norm[far_dark_mask > 0.5]
-best_non_dump_dark_vals = best_amp_norm[non_dump_dark_mask > 0.5]
 best_target_p05 = torch.quantile(best_target_vals, 0.05) if best_target_vals.numel() > 4 else torch.tensor(0.0, device=device)
 best_target_p10 = torch.quantile(best_target_vals, 0.10) if best_target_vals.numel() > 4 else torch.tensor(0.0, device=device)
 best_target_p50 = torch.quantile(best_target_vals, 0.50) if best_target_vals.numel() > 4 else torch.tensor(0.0, device=device)
@@ -455,19 +429,12 @@ best_metrics = {
     "target_uniformity_cv": float((torch.std(best_target_vals) / (torch.mean(best_target_vals) + 1e-8)).detach().cpu()) if best_target_vals.numel() > 1 else 0.0,
     "target_p05_over_p50": float((best_target_p05 / (best_target_p50 + 1e-8)).detach().cpu()),
     "target_p10_over_p50": float((best_target_p10 / (best_target_p50 + 1e-8)).detach().cpu()),
-    "target_p90_over_p50": float((best_target_p90 / (best_target_p50 + 1e-8)).detach().cpu()),
-    "target_p95_over_p50": float((best_target_p95 / (best_target_p50 + 1e-8)).detach().cpu()),
-    "target_peak_over_p50": float((best_target_peak / (best_target_p50 + 1e-8)).detach().cpu()),
     "target_p90_over_mean": float((best_target_p90 / (best_target_mean + 1e-8)).detach().cpu()),
     "target_p95_over_mean": float((best_target_p95 / (best_target_mean + 1e-8)).detach().cpu()),
     "target_peak_over_mean": float((best_target_peak / (best_target_mean + 1e-8)).detach().cpu()),
     "target_peak_balance_loss": float(best_quality_terms["peak_balance_loss"].detach().cpu()),
-    "target_band_loss": float(best_quality_terms["target_band_loss"].detach().cpu()),
     "dark_mean_norm": float(torch.mean(best_dark_vals).detach().cpu()) if best_dark_vals.numel() > 1 else 0.0,
-    "non_dump_dark_mean_norm": float(torch.mean(best_non_dump_dark_vals).detach().cpu()) if best_non_dump_dark_vals.numel() > 1 else 0.0,
     "dark_area_fraction": float(best_quality_terms["dark_area_fraction"].detach().cpu()),
-    "dump_energy_fraction": float(best_quality_terms["dump_energy_fraction"].detach().cpu()),
-    "non_dump_dark_energy_fraction": float(best_quality_terms["non_dump_dark_energy_fraction"].detach().cpu()),
     "phase_bias_rad": float(phase_bias_final.item()),
     "phase_step_rad": float(phase_step),
     "layer_min": int(np.min(dithered_layers[mask_np > 0.5])),
@@ -484,7 +451,6 @@ sio.savemat(
         "phase_step": np.array([[phase_step]], dtype=np.float32),
         "line_target_mask": target_binary.detach().cpu().numpy().astype(np.float32),
         "halo_target_mask": halo_mask.detach().cpu().numpy().astype(np.float32),
-        "dump_zone_mask": dump_mask.detach().cpu().numpy().astype(np.float32),
         "python_loss_history": history_np,
         "python_metrics": best_metrics,
         "python_asm_amp_norm": best_amp_norm.detach().cpu().numpy().astype(np.float32),
@@ -504,7 +470,6 @@ sio.savemat(
         "python_loss_history": history_np,
         "python_metrics": best_metrics,
         "python_asm_amp_norm": best_amp_norm.detach().cpu().numpy().astype(np.float32),
-        "dump_zone_mask": dump_mask.detach().cpu().numpy().astype(np.float32),
         "target_threshold_norm": np.array([[target_threshold_norm]], dtype=np.float32),
         "low_quantile_goal": np.array([[low_quantile_goal]], dtype=np.float32),
         "target_mean_amp_goal": np.array([[target_mean_amp_goal]], dtype=np.float32),
@@ -516,7 +481,7 @@ np.savetxt(
     os.path.join(branch_output_dir, "pann_training_history.csv"),
     history_np,
     delimiter=",",
-    header="epoch,total_loss,amplitude_corr,mean_energy_efficiency,amplitude_wmse,mean_energy_uniformity_loss,mean_halo_loss,mean_dark_loss,mean_dark_area_loss,phase_margin,mean_target_cv,worst_target_cv,mean_threshold_loss,mean_target_p10_over_p50,mean_dark_area_fraction,quality_score,mean_target_coverage,mean_low_quantile_loss,mean_target_mean_amp_loss,mean_target_mean_amp_raw,mean_target_to_global_mean,worst_target_coverage,worst_target_p10_over_p50,mean_target_p05_over_p50,mean_target_p90_over_mean,mean_target_p95_over_mean,mean_target_peak_over_mean,mean_peak_balance_loss,mean_target_p90_over_p50,mean_target_p95_over_p50,mean_target_peak_over_p50,mean_target_band_loss,mean_dump_energy_fraction,mean_non_dump_dark_energy_fraction",
+    header="epoch,total_loss,amplitude_corr,mean_energy_efficiency,amplitude_wmse,mean_energy_uniformity_loss,mean_halo_loss,mean_dark_loss,mean_dark_area_loss,phase_margin,mean_target_cv,worst_target_cv,mean_threshold_loss,mean_target_p10_over_p50,mean_dark_area_fraction,quality_score,mean_target_coverage,mean_low_quantile_loss,mean_target_mean_amp_loss,mean_target_mean_amp_raw,mean_target_to_global_mean,worst_target_coverage,worst_target_p10_over_p50,mean_target_p05_over_p50,mean_target_p90_over_mean,mean_target_p95_over_mean,mean_target_peak_over_mean,mean_peak_balance_loss",
     comments="",
 )
 
@@ -539,9 +504,8 @@ try:
     axes[0, 1].grid(True, alpha=0.3)
     axes[1, 0].plot(history_np[:, 0], history_np[:, 10], label="Mean target CV")
     axes[1, 0].plot(history_np[:, 0], history_np[:, 11], label="Worst target CV")
-    axes[1, 0].plot(history_np[:, 0], history_np[:, 23], label="P05/P50")
-    axes[1, 0].plot(history_np[:, 0], history_np[:, 29], label="P95/P50")
-    axes[1, 0].plot(history_np[:, 0], history_np[:, 30], label="Peak/P50")
+    axes[1, 0].plot(history_np[:, 0], history_np[:, 25], label="P95/Mean")
+    axes[1, 0].plot(history_np[:, 0], history_np[:, 26], label="Peak/Mean")
     axes[1, 0].plot(history_np[:, 0], history_np[:, 19], label="Target mean amp")
     axes[1, 0].axhline(target_mean_amp_goal, color="gray", linestyle="--", linewidth=1.0, label="Mean amp goal")
     axes[1, 0].set_title("Cure-quality constraints")

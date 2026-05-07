@@ -29,13 +29,9 @@ for idx = 1:numel(results.phase_cases)
     fprintf(fid, 'target_uniformity_cv: %.6f\n', m.target_uniformity_cv);
     fprintf(fid, 'target_p05_over_p50: %.6f\n', m.target_p05_over_p50);
     fprintf(fid, 'target_p10_over_p50: %.6f\n', m.target_p10_over_p50);
-    fprintf(fid, 'target_p90_over_p50: %.6f\n', m.target_p90_over_p50);
-    fprintf(fid, 'target_p95_over_p50: %.6f\n', m.target_p95_over_p50);
-    fprintf(fid, 'target_peak_over_p50: %.6f\n', m.target_peak_over_p50);
     fprintf(fid, 'target_p90_over_mean: %.6f\n', m.target_p90_over_mean);
     fprintf(fid, 'target_p95_over_mean: %.6f\n', m.target_p95_over_mean);
     fprintf(fid, 'target_peak_over_mean: %.6f\n', m.target_peak_over_mean);
-    fprintf(fid, 'target_band_loss: %.6f\n', m.target_band_loss);
     fprintf(fid, 'target_pressure_quality_score: %.6f\n', m.target_pressure_quality_score);
     fprintf(fid, 'focus_contrast: %.6f\n', m.focus_contrast);
     fprintf(fid, 'energy_efficiency: %.6f\n', m.energy_efficiency);
@@ -67,13 +63,9 @@ for idx = 1:numel(results.phase_cases)
     summary.cases(idx).target_uniformity_cv = m.target_uniformity_cv;
     summary.cases(idx).target_p05_over_p50 = m.target_p05_over_p50;
     summary.cases(idx).target_p10_over_p50 = m.target_p10_over_p50;
-    summary.cases(idx).target_p90_over_p50 = m.target_p90_over_p50;
-    summary.cases(idx).target_p95_over_p50 = m.target_p95_over_p50;
-    summary.cases(idx).target_peak_over_p50 = m.target_peak_over_p50;
     summary.cases(idx).target_p90_over_mean = m.target_p90_over_mean;
     summary.cases(idx).target_p95_over_mean = m.target_p95_over_mean;
     summary.cases(idx).target_peak_over_mean = m.target_peak_over_mean;
-    summary.cases(idx).target_band_loss = m.target_band_loss;
     summary.cases(idx).target_pressure_quality_score = m.target_pressure_quality_score;
     summary.cases(idx).focus_contrast = m.focus_contrast;
     summary.cases(idx).energy_efficiency = m.energy_efficiency;

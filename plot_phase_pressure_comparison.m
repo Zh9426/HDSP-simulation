@@ -50,8 +50,8 @@ yyaxis left;
 bar(xpos, mean_vals);
 ylabel('Target mean pressure (Pa)');
 yyaxis right;
-plot(xpos, arrayfun(@(c) c.kwave.metrics.target_peak_over_p50, cases), 'ko-', 'LineWidth', 1.6);
-ylabel('Target peak / P50');
+plot(xpos, arrayfun(@(c) c.kwave.metrics.target_peak_over_mean, cases), 'ko-', 'LineWidth', 1.6);
+ylabel('Target peak / mean');
 set(gca, 'XTick', xpos, 'XTickLabel', cellstr(labels));
 title('k-Wave Pressure Metrics');
 grid on;
@@ -86,9 +86,9 @@ title('Low Quantile Coverage');
 grid on;
 
 nexttile;
-bar(xpos, arrayfun(@(c) c.kwave.metrics.target_peak_over_p50, cases));
+bar(xpos, arrayfun(@(c) c.kwave.metrics.target_peak_over_mean, cases));
 set(gca, 'XTick', xpos, 'XTickLabel', cellstr(labels));
-ylabel('Target peak / P50');
+ylabel('Target peak / mean');
 title('Target Spike Penalty');
 grid on;
 
