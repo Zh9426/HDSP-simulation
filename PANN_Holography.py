@@ -10,6 +10,8 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
+from pann_quality_metrics import compute_cure_quality_terms
+
 TWO_PI = 2.0 * math.pi
 
 
@@ -90,7 +92,7 @@ branch_output_dir = os.path.join(repo_dir, "initial_phase_outputs")
 os.makedirs(branch_output_dir, exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("\n[INFO] PANN-Pressure-Holo start: energy-uniformity + efficiency optimization")
+print("\n[INFO] PANN-Pressure-Holo start: threshold coverage + target uniformity optimization")
 
 if not os.path.exists(input_file):
     raise FileNotFoundError(f"Cannot find transport input: {input_file}")
@@ -110,6 +112,8 @@ c_water = float(data["c_water"].item())
 c_board = float(data["c_board"].item())
 thermal_sigma_px = float(data["thermal_sigma_px"].item()) if "thermal_sigma_px" in data else 1.0
 min_base_layers = int(data["min_base_layers"].item()) if "min_base_layers" in data else 2
+target_threshold_norm = float(data["target_threshold_norm"].item()) if "target_threshold_norm" in data else 0.60
+low_quantile_goal = float(data["low_quantile_goal"].item()) if "low_quantile_goal" in data else 0.88
 
 # 1. target shaping
 resolution_limit_mm = 0.61 * lambda_water * 1000.0
@@ -163,7 +167,7 @@ Y_grid, X_grid = torch.meshgrid(y_vec, x_vec, indexing="ij")
 source_mask = ((X_grid**2 + Y_grid**2) <= (32e-3) ** 2).float()
 
 target_weight = 1.0 + 5.0 * target_binary
-dark_weight = 1.0 + 2.0 * halo_mask + 8.0 * far_dark_mask
+dark_weight = 1.0 + 1.0 * halo_mask + 1.5 * far_dark_mask
 weight_map = target_weight + dark_weight
 
 initial_phase = (torch.rand(Nx, Ny, device=device) * TWO_PI) - math.pi
@@ -188,78 +192,49 @@ for epoch in range(epochs):
 
     pred_amp = torch.abs(target_field)
     pred_amp_norm = normalize_map(pred_amp)
-    pred_energy = normalize_map(pred_amp**2)
+    quality_terms = compute_cure_quality_terms(
+        pred_amp_norm,
+        target_binary,
+        halo_mask,
+        far_dark_mask,
+        threshold_norm=target_threshold_norm,
+        low_quantile_goal=low_quantile_goal,
+    )
+    pred_energy = quality_terms["pred_energy"]
 
     loss_amp_corr = pearson_correlation_loss(pred_amp_norm, target_raw_norm)
     loss_amp_wmse = torch.mean(weight_map * (pred_amp_norm - target_raw_norm) ** 2)
 
-    inside_energy_vals = pred_energy[target_binary > 0.5]
-    inside_amp_vals = pred_amp_norm[target_binary > 0.5]
-    loss_energy_uniformity = (
-        torch.var(inside_energy_vals) / (torch.mean(inside_energy_vals) ** 2 + 1e-8)
-        if inside_energy_vals.numel() > 4
-        else torch.tensor(0.0, device=device)
-    )
-    loss_amp_uniformity = (
-        torch.var(inside_amp_vals) / (torch.mean(inside_amp_vals) ** 2 + 1e-8)
-        if inside_amp_vals.numel() > 4
-        else torch.tensor(0.0, device=device)
-    )
-
-    target_mean_amp = torch.mean(inside_amp_vals) if inside_amp_vals.numel() > 4 else torch.tensor(0.0, device=device)
-    target_floor = 0.55 * target_mean_amp
-    loss_target_floor = (
-        torch.mean(torch.relu(target_floor - inside_amp_vals) ** 2) / (target_mean_amp**2 + 1e-8)
-        if inside_amp_vals.numel() > 4
-        else torch.tensor(0.0, device=device)
-    )
-
-    halo_vals = pred_energy[halo_mask > 0.5]
-    loss_halo = torch.mean(halo_vals) if halo_vals.numel() > 4 else torch.tensor(0.0, device=device)
-    dark_energy_vals = pred_energy[far_dark_mask > 0.5]
-    dark_amp_vals = pred_amp_norm[far_dark_mask > 0.5]
-    loss_dark = torch.mean(dark_energy_vals)
-    dark_area_floor = 0.35 * target_mean_amp
-    loss_dark_area = (
-        torch.mean(torch.relu(dark_amp_vals - dark_area_floor) ** 2) / (target_mean_amp**2 + 1e-8)
-        if dark_amp_vals.numel() > 4
-        else torch.tensor(0.0, device=device)
-    )
-
-    current_ee = torch.sum(pred_energy * target_binary) / (torch.sum(pred_energy) + 1e-8)
+    loss_energy_uniformity = quality_terms["energy_uniformity_loss"]
+    loss_amp_uniformity = quality_terms["amp_uniformity_loss"]
+    loss_threshold = quality_terms["threshold_loss"]
+    loss_low_quantile = quality_terms["low_quantile_loss"]
+    loss_halo = quality_terms["halo_loss"]
+    loss_dark = quality_terms["dark_mean_loss"]
+    loss_dark_area = quality_terms["dark_area_loss"]
+    current_ee = quality_terms["energy_efficiency"]
     loss_ee = 1.0 - current_ee
 
     loss_layer_margin = torch.mean((layer_continuous - torch.round(layer_continuous)) ** 2)
-    quality_score = (
-        3.0 * current_ee
-        + 1.4 * (1.0 - loss_amp_corr)
-        - 1.6 * loss_energy_uniformity
-        - 1.4 * loss_target_floor
-        - 0.9 * loss_dark_area
-        - 0.3 * loss_halo
-    )
+    quality_score = quality_terms["quality_score"] + 0.25 * (1.0 - loss_amp_corr)
 
     total_loss = (
-        5.0 * loss_ee
-        + 3.0 * loss_energy_uniformity
-        + 2.0 * loss_target_floor
-        + 1.0 * loss_amp_uniformity
-        + 2.0 * loss_dark_area
-        + 1.0 * loss_dark
-        + 1.2 * loss_amp_corr
-        + 1.0 * loss_amp_wmse
-        + 0.8 * loss_halo
+        7.0 * loss_threshold
+        + 5.0 * loss_low_quantile
+        + 3.5 * loss_amp_uniformity
+        + 2.0 * loss_energy_uniformity
+        + 0.8 * loss_ee
+        + 0.7 * loss_amp_corr
+        + 0.4 * loss_amp_wmse
+        + 0.6 * loss_dark_area
+        + 0.2 * loss_dark
+        + 0.4 * loss_halo
         + 0.15 * loss_layer_margin
     )
 
     with torch.no_grad():
         target_mean = torch.mean(pred_amp[target_binary > 0.5]) if torch.any(target_binary > 0.5) else torch.tensor(0.0, device=device)
-        target_std = torch.std(pred_amp[target_binary > 0.5]) if torch.sum(target_binary > 0.5) > 1 else torch.tensor(0.0, device=device)
-        target_cv = target_std / (target_mean + 1e-8)
-        target_p10 = torch.quantile(inside_amp_vals, 0.10) if inside_amp_vals.numel() > 4 else torch.tensor(0.0, device=device)
-        target_p50 = torch.quantile(inside_amp_vals, 0.50) if inside_amp_vals.numel() > 4 else torch.tensor(0.0, device=device)
         far_dark_mean = torch.mean(pred_amp[far_dark_mask > 0.5]) if torch.any(far_dark_mask > 0.5) else torch.tensor(0.0, device=device)
-        dark_area_fraction = torch.mean((dark_amp_vals > dark_area_floor).float()) if dark_amp_vals.numel() > 4 else torch.tensor(0.0, device=device)
         target_dark_contrast = target_mean / (far_dark_mean + 1e-8)
         phase_margin = torch.mean(torch.abs(layer_continuous - torch.round(layer_continuous)))
         history.append(
@@ -274,12 +249,14 @@ for epoch in range(epochs):
                 float(loss_dark.detach().cpu()),
                 float(loss_dark_area.detach().cpu()),
                 float(phase_margin.detach().cpu()),
-                float(target_cv.detach().cpu()),
+                float(quality_terms["target_cv"].detach().cpu()),
                 float(target_dark_contrast.detach().cpu()),
-                float(loss_target_floor.detach().cpu()),
-                float((target_p10 / (target_p50 + 1e-8)).detach().cpu()),
-                float(dark_area_fraction.detach().cpu()),
+                float(loss_threshold.detach().cpu()),
+                float(quality_terms["target_p10_over_p50"].detach().cpu()),
+                float(quality_terms["dark_area_fraction"].detach().cpu()),
                 float(quality_score.detach().cpu()),
+                float(quality_terms["target_coverage"].detach().cpu()),
+                float(loss_low_quantile.detach().cpu()),
             ]
         )
 
@@ -304,8 +281,9 @@ for epoch in range(epochs):
     if (epoch + 1) % 100 == 0:
         print(
             f"Epoch [{epoch + 1}/{epochs}] | AmpCorr: {1.0 - loss_amp_corr.item():.4f} "
-            f"| EE: {current_ee.item() * 100:.2f}% | EnergyUni: {loss_energy_uniformity.item():.4f} "
-            f"| TargetFloor: {loss_target_floor.item():.4f} | DarkArea: {loss_dark_area.item():.4f} "
+            f"| Coverage: {quality_terms['target_coverage'].item() * 100:.2f}% | P10/P50: {quality_terms['target_p10_over_p50'].item():.4f} "
+            f"| CV: {quality_terms['target_cv'].item():.4f} | EE: {current_ee.item() * 100:.2f}% "
+            f"| ThrLoss: {loss_threshold.item():.4f} | DarkArea: {loss_dark_area.item():.4f} "
             f"| Quality: {quality_score.item():.4f} | Loss: {total_loss.item():.4f}"
         )
 
@@ -325,29 +303,34 @@ best_source_field = torch.exp(1j * torch.tensor(dithered_phase, dtype=torch.floa
 best_target_field = propagate_asm(best_source_field)
 best_amp = torch.abs(best_target_field)
 best_amp_norm = normalize_map(best_amp)
-best_energy = normalize_map(best_amp**2)
+best_quality_terms = compute_cure_quality_terms(
+    best_amp_norm,
+    target_binary,
+    halo_mask,
+    far_dark_mask,
+    threshold_norm=target_threshold_norm,
+    low_quantile_goal=low_quantile_goal,
+)
+best_energy = best_quality_terms["pred_energy"]
 best_target_vals = best_amp_norm[target_binary > 0.5]
 best_dark_vals = best_amp_norm[far_dark_mask > 0.5]
 best_target_p10 = torch.quantile(best_target_vals, 0.10) if best_target_vals.numel() > 4 else torch.tensor(0.0, device=device)
 best_target_p50 = torch.quantile(best_target_vals, 0.50) if best_target_vals.numel() > 4 else torch.tensor(0.0, device=device)
-best_dark_area_floor = 0.35 * torch.mean(best_target_vals) if best_target_vals.numel() > 4 else torch.tensor(0.0, device=device)
-best_dark_area_fraction = (
-    torch.mean((best_dark_vals > best_dark_area_floor).float())
-    if best_dark_vals.numel() > 4
-    else torch.tensor(0.0, device=device)
-)
 best_metrics = {
     "best_loss": float(best_loss),
     "best_quality_score": float(best_quality_score),
     "selected_epoch": int(best_state["epoch"]),
     "final_epoch": int(epochs),
     "device": str(device),
+    "target_threshold_norm": float(target_threshold_norm),
+    "low_quantile_goal": float(low_quantile_goal),
     "amplitude_corr": float(1.0 - pearson_correlation_loss(best_amp_norm, target_raw_norm).detach().cpu()),
-    "energy_efficiency": float((torch.sum(best_energy * target_binary) / (torch.sum(best_energy) + 1e-8)).detach().cpu()),
+    "energy_efficiency": float(best_quality_terms["energy_efficiency"].detach().cpu()),
+    "target_coverage": float(best_quality_terms["target_coverage"].detach().cpu()),
     "target_uniformity_cv": float((torch.std(best_target_vals) / (torch.mean(best_target_vals) + 1e-8)).detach().cpu()) if best_target_vals.numel() > 1 else 0.0,
     "target_p10_over_p50": float((best_target_p10 / (best_target_p50 + 1e-8)).detach().cpu()),
     "dark_mean_norm": float(torch.mean(best_dark_vals).detach().cpu()) if best_dark_vals.numel() > 1 else 0.0,
-    "dark_area_fraction": float(best_dark_area_fraction.detach().cpu()),
+    "dark_area_fraction": float(best_quality_terms["dark_area_fraction"].detach().cpu()),
     "phase_bias_rad": float(phase_bias_final.item()),
     "phase_step_rad": float(phase_step),
     "layer_min": int(np.min(dithered_layers[mask_np > 0.5])),
@@ -367,6 +350,8 @@ sio.savemat(
         "python_loss_history": history_np,
         "python_metrics": best_metrics,
         "python_asm_amp_norm": best_amp_norm.detach().cpu().numpy().astype(np.float32),
+        "target_threshold_norm": np.array([[target_threshold_norm]], dtype=np.float32),
+        "low_quantile_goal": np.array([[low_quantile_goal]], dtype=np.float32),
     },
 )
 
@@ -379,6 +364,8 @@ sio.savemat(
         "python_loss_history": history_np,
         "python_metrics": best_metrics,
         "python_asm_amp_norm": best_amp_norm.detach().cpu().numpy().astype(np.float32),
+        "target_threshold_norm": np.array([[target_threshold_norm]], dtype=np.float32),
+        "low_quantile_goal": np.array([[low_quantile_goal]], dtype=np.float32),
     },
 )
 
@@ -386,7 +373,7 @@ np.savetxt(
     os.path.join(branch_output_dir, "pann_training_history.csv"),
     history_np,
     delimiter=",",
-    header="epoch,total_loss,amplitude_corr,energy_efficiency,amplitude_wmse,energy_uniformity_loss,halo_loss,dark_mean_loss,dark_area_loss,phase_margin,target_cv,target_dark_contrast,target_floor_loss,target_p10_over_p50,dark_area_fraction,quality_score",
+    header="epoch,total_loss,amplitude_corr,energy_efficiency,amplitude_wmse,energy_uniformity_loss,halo_loss,dark_mean_loss,dark_area_loss,phase_margin,target_cv,target_dark_contrast,threshold_loss,target_p10_over_p50,dark_area_fraction,quality_score,target_coverage,low_quantile_loss",
     comments="",
 )
 
@@ -401,14 +388,13 @@ try:
     axes[0, 0].set_title("Total loss")
     axes[0, 0].set_xlabel("Epoch")
     axes[0, 0].grid(True, alpha=0.3)
-    axes[0, 1].plot(history_np[:, 0], history_np[:, 2], label="Amplitude corr")
-    axes[0, 1].plot(history_np[:, 0], history_np[:, 3], label="Energy efficiency")
-    axes[0, 1].set_title("Field quality proxies")
+    axes[0, 1].plot(history_np[:, 0], history_np[:, 16], label="Target coverage")
+    axes[0, 1].plot(history_np[:, 0], history_np[:, 13], label="Target P10/P50")
+    axes[0, 1].set_title("Threshold target quality")
     axes[0, 1].set_xlabel("Epoch")
     axes[0, 1].legend()
     axes[0, 1].grid(True, alpha=0.3)
     axes[1, 0].plot(history_np[:, 0], history_np[:, 10], label="Target CV")
-    axes[1, 0].plot(history_np[:, 0], history_np[:, 13], label="Target P10/P50")
     axes[1, 0].plot(history_np[:, 0], history_np[:, 14], label="Dark area fraction")
     axes[1, 0].set_title("Cure-quality constraints")
     axes[1, 0].set_xlabel("Epoch")

@@ -30,6 +30,8 @@ cfg.a_bar_y = -1.5e-3;
 cfg.target_radius = 15e-3;
 cfg.target_blur_sigma_px = 0.65;
 cfg.target_mask_threshold = 0.45;
+cfg.target_threshold_norm = 0.60;
+cfg.low_quantile_goal = 0.88;
 cfg.min_base_layers = 2;
 
 cfg.iasa_epochs = 150;

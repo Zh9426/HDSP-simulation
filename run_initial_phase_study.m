@@ -88,9 +88,12 @@ c_water = cfg.c_water;
 c_board = cfg.c_board;
 thermal_sigma_px = cfg.target_blur_sigma_px;
 min_base_layers = cfg.min_base_layers;
+target_threshold_norm = cfg.target_threshold_norm;
+low_quantile_goal = cfg.low_quantile_goal;
 save(cfg.python_input_mat, 'imag_target', 'imag_target_design', 'Nx', 'Ny', 'Lx', ...
     'lambda_water', 'z_target_dist', 'dx', 'dz', 'f0', 'c_water', ...
-    'c_board', 'thermal_sigma_px', 'min_base_layers');
+    'c_board', 'thermal_sigma_px', 'min_base_layers', ...
+    'target_threshold_norm', 'low_quantile_goal');
 end
 
 function wait_for_python_phase_output(cfg)
