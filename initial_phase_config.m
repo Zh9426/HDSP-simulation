@@ -32,6 +32,7 @@ cfg.target_blur_sigma_px = 0.65;
 cfg.target_mask_threshold = 0.45;
 cfg.target_threshold_norm = 0.60;
 cfg.low_quantile_goal = 0.88;
+cfg.target_mean_amp_goal_ratio = 0.12;
 cfg.min_base_layers = 2;
 
 cfg.iasa_epochs = 150;
@@ -43,9 +44,24 @@ cfg.python_epochs = 2500;
 cfg.python_learning_rate = 0.35;
 cfg.python_executable = 'python';
 
-cfg.output_dir = fullfile(pwd, 'initial_phase_outputs');
+cfg.git_commit_short = get_git_commit_short();
+cfg.output_root_dir = fullfile(pwd, 'initial_phase_outputs');
+cfg.output_dir = fullfile(cfg.output_root_dir, cfg.git_commit_short);
 cfg.transport_dir = 'C:\Users\Zh89\Desktop\transport';
 cfg.python_input_mat = fullfile(cfg.transport_dir, 'target_for_python.mat');
 cfg.python_output_mat = fullfile(cfg.transport_dir, 'dl_phase_init.mat');
 cfg.python_script = fullfile(pwd, 'PANN_Holography.py');
+end
+
+function git_commit_short = get_git_commit_short()
+[status, hash_text] = system('git rev-parse --short HEAD');
+if status ~= 0
+    git_commit_short = 'nogit';
+    return;
+end
+git_commit_short = strtrim(hash_text);
+git_commit_short = regexprep(git_commit_short, '[^A-Za-z0-9._-]', '_');
+if isempty(git_commit_short)
+    git_commit_short = 'nogit';
+end
 end

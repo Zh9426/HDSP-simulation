@@ -49,3 +49,38 @@ def test_dark_area_loss_ignores_single_hotspot_more_than_area_leakage():
 
     assert single_terms["dark_area_fraction"] < area_terms["dark_area_fraction"]
     assert single_terms["dark_area_loss"] < area_terms["dark_area_loss"]
+
+
+def test_cure_quality_prefers_absolute_target_strength_when_shape_matches():
+    target, halo, far_dark = make_masks()
+    amp_norm = torch.zeros((8, 8), dtype=torch.float32)
+    amp_norm[target > 0.5] = 0.72
+
+    weak_raw = amp_norm * 0.2
+    strong_raw = amp_norm * 1.0
+
+    weak_terms = compute_cure_quality_terms(
+        amp_norm,
+        target,
+        halo,
+        far_dark,
+        pred_amp_raw=weak_raw,
+        target_mean_amp_goal=0.55,
+    )
+    strong_terms = compute_cure_quality_terms(
+        amp_norm,
+        target,
+        halo,
+        far_dark,
+        pred_amp_raw=strong_raw,
+        target_mean_amp_goal=0.55,
+    )
+
+    assert strong_terms["target_mean_amp_loss"] < weak_terms["target_mean_amp_loss"]
+    assert strong_terms["quality_score"] > weak_terms["quality_score"]
+
+
+if __name__ == "__main__":
+    test_cure_quality_prefers_uniform_target_over_hot_partial_target()
+    test_dark_area_loss_ignores_single_hotspot_more_than_area_leakage()
+    test_cure_quality_prefers_absolute_target_strength_when_shape_matches()

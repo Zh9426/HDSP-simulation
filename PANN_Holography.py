@@ -83,6 +83,13 @@ def error_diffusion_quantize_layers(layer_continuous, mask, min_base_layers, max
     return layer_map
 
 
+def matlab_string(value):
+    arr = np.asarray(value)
+    if arr.dtype.kind in {"U", "S"}:
+        return "".join(arr.reshape(-1).astype(str)).strip()
+    return str(arr.squeeze())
+
+
 # 0. physical config
 transport_dir = r"C:\Users\Zh89\Desktop\transport"
 input_file = os.path.join(transport_dir, "target_for_python.mat")
@@ -98,6 +105,9 @@ if not os.path.exists(input_file):
     raise FileNotFoundError(f"Cannot find transport input: {input_file}")
 
 data = sio.loadmat(input_file)
+if "branch_output_dir" in data:
+    branch_output_dir = matlab_string(data["branch_output_dir"])
+    os.makedirs(branch_output_dir, exist_ok=True)
 design_key = "imag_target_design" if "imag_target_design" in data else "imag_target"
 target_amp = torch.tensor(data[design_key], dtype=torch.float32, device=device)
 target_amp_raw = torch.tensor(data["imag_target"], dtype=torch.float32, device=device)
@@ -114,6 +124,7 @@ thermal_sigma_px = float(data["thermal_sigma_px"].item()) if "thermal_sigma_px" 
 min_base_layers = int(data["min_base_layers"].item()) if "min_base_layers" in data else 2
 target_threshold_norm = float(data["target_threshold_norm"].item()) if "target_threshold_norm" in data else 0.60
 low_quantile_goal = float(data["low_quantile_goal"].item()) if "low_quantile_goal" in data else 0.88
+target_mean_amp_goal_ratio = float(data["target_mean_amp_goal_ratio"].item()) if "target_mean_amp_goal_ratio" in data else 0.12
 
 # 1. target shaping
 resolution_limit_mm = 0.61 * lambda_water * 1000.0
@@ -165,6 +176,9 @@ x_vec = torch.linspace(-Lx / 2, Lx / 2, Nx, device=device)
 y_vec = torch.linspace(-Lx / 2, Lx / 2, Ny, device=device)
 Y_grid, X_grid = torch.meshgrid(y_vec, x_vec, indexing="ij")
 source_mask = ((X_grid**2 + Y_grid**2) <= (32e-3) ** 2).float()
+target_mean_amp_goal = target_mean_amp_goal_ratio * math.sqrt(
+    float(torch.sum(source_mask).detach().cpu()) / (float(torch.sum(target_binary).detach().cpu()) + 1e-8)
+)
 
 target_weight = 1.0 + 5.0 * target_binary
 dark_weight = 1.0 + 1.0 * halo_mask + 1.5 * far_dark_mask
@@ -197,8 +211,10 @@ for epoch in range(epochs):
         target_binary,
         halo_mask,
         far_dark_mask,
+        pred_amp_raw=pred_amp,
         threshold_norm=target_threshold_norm,
         low_quantile_goal=low_quantile_goal,
+        target_mean_amp_goal=target_mean_amp_goal,
     )
     pred_energy = quality_terms["pred_energy"]
 
@@ -209,6 +225,8 @@ for epoch in range(epochs):
     loss_amp_uniformity = quality_terms["amp_uniformity_loss"]
     loss_threshold = quality_terms["threshold_loss"]
     loss_low_quantile = quality_terms["low_quantile_loss"]
+    loss_target_mean_amp = quality_terms["target_mean_amp_loss"]
+    loss_target_contrast = quality_terms["target_contrast_loss"]
     loss_halo = quality_terms["halo_loss"]
     loss_dark = quality_terms["dark_mean_loss"]
     loss_dark_area = quality_terms["dark_area_loss"]
@@ -221,9 +239,11 @@ for epoch in range(epochs):
     total_loss = (
         7.0 * loss_threshold
         + 5.0 * loss_low_quantile
+        + 2.0 * loss_target_mean_amp
         + 3.5 * loss_amp_uniformity
         + 2.0 * loss_energy_uniformity
-        + 0.8 * loss_ee
+        + 1.5 * loss_ee
+        + 0.8 * loss_target_contrast
         + 0.7 * loss_amp_corr
         + 0.4 * loss_amp_wmse
         + 0.6 * loss_dark_area
@@ -257,6 +277,9 @@ for epoch in range(epochs):
                 float(quality_score.detach().cpu()),
                 float(quality_terms["target_coverage"].detach().cpu()),
                 float(loss_low_quantile.detach().cpu()),
+                float(loss_target_mean_amp.detach().cpu()),
+                float(quality_terms["target_mean_raw"].detach().cpu()),
+                float(quality_terms["target_to_global_mean"].detach().cpu()),
             ]
         )
 
@@ -283,6 +306,7 @@ for epoch in range(epochs):
             f"Epoch [{epoch + 1}/{epochs}] | AmpCorr: {1.0 - loss_amp_corr.item():.4f} "
             f"| Coverage: {quality_terms['target_coverage'].item() * 100:.2f}% | P10/P50: {quality_terms['target_p10_over_p50'].item():.4f} "
             f"| CV: {quality_terms['target_cv'].item():.4f} | EE: {current_ee.item() * 100:.2f}% "
+            f"| MeanAmp: {quality_terms['target_mean_raw'].item():.3f}/{target_mean_amp_goal:.3f} "
             f"| ThrLoss: {loss_threshold.item():.4f} | DarkArea: {loss_dark_area.item():.4f} "
             f"| Quality: {quality_score.item():.4f} | Loss: {total_loss.item():.4f}"
         )
@@ -308,8 +332,10 @@ best_quality_terms = compute_cure_quality_terms(
     target_binary,
     halo_mask,
     far_dark_mask,
+    pred_amp_raw=best_amp,
     threshold_norm=target_threshold_norm,
     low_quantile_goal=low_quantile_goal,
+    target_mean_amp_goal=target_mean_amp_goal,
 )
 best_energy = best_quality_terms["pred_energy"]
 best_target_vals = best_amp_norm[target_binary > 0.5]
@@ -324,9 +350,13 @@ best_metrics = {
     "device": str(device),
     "target_threshold_norm": float(target_threshold_norm),
     "low_quantile_goal": float(low_quantile_goal),
+    "target_mean_amp_goal": float(target_mean_amp_goal),
+    "target_mean_amp_goal_ratio": float(target_mean_amp_goal_ratio),
     "amplitude_corr": float(1.0 - pearson_correlation_loss(best_amp_norm, target_raw_norm).detach().cpu()),
     "energy_efficiency": float(best_quality_terms["energy_efficiency"].detach().cpu()),
     "target_coverage": float(best_quality_terms["target_coverage"].detach().cpu()),
+    "target_mean_amp_raw": float(best_quality_terms["target_mean_raw"].detach().cpu()),
+    "target_to_global_mean": float(best_quality_terms["target_to_global_mean"].detach().cpu()),
     "target_uniformity_cv": float((torch.std(best_target_vals) / (torch.mean(best_target_vals) + 1e-8)).detach().cpu()) if best_target_vals.numel() > 1 else 0.0,
     "target_p10_over_p50": float((best_target_p10 / (best_target_p50 + 1e-8)).detach().cpu()),
     "dark_mean_norm": float(torch.mean(best_dark_vals).detach().cpu()) if best_dark_vals.numel() > 1 else 0.0,
@@ -352,6 +382,7 @@ sio.savemat(
         "python_asm_amp_norm": best_amp_norm.detach().cpu().numpy().astype(np.float32),
         "target_threshold_norm": np.array([[target_threshold_norm]], dtype=np.float32),
         "low_quantile_goal": np.array([[low_quantile_goal]], dtype=np.float32),
+        "target_mean_amp_goal": np.array([[target_mean_amp_goal]], dtype=np.float32),
     },
 )
 
@@ -366,6 +397,7 @@ sio.savemat(
         "python_asm_amp_norm": best_amp_norm.detach().cpu().numpy().astype(np.float32),
         "target_threshold_norm": np.array([[target_threshold_norm]], dtype=np.float32),
         "low_quantile_goal": np.array([[low_quantile_goal]], dtype=np.float32),
+        "target_mean_amp_goal": np.array([[target_mean_amp_goal]], dtype=np.float32),
     },
 )
 
@@ -373,7 +405,7 @@ np.savetxt(
     os.path.join(branch_output_dir, "pann_training_history.csv"),
     history_np,
     delimiter=",",
-    header="epoch,total_loss,amplitude_corr,energy_efficiency,amplitude_wmse,energy_uniformity_loss,halo_loss,dark_mean_loss,dark_area_loss,phase_margin,target_cv,target_dark_contrast,threshold_loss,target_p10_over_p50,dark_area_fraction,quality_score,target_coverage,low_quantile_loss",
+    header="epoch,total_loss,amplitude_corr,energy_efficiency,amplitude_wmse,energy_uniformity_loss,halo_loss,dark_mean_loss,dark_area_loss,phase_margin,target_cv,target_dark_contrast,threshold_loss,target_p10_over_p50,dark_area_fraction,quality_score,target_coverage,low_quantile_loss,target_mean_amp_loss,target_mean_amp_raw,target_to_global_mean",
     comments="",
 )
 
@@ -395,7 +427,8 @@ try:
     axes[0, 1].legend()
     axes[0, 1].grid(True, alpha=0.3)
     axes[1, 0].plot(history_np[:, 0], history_np[:, 10], label="Target CV")
-    axes[1, 0].plot(history_np[:, 0], history_np[:, 14], label="Dark area fraction")
+    axes[1, 0].plot(history_np[:, 0], history_np[:, 19], label="Target mean amp")
+    axes[1, 0].axhline(target_mean_amp_goal, color="gray", linestyle="--", linewidth=1.0, label="Mean amp goal")
     axes[1, 0].set_title("Cure-quality constraints")
     axes[1, 0].set_xlabel("Epoch")
     axes[1, 0].legend()
