@@ -109,6 +109,40 @@ grid on;
 exportgraphics(fig2, strrep(figure_path, '_overview.png', '_metrics.png'), 'Resolution', 300);
 close(fig2);
 
+for idx = 1:numel(cases)
+    if ~isfield(cases(idx), 'history') || isempty(cases(idx).history) || size(cases(idx).history, 2) < 8
+        continue;
+    end
+    history = cases(idx).history;
+    fig_history = figure('Color', 'w', 'Position', [160, 160, 1300, 760]);
+    tiledlayout(2, 2, 'Padding', 'compact', 'TileSpacing', 'compact');
+
+    nexttile;
+    plot(history(:, 8), 'LineWidth', 1.5);
+    hold on;
+    if isfield(cases(idx), 'optimizer_metrics') && isfield(cases(idx).optimizer_metrics, 'selected_epoch')
+        selected_epoch = cases(idx).optimizer_metrics.selected_epoch;
+        plot(selected_epoch, history(selected_epoch, 8), 'ro', 'MarkerSize', 7, 'LineWidth', 1.5);
+    end
+    xlabel('Epoch'); ylabel('Loop quality score'); title([cases(idx).label, ' Loop Score']); grid on;
+
+    nexttile;
+    plot(history(:, 4), 'LineWidth', 1.3);
+    xlabel('Epoch'); ylabel('Target CV'); title('Target Uniformity CV'); grid on;
+
+    nexttile;
+    plot(history(:, 5), 'LineWidth', 1.3);
+    xlabel('Epoch'); ylabel('P10 / P50'); title('Low-Quantile Coverage'); grid on;
+
+    nexttile;
+    plot(history(:, 7), 'LineWidth', 1.3);
+    xlabel('Epoch'); ylabel('Peak / mean'); title('Target Spike Ratio'); grid on;
+
+    safe_label = regexprep(cases(idx).label, '[^A-Za-z0-9]+', '_');
+    exportgraphics(fig_history, strrep(figure_path, '_overview.png', ['_', safe_label, '_loop_history.png']), 'Resolution', 300);
+    close(fig_history);
+end
+
 exportgraphics(fig, figure_path, 'Resolution', 300);
 close(fig);
 end

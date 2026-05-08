@@ -30,8 +30,6 @@ dark_mask_pad = ~(line_mask_pad | halo_mask_pad);
 
 weight_pad = 0.05 + target_pad * 1.95;
 history = zeros(cfg.iasa_epochs, 8);
-checkpoint_epochs = cfg.iasa_checkpoint_epochs(:)';
-checkpoint_records = struct([]);
 best_quality_score = -inf;
 best_epoch = 0;
 best_layer_map = layer_map;
@@ -98,14 +96,6 @@ for epoch = 1:cfg.iasa_epochs
         best_phase_bias = phase_bias_seed;
     end
 
-    if any(epoch == checkpoint_epochs)
-        record = make_checkpoint_record(epoch, scores);
-        if isempty(checkpoint_records)
-            checkpoint_records = record;
-        else
-            checkpoint_records(end + 1) = record;
-        end
-    end
 end
 
 layer_map = best_layer_map;
@@ -126,8 +116,6 @@ result.optimizer_metrics = struct( ...
     'configured_epochs', cfg.iasa_epochs, ...
     'selected_epoch', best_epoch, ...
     'best_loop_quality_score', best_quality_score, ...
-    'checkpoint_epochs', checkpoint_epochs, ...
-    'checkpoint_records', checkpoint_records, ...
     'uniformity_enabled', cfg.iasa_uniformity_enabled, ...
     'uniformity_beta', cfg.iasa_uniformity_beta, ...
     'uniformity_gain_limit', cfg.iasa_uniformity_gain_limit);
@@ -165,17 +153,4 @@ p10_over_p50 = target_p10 / (target_p50 + eps);
 target_peak_over_mean = max(target_vals(:)) / (mean(target_vals(:)) + eps);
 quality_score = pcc + energy_efficiency + p10_over_p50 - target_cv - 0.10 * target_peak_over_mean;
 scores = [pcc, nmse, energy_efficiency, target_cv, p10_over_p50, max(pred(:)), target_peak_over_mean, quality_score];
-end
-
-function record = make_checkpoint_record(epoch, scores)
-record = struct();
-record.epoch = epoch;
-record.pcc = scores(1);
-record.nmse = scores(2);
-record.energy_efficiency = scores(3);
-record.target_uniformity_cv = scores(4);
-record.target_p10_over_p50 = scores(5);
-record.peak_norm = scores(6);
-record.target_peak_over_mean = scores(7);
-record.loop_quality_score = scores(8);
 end
