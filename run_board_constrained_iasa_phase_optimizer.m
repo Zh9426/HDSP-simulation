@@ -48,6 +48,14 @@ for epoch = 1:cfg.iasa_epochs
 
     if epoch > 5
         correction = (target_pad(line_mask_pad) ./ (rec_amp_norm(line_mask_pad) + 1e-6)) .^ cfg.iasa_beta;
+        if isfield(cfg, 'iasa_uniformity_enabled') && cfg.iasa_uniformity_enabled
+            target_vals = rec_amp_norm(line_mask_pad);
+            target_level = median(target_vals(:));
+            uniformity_correction = (target_level ./ (target_vals + 1e-6)) .^ cfg.iasa_uniformity_beta;
+            gain_limit = cfg.iasa_uniformity_gain_limit;
+            uniformity_correction = min(max(uniformity_correction, 1 / gain_limit), gain_limit);
+            correction = correction .* uniformity_correction;
+        end
         weight_pad(line_mask_pad) = weight_pad(line_mask_pad) .* correction;
         weight_pad(weight_pad > cfg.iasa_target_gain_limit) = cfg.iasa_target_gain_limit;
         weight_pad(halo_mask_pad) = cfg.iasa_halo_weight;

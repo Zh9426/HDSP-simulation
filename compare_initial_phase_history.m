@@ -7,7 +7,7 @@ comparison = empty_comparison();
 comparison.current_commit = cfg.git_commit_short;
 comparison.output_root_dir = cfg.output_root_dir;
 comparison.ranking_metric = 'target_pressure_quality_score';
-comparison.primary_case_label = 'Pure Python';
+comparison.primary_case_label = 'Pure Board IASA';
 
 current_case = find_case_by_label(current_summary.cases, comparison.primary_case_label);
 if isempty(current_case)

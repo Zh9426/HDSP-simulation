@@ -10,35 +10,18 @@ if ~exist(cfg.transport_dir, 'dir')
 end
 
 fprintf('==================================================\n');
-fprintf('Initial phase study: Pure Python vs Python+Board-IASA vs Pure Board-IASA\n');
+fprintf('Initial phase study: Board-constrained IASA optimization\n');
 fprintf('No curing module. k-Wave evaluates pressure amplitude only.\n');
 fprintf('Grid: %d x %d | dx %.4f mm | target z %.2f mm\n', ...
     cfg.Nx, cfg.Ny, cfg.dx * 1e3, cfg.z_target_dist * 1e3);
 fprintf('==================================================\n');
 
 target = build_a_phase_target(cfg);
-export_pann_transport_input(cfg, target);
-wait_for_python_phase_output(cfg);
-
-python_data = load(cfg.python_output_mat, 'optimal_initial_phase', 'optimal_phase_bias', ...
-    'optimal_layer_map', 'python_loss_history', 'python_metrics', 'python_asm_amp_norm', ...
-    'halo_target_mask');
-phase_python = wrap_phase(python_data.optimal_initial_phase);
-phase_python(~target.source_mask) = 0;
-
 propagator = make_asm_propagator(cfg);
-python_focus = compute_asm_focus_field(phase_python, target.source_mask, propagator);
 
 iasa_options = struct();
-iasa_options.phase_bias_seed = read_optional_scalar(python_data, 'optimal_phase_bias', 0);
 iasa_options.anchor_eta = cfg.iasa_anchor_eta;
 iasa_options.use_dither = true;
-if isfield(python_data, 'halo_target_mask')
-    iasa_options.halo_mask = python_data.halo_target_mask > 0.5;
-end
-
-python_board_iasa = run_board_constrained_iasa_phase_optimizer( ...
-    phase_python, target.amp, target.source_mask, propagator, cfg, 'Python + Board IASA', iasa_options);
 
 pure_seed = zeros(cfg.Nx, cfg.Ny);
 pure_seed(target.source_mask) = 2 * pi * rand(nnz(target.source_mask), 1);
@@ -48,35 +31,14 @@ pure_board_iasa = run_board_constrained_iasa_phase_optimizer( ...
     pure_seed, target.amp, target.source_mask, propagator, cfg, 'Pure Board IASA', pure_iasa_options);
 
 phase_cases = struct([]);
-phase_cases(1).label = 'Pure Python';
-phase_cases(1).phase = phase_python;
-phase_cases(1).asm_amp = python_focus.amp;
-phase_cases(1).asm_amp_norm = python_focus.amp_norm;
-phase_cases(1).history = [];
-if isfield(python_data, 'python_loss_history')
-    phase_cases(1).history = python_data.python_loss_history;
-end
-if isfield(python_data, 'python_metrics')
-    phase_cases(1).optimizer_metrics = python_data.python_metrics;
-end
-
-phase_cases(2).label = 'Python + Board IASA';
-phase_cases(2).phase = python_board_iasa.phase;
-phase_cases(2).asm_amp = python_board_iasa.asm_amp;
-phase_cases(2).asm_amp_norm = python_board_iasa.asm_amp_norm;
-phase_cases(2).history = python_board_iasa.history;
-phase_cases(2).layer_map = python_board_iasa.layer_map;
-phase_cases(2).phase_step = python_board_iasa.phase_step;
-phase_cases(2).phase_bias = python_board_iasa.phase_bias;
-
-phase_cases(3).label = 'Pure Board IASA';
-phase_cases(3).phase = pure_board_iasa.phase;
-phase_cases(3).asm_amp = pure_board_iasa.asm_amp;
-phase_cases(3).asm_amp_norm = pure_board_iasa.asm_amp_norm;
-phase_cases(3).history = pure_board_iasa.history;
-phase_cases(3).layer_map = pure_board_iasa.layer_map;
-phase_cases(3).phase_step = pure_board_iasa.phase_step;
-phase_cases(3).phase_bias = pure_board_iasa.phase_bias;
+phase_cases(1).label = 'Pure Board IASA';
+phase_cases(1).phase = pure_board_iasa.phase;
+phase_cases(1).asm_amp = pure_board_iasa.asm_amp;
+phase_cases(1).asm_amp_norm = pure_board_iasa.asm_amp_norm;
+phase_cases(1).history = pure_board_iasa.history;
+phase_cases(1).layer_map = pure_board_iasa.layer_map;
+phase_cases(1).phase_step = pure_board_iasa.phase_step;
+phase_cases(1).phase_bias = pure_board_iasa.phase_bias;
 
 for idx = 1:numel(phase_cases)
     phase_cases(idx).asm_metrics = calculate_pressure_metrics( ...
@@ -122,6 +84,8 @@ end
 fprintf('Outputs written under ignored directory: %s\n', cfg.output_dir);
 fprintf('==================================================\n');
 
+% The Python transport helpers are kept for quick re-enabling of comparison
+% cases, but the current study mode intentionally runs BIASA only.
 function export_pann_transport_input(cfg, target)
 imag_target = target.amp;
 imag_target_design = target.amp;

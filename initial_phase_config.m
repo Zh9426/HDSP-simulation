@@ -36,12 +36,16 @@ cfg.target_mean_amp_goal_ratio = 0.12;
 cfg.python_z_constraint_offsets_m = 0;
 cfg.min_base_layers = 2;
 
-cfg.iasa_epochs = 150;
+cfg.phase_case_mode = 'pure_board_iasa';
+cfg.iasa_epochs = 300;
 cfg.iasa_beta = 0.60;
 cfg.iasa_dark_weight = 0.0;
 cfg.iasa_halo_weight = 0.05;
 cfg.iasa_target_gain_limit = 10.0;
 cfg.iasa_anchor_eta = 1.0;
+cfg.iasa_uniformity_enabled = true;
+cfg.iasa_uniformity_beta = 0.35;
+cfg.iasa_uniformity_gain_limit = 2.0;
 
 cfg.python_epochs = 10000;
 cfg.python_learning_rate = 0.06;
