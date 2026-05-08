@@ -4,6 +4,7 @@ __pycache__/
 codex_analysis/
 codex_runs/
 initial_phase_outputs/
+hdsp_outputs/
 tmp_surrogate_outputs/
 tmp_surrogate_outputs_fast/
 tmp_surrogate_outputs_v2/

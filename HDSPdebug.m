@@ -3,7 +3,6 @@ try
     reset(gpuDevice);
 catch
 end
-
 %% 1. 参数设置
 Nx = 512;
 Lx = 65e-3;
@@ -33,9 +32,9 @@ pdms_thickness = 7e-3;
 focus_scan_radius = 6e-3;
 focus_edge_warn_mm = 0.5;
 lambda_water = c_water / f0;
-phase_refine_mode = 'python_only'; %相位叠加模式
+phase_refine_mode = 'python_iasa'; %相位叠加模式
 iasa_epoch = 150;
-iasa_anchor_eta = 0.0;
+iasa_anchor_eta = 1.0;
 research_mode.enabled = 0;
 research_mode.export_dir = 'C:\Users\Zh89\Desktop\transport\exit_amp_surrogate';
 research_mode.patch_size = 9;
@@ -43,7 +42,7 @@ research_mode.sample_stride = 1;
 research_mode.max_samples_per_run = 30000;
 research_mode.run_label = 'baseline';
 research_mode.enable_run_export = true;
-exit_plane_analysis.enabled = false;
+exit_plane_analysis.enabled = true;
 cavitation_model.enabled = true;
 cavitation_model.pressure_on = 1.72e6;
 cavitation_model.pressure_full = 1.98e6;
@@ -117,36 +116,16 @@ fprintf('==================================================\n');
 
 %% 2.目标图案
 [Y_grid, X_grid] = meshgrid(x, x);
-a_opts.height_px = 160;
-a_opts.base_width_px = 100;
-a_opts.stroke_px = 22;
-a_opts.bar_pos_px = 50;
-a_opts.bar_width_px = 20;
-a_opts.smooth_sigma_px = 1.5;
+strut_width = 1.0e-3;
+pore_size = 3.0e-3;
+pitch = strut_width + pore_size;
+mask_X = mod(X_grid + pitch / 2, pitch) < strut_width;
+mask_Y = mod(Y_grid + pitch / 2, pitch) < strut_width;
+scaffold_raw = mask_X | mask_Y;
 
-[Y_grid_px, X_grid_px] = meshgrid(1:Ny, 1:Nx);
-cx = round(Nx / 2);
-cy = round(Ny / 2);
-x_top = cx - a_opts.height_px / 2;
-x_bottom = cx + a_opts.height_px / 2;
-slope = a_opts.height_px / (a_opts.base_width_px / 2);
-
-dx_outer = X_grid_px - x_top;
-dy_abs = abs(Y_grid_px - cy);
-width_at_x = dx_outer / slope;
-mask_outer = (dx_outer >= 0) & (dx_outer <= a_opts.height_px) & ...
-    (dy_abs <= width_at_x);
-
-x_top_inner = x_top + a_opts.stroke_px * 1.8;
-dx_inner = X_grid_px - x_top_inner;
-width_inner_at_x = dx_inner / slope;
-mask_inner_cone = (dx_inner >= 0) & (dy_abs <= width_inner_at_x);
-
-x_bar_start = x_bottom - a_opts.bar_pos_px - a_opts.bar_width_px / 2;
-x_bar_end = x_bottom - a_opts.bar_pos_px + a_opts.bar_width_px / 2;
-mask_bar = (X_grid_px >= x_bar_start) & (X_grid_px <= x_bar_end);
-
-imag_target_raw = mask_outer & (~mask_inner_cone | mask_bar);
+target_radius = 15e-3;
+circle_mask = (X_grid.^2 + Y_grid.^2) <= target_radius^2;
+imag_target_raw = scaffold_raw & circle_mask;
 imag_target = imgaussfilt(double(imag_target_raw), 0.5);
 imag_target = imag_target / max(imag_target(:));
 imag_target_design = imag_target;
@@ -188,7 +167,7 @@ if git_status == 0
 else
     git_commit_short = 'nogit';
 end
-branch_output_dir = fullfile(pwd, 'initial_phase_outputs', git_commit_short);
+branch_output_dir = fullfile(pwd, 'hdsp_outputs', git_commit_short);
 if ~exist(branch_output_dir, 'dir')
     mkdir(branch_output_dir);
 end
@@ -776,16 +755,16 @@ for phase = 1:2
     if phase == 1
         %曝光时间，声压与冷却时间粗查
         fprintf('\n[第一阶段:粗扫]...\n');
-        P_list = (1.60 : 0.04 : 1.84) * 1e6;
-        E_list = 0.60 : 0.03 : 0.78;
-        C_list = [0.20, 0.28, 0.36];
+        P_list = (1.40 : 0.04 : 1.56) * 1e6;
+        E_list = 0.48 : 0.03 : 0.60;
+        C_list = [0.44, 0.54];
     else
         %细查
          fprintf('\n[第二阶段: 微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
             best_coarse.P/1e6, best_coarse.E, best_coarse.C);
-        P_list = max(1.52e6, best_coarse.P - 0.06e6) : 0.02e6 : min(1.96e6, best_coarse.P + 0.12e6);
-        E_list = max(0.54, best_coarse.E - 0.04) : 0.01 : min(0.86, best_coarse.E + 0.08);
-        C_list = unique(max(0.16, min(0.48, best_coarse.C + [-0.08, 0, 0.08])));
+        P_list = max(1.36e6, best_coarse.P - 0.04e6) : 0.02e6 : (best_coarse.P + 0.04e6);
+        E_list = max(0.44, best_coarse.E - 0.03) : 0.01 : min(0.64, best_coarse.E + 0.03);
+        C_list = best_coarse.C;
     end
 
     [Pg, Eg, Cg] = ndgrid(P_list, E_list, C_list);
@@ -1039,7 +1018,7 @@ cavitation_roi_mean = best_record.cavitation_roi_mean;
 t_axis = (1:Nt_th) * dt_th;
 T_max_real = max(T_max_history);
 
-%% 8.结果处理
+% 8.结果处理
 Cure_Score_Threshold = best_record.cure_threshold;
 cured_mask_2d = Omega_final_2d >= Cure_Score_Threshold;
 R_binary = imag_target > 0.5;
@@ -1277,3 +1256,78 @@ try
     reset(gpuDevice);
 catch
 end
+%% 11. Export reproducible work outputs
+out_dir = branch_output_dir;
+if ~exist(out_dir, 'dir')
+    mkdir(out_dir);
+end
+
+run_summary = struct();
+run_summary.git_commit_short = git_commit_short;
+run_summary.output_dir = out_dir;
+run_summary.target_signature = target_signature;
+run_summary.grid = struct('Nx', Nx, 'Ny', Ny, 'Nz', Nz, 'dx_m', dx, 'dz_m', dz, ...
+    'f0_hz', f0, 'z_target_dist_m', z_target_dist);
+run_summary.field = struct( ...
+    'design_z_dist_mm', design_z_dist_mm, ...
+    'actual_z_dist_mm', actual_z_dist_mm, ...
+    'focus_shift_mm', focus_shift_mm, ...
+    'focus_search_edge_margin_mm', focus_search_edge_margin_mm, ...
+    'pcc', best_corr, ...
+    'ssim', SSIM_val, ...
+    'nmse', NMSE, ...
+    'energy_efficiency', Energy_Efficiency, ...
+    'asm_iasa_pcc', asm_iasa_pcc, ...
+    'asm_python_pcc', asm_python_pcc, ...
+    'exit_amp_cv', exit_amp_cv, ...
+    'exit_amp_min_ratio', exit_amp_min_ratio, ...
+    'thickness_amp_corr', thickness_amp_corr, ...
+    'grad_amp_corr', grad_amp_corr);
+run_summary.cure = struct( ...
+    'target_pressure_mpa', target_median_pressure / 1e6, ...
+    'exposure_time_s', exposure_time, ...
+    'cooling_time_s', cooling_time, ...
+    'bulk_tmax_c', T_max_real, ...
+    'bulk_delta_t_c', bulk_deltaT_max, ...
+    'threshold', Cure_Score_Threshold, ...
+    'iou', IoU, ...
+    'dice', Dice, ...
+    'over_cure_ratio', over_cure_ratio, ...
+    'under_cure_ratio', under_cure_ratio, ...
+    'cured_coverage_percent', cured_coverage);
+
+save(fullfile(out_dir, sprintf('mainline_full_pipeline_results_%s.mat', git_commit_short)), ...
+    'run_summary', 'imag_target', 'imag_target_design', 'target_norm_asm', ...
+    'thickness_map', 'actual_thickness', 'net_num_board', 'holo_phase', ...
+    'p_exit_complex', 'p_exit_amp_norm', 'p_exit_phase', ...
+    'p_focal_scaled', 'p_focal_norm', 'Omega_final_2d', ...
+    'Arrhenius_Omega_thermal_2d', 'cavitation_dose_2d', ...
+    'thermal_aux_dose_2d', 'cured_mask_2d', 'R_binary', ...
+    'scan_vol', 'metrics_z', 'metrics_corr', 'scan_records', 'best_record', ...
+    'x', 'y', '-v7.3');
+
+fid = fopen(fullfile(out_dir, 'summary.txt'), 'w');
+if fid > 0
+    fprintf(fid, 'Mainline full pipeline summary\n');
+    fprintf(fid, 'Outputs: %s\n\n', out_dir);
+    fprintf(fid, 'Design/best field distance: %.2f / %.2f mm (shift %.2f mm)\n', ...
+        design_z_dist_mm, actual_z_dist_mm, focus_shift_mm);
+    fprintf(fid, 'PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
+        best_corr, SSIM_val, NMSE, Energy_Efficiency * 100);
+    fprintf(fid, 'ASM IASA/Python PCC: %.4f / %.4f\n', asm_iasa_pcc, asm_python_pcc);
+    fprintf(fid, 'Exit amp CV/min-max: %.4f / %.4f\n', exit_amp_cv, exit_amp_min_ratio);
+    fprintf(fid, 'Thickness/gradient amp corr: %.4f / %.4f\n', thickness_amp_corr, grad_amp_corr);
+    fprintf(fid, 'Cure IoU/Dice/over/under/coverage: %.4f / %.4f / %.2f%% / %.2f%% / %.2f%%\n', ...
+        IoU, Dice, over_cure_ratio * 100, under_cure_ratio * 100, cured_coverage);
+    fclose(fid);
+end
+fid_json = fopen(fullfile(out_dir, 'summary.json'), 'w');
+if fid_json > 0
+    fwrite(fid_json, jsonencode(run_summary, 'PrettyPrint', true));
+    fclose(fid_json);
+end
+figs = findall(0, 'Type', 'figure');
+for fig_idx = 1:numel(figs)
+    exportgraphics(figs(fig_idx), fullfile(out_dir, sprintf('figure_%02d.png', fig_idx)), 'Resolution', 250);
+end
+fprintf('Work outputs saved to: %s\n', out_dir);
