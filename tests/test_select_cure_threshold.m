@@ -2,6 +2,10 @@ function tests = test_select_cure_threshold
 tests = functiontests(localfunctions);
 end
 
+function setupOnce(testCase)
+addMainlinePath();
+end
+
 function testSelectsThresholdWithBestIoU(testCase)
 cure_score = [1.4, 0.9, 0.2; 1.3, 1.1, 0.4];
 target_mask = logical([1, 0, 0; 1, 1, 0]);
@@ -82,4 +86,9 @@ result = select_cure_threshold(cure_score, target_mask, threshold_candidates, pa
 
 verifyEqual(testCase, result.threshold, 0.75);
 verifyEqual(testCase, result.IoU, 0.8, 'AbsTol', 1e-10);
+end
+
+function addMainlinePath()
+repo_root = fileparts(fileparts(mfilename('fullpath')));
+addpath(fullfile(repo_root, 'codex_managed_reports', '01_mainline_full_pipeline', 'src_stable'));
 end

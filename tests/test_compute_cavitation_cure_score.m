@@ -2,6 +2,10 @@ function tests = test_compute_cavitation_cure_score
 tests = functiontests(localfunctions);
 end
 
+function setupOnce(testCase)
+addMainlinePath();
+end
+
 function testCavitationDoseDominatesCureDecision(testCase)
 params = baseParams();
 cavitation_dose = [1.2, 0.7; 1.1, 0.2];
@@ -52,4 +56,9 @@ params = struct( ...
     'penalty_weight', 0.7, ...
     'quality_risk_weight', 0.7, ...
     'threshold', 1.0);
+end
+
+function addMainlinePath()
+repo_root = fileparts(fileparts(mfilename('fullpath')));
+addpath(fullfile(repo_root, 'codex_managed_reports', '01_mainline_full_pipeline', 'src_stable'));
 end

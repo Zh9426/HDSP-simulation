@@ -149,10 +149,56 @@ if ~exist(transport_dir, 'dir')
 end
 export_path = fullfile(transport_dir, 'target_for_python.mat');
 min_base_layers = 2;
+target_threshold_norm = 0.60;
+low_quantile_goal = 0.88;
+target_mean_amp_goal_ratio = 0.12;
+python_z_constraint_offsets_m = 0;
+python_epochs = 10000;
+python_learning_rate = 0.06;
+python_min_epochs = 6500;
+python_early_stop_patience = 4200;
+python_rng_seed = 9426;
+python_lr_restart_cycle = 5000;
+python_lr_restart_decay = 0.82;
+python_lr_min_ratio = 0.05;
+[git_status, git_hash_text] = system('git rev-parse --short HEAD');
+if git_status == 0
+    git_commit_short = regexprep(strtrim(git_hash_text), '[^A-Za-z0-9._-]', '_');
+else
+    git_commit_short = 'nogit';
+end
+work_dir = fileparts(fileparts(mfilename('fullpath')));
+branch_output_dir = fullfile(work_dir, 'outputs', git_commit_short);
+if ~exist(branch_output_dir, 'dir')
+    mkdir(branch_output_dir);
+end
+target_rows = double(repmat((1:Nx)', 1, Ny));
+target_cols = double(repmat(1:Ny, Nx, 1));
+target_signature_parts = [
+    size(imag_target, 1), ...
+    size(imag_target, 2), ...
+    sum(imag_target(:)), ...
+    sum(imag_target_design(:)), ...
+    sum(imag_target(:).^2), ...
+    sum(imag_target_design(:).^2), ...
+    sum(imag_target(:) .* target_rows(:)), ...
+    sum(imag_target(:) .* target_cols(:)), ...
+    sum(imag_target_design(:) .* target_rows(:)), ...
+    sum(imag_target_design(:) .* target_cols(:)), ...
+    nnz(imag_target(:) > 0.45), ...
+    nnz(imag_target_design(:) > 0.45)
+];
+target_signature = sprintf('%.12g|', target_signature_parts);
 save(export_path, 'imag_target', 'imag_target_design', 'Nx', 'Ny', 'Lx', ...
     'lambda_water', 'z_target_dist', 'dx', 'dz', 'f0', 'c_water', ...
     'c_board', 'density_water', 'density_board', 'alpha_coeff_water', ...
-    'thermal_sigma_px', 'min_base_layers');
+    'thermal_sigma_px', 'min_base_layers', 'target_threshold_norm', ...
+    'low_quantile_goal', 'target_mean_amp_goal_ratio', ...
+    'python_z_constraint_offsets_m', 'python_epochs', ...
+    'python_learning_rate', 'python_min_epochs', ...
+    'python_early_stop_patience', 'python_rng_seed', ...
+    'python_lr_restart_cycle', 'python_lr_restart_decay', ...
+    'python_lr_min_ratio', 'branch_output_dir', 'target_signature');
 
 fprintf('\n==================================================\n');
 fprintf('目标图案导出地址: %s\n', export_path);
@@ -166,8 +212,28 @@ import_path = fullfile(transport_dir, 'dl_phase_init.mat');
 if ~exist(import_path, 'file')
     error('没有找到 dl_phase_init.mat. 请确保已经算出初相');
 end
-load(import_path, 'optimal_initial_phase', 'optimal_phase_bias', 'optimal_layer_map', ...
-    'target_dose_design', 'line_target_mask', 'halo_target_mask');
+phase_data = load(import_path);
+required_phase_fields = {'optimal_initial_phase', 'optimal_phase_bias', 'optimal_layer_map', ...
+    'target_dose_design', 'line_target_mask', 'halo_target_mask'};
+for field_idx = 1:numel(required_phase_fields)
+    field_name = required_phase_fields{field_idx};
+    if ~isfield(phase_data, field_name)
+        error('Python相位输出缺少字段: %s', field_name);
+    end
+end
+if ~isfield(phase_data, 'target_signature')
+    error('Python相位输出缺少target_signature. 请使用新版PANN_Holography.py重新运行。');
+end
+python_target_signature = char(string(phase_data.target_signature));
+if ~strcmp(strtrim(python_target_signature), strtrim(target_signature))
+    error('Python相位输出与当前MATLAB目标不匹配. 请重新运行PANN_Holography.py。');
+end
+optimal_initial_phase = phase_data.optimal_initial_phase;
+optimal_phase_bias = phase_data.optimal_phase_bias;
+optimal_layer_map = phase_data.optimal_layer_map;
+target_dose_design = phase_data.target_dose_design;
+line_target_mask = phase_data.line_target_mask;
+halo_target_mask = phase_data.halo_target_mask;
 %padding
 pad_factor = 2;
 Nx_pad = Nx * pad_factor;
@@ -1192,13 +1258,15 @@ try
 catch
 end
 %% 11. Export reproducible work outputs
-work_dir = fileparts(fileparts(mfilename('fullpath')));
-out_dir = fullfile(work_dir, 'outputs');
+out_dir = branch_output_dir;
 if ~exist(out_dir, 'dir')
     mkdir(out_dir);
 end
 
 run_summary = struct();
+run_summary.git_commit_short = git_commit_short;
+run_summary.output_dir = out_dir;
+run_summary.target_signature = target_signature;
 run_summary.grid = struct('Nx', Nx, 'Ny', Ny, 'Nz', Nz, 'dx_m', dx, 'dz_m', dz, ...
     'f0_hz', f0, 'z_target_dist_m', z_target_dist);
 run_summary.field = struct( ...
@@ -1229,7 +1297,7 @@ run_summary.cure = struct( ...
     'under_cure_ratio', under_cure_ratio, ...
     'cured_coverage_percent', cured_coverage);
 
-save(fullfile(out_dir, 'mainline_full_pipeline_results.mat'), ...
+save(fullfile(out_dir, sprintf('mainline_full_pipeline_results_%s.mat', git_commit_short)), ...
     'run_summary', 'imag_target', 'imag_target_design', 'target_norm_asm', ...
     'thickness_map', 'actual_thickness', 'net_num_board', 'holo_phase', ...
     'p_exit_complex', 'p_exit_amp_norm', 'p_exit_phase', ...
@@ -1256,7 +1324,7 @@ if fid > 0
 end
 fid_json = fopen(fullfile(out_dir, 'summary.json'), 'w');
 if fid_json > 0
-    fwrite(fid_json, jsonencode(run_summary));
+    fwrite(fid_json, jsonencode(run_summary, 'PrettyPrint', true));
     fclose(fid_json);
 end
 figs = findall(0, 'Type', 'figure');

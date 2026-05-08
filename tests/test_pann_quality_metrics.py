@@ -2,7 +2,10 @@ import torch
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(
+    0,
+    str(Path(__file__).resolve().parents[1] / "codex_managed_reports" / "01_mainline_full_pipeline" / "src_stable"),
+)
 
 from pann_quality_metrics import aggregate_z_quality_terms, compute_cure_quality_terms
 

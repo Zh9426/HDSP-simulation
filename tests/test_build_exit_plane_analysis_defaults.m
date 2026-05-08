@@ -2,6 +2,10 @@ function tests = test_build_exit_plane_analysis_defaults
 tests = functiontests(localfunctions);
 end
 
+function setupOnce(testCase)
+addMainlinePath();
+end
+
 function testCreatesStablePlaceholderFields(testCase)
 Nx = 4;
 Ny = 3;
@@ -29,4 +33,9 @@ verifyEqual(testCase, defaults.exit_amp_vals, zeros(0, 1));
 verifyEqual(testCase, defaults.thickness_scatter_mm, zeros(0, 1));
 verifyEqual(testCase, defaults.model_pred_scatter, zeros(0, 1));
 verifyEqual(testCase, defaults.unique_layers(:), unique(net_num_board(circle_mask_board)));
+end
+
+function addMainlinePath()
+repo_root = fileparts(fileparts(mfilename('fullpath')));
+addpath(fullfile(repo_root, 'codex_managed_reports', '01_mainline_full_pipeline', 'src_stable'));
 end

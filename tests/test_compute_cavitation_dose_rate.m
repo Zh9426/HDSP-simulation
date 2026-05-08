@@ -2,6 +2,10 @@ function tests = test_compute_cavitation_dose_rate
 tests = functiontests(localfunctions);
 end
 
+function setupOnce(testCase)
+addMainlinePath();
+end
+
 function testGrowthCarriesNearThresholdDose(testCase)
 params = baseParams();
 trigger = [0.05, 0.20; 0.60, 1.00];
@@ -110,4 +114,9 @@ params = struct( ...
     'dose_fill_weight', 0.0, ...
     'dose_fill_growth_ref', 0.20, ...
     'dose_fill_power', 1.0);
+end
+
+function addMainlinePath()
+repo_root = fileparts(fileparts(mfilename('fullpath')));
+addpath(fullfile(repo_root, 'codex_managed_reports', '01_mainline_full_pipeline', 'src_stable'));
 end

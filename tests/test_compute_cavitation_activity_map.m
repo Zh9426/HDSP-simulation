@@ -2,6 +2,10 @@ function tests = test_compute_cavitation_activity_map
 tests = functiontests(localfunctions);
 end
 
+function setupOnce(testCase)
+addMainlinePath();
+end
+
 function testBelowThresholdHasNoActivity(testCase)
 params = baseParams();
 p_amp = [1.2, 1.6; 1.75, 1.79] * 1e6;
@@ -68,4 +72,9 @@ params = struct( ...
     'streaming_penalty_strength', 0.75, ...
     'streaming_penalty_power', 1.5, ...
     'smooth_sigma_px', 0.0);
+end
+
+function addMainlinePath()
+repo_root = fileparts(fileparts(mfilename('fullpath')));
+addpath(fullfile(repo_root, 'codex_managed_reports', '01_mainline_full_pipeline', 'src_stable'));
 end

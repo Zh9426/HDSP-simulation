@@ -2,6 +2,10 @@ function tests = test_compute_cure_feedback_terms
 tests = functiontests(localfunctions);
 end
 
+function setupOnce(testCase)
+addMainlinePath();
+end
+
 function testThermalFeedbackDependsOnlyOnCureFraction(testCase)
 params = baseParams();
 chi_focal = single([0.0, 0.5; 1.0, 0.25]);
@@ -34,4 +38,9 @@ params = struct( ...
     'absorption_gain', 0.5, ...
     'trigger_gain', 4.0, ...
     'growth_gain', 0.0);
+end
+
+function addMainlinePath()
+repo_root = fileparts(fileparts(mfilename('fullpath')));
+addpath(fullfile(repo_root, 'codex_managed_reports', '01_mainline_full_pipeline', 'src_stable'));
 end

@@ -2,6 +2,10 @@ function tests = test_compute_thermal_aux_increment
 tests = functiontests(localfunctions);
 end
 
+function setupOnce(testCase)
+addMainlinePath();
+end
+
 function testExposureUsesFullThermalWeight(testCase)
 params = baseParams();
 bulk_temp_rise = [0, 10; 20, 30];
@@ -52,4 +56,9 @@ params = struct( ...
     'cooling_thermal_weight', 0.15, ...
     'thermal_cavitation_gate_floor', 1.0, ...
     'thermal_cavitation_gate_power', 1.0);
+end
+
+function addMainlinePath()
+repo_root = fileparts(fileparts(mfilename('fullpath')));
+addpath(fullfile(repo_root, 'codex_managed_reports', '01_mainline_full_pipeline', 'src_stable'));
 end
