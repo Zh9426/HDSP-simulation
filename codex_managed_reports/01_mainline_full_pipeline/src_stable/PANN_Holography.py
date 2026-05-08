@@ -130,7 +130,8 @@ input_file = os.path.join(transport_dir, "target_for_python.mat")
 output_file = os.path.join(transport_dir, "dl_phase_init.mat")
 repo_dir = os.path.dirname(os.path.abspath(__file__))
 git_commit_short = current_git_commit_short(repo_dir)
-branch_output_dir = os.path.join(find_git_root(repo_dir), "initial_phase_outputs", git_commit_short)
+work_dir = os.path.dirname(repo_dir)
+branch_output_dir = os.path.join(work_dir, "outputs", git_commit_short)
 os.makedirs(branch_output_dir, exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -148,10 +149,25 @@ if "branch_output_dir" in data:
         os.makedirs(branch_output_dir, exist_ok=True)
     else:
         transport_is_current = False
-        print(
-            f"[WARN] Ignoring stale branch_output_dir from transport: {transport_output_dir}. "
-            f"Using current commit output: {branch_output_dir}"
+        raise RuntimeError(
+            f"Stale transport branch_output_dir: {transport_output_dir}. "
+            f"Expected output directory for commit {git_commit_short}. "
+            "Run the 01 MATLAB main workflow again before running Python."
         )
+else:
+    raise RuntimeError(
+        "target_for_python.mat is missing branch_output_dir. "
+        "This is an old transport file. Run "
+        "codex_managed_reports/01_mainline_full_pipeline/src_stable/HDSPdebug.m "
+        "until the Python pause, then run this Python script again."
+    )
+
+if "target_signature" not in data:
+    raise RuntimeError(
+        "target_for_python.mat is missing target_signature. "
+        "This is an old transport file and may not match the MATLAB run. "
+        "Regenerate it from the 01 MATLAB main workflow before training."
+    )
 
 design_key = "imag_target_design" if "imag_target_design" in data else "imag_target"
 target_amp = torch.tensor(data[design_key], dtype=torch.float32, device=device)
