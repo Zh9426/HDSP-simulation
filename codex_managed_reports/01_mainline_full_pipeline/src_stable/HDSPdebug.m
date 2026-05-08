@@ -116,16 +116,36 @@ fprintf('==================================================\n');
 
 %% 2.目标图案
 [Y_grid, X_grid] = meshgrid(x, x);
-strut_width = 1.0e-3;
-pore_size = 3.0e-3;
-pitch = strut_width + pore_size;
-mask_X = mod(X_grid + pitch / 2, pitch) < strut_width;
-mask_Y = mod(Y_grid + pitch / 2, pitch) < strut_width;
-scaffold_raw = mask_X | mask_Y;
+a_opts.height_px = 160;
+a_opts.base_width_px = 100;
+a_opts.stroke_px = 22;
+a_opts.bar_pos_px = 50;
+a_opts.bar_width_px = 20;
+a_opts.smooth_sigma_px = 1.5;
 
-target_radius = 15e-3;
-circle_mask = (X_grid.^2 + Y_grid.^2) <= target_radius^2;
-imag_target_raw = scaffold_raw & circle_mask;
+[Y_grid_px, X_grid_px] = meshgrid(1:Ny, 1:Nx);
+cx = round(Nx / 2);
+cy = round(Ny / 2);
+x_top = cx - a_opts.height_px / 2;
+x_bottom = cx + a_opts.height_px / 2;
+slope = a_opts.height_px / (a_opts.base_width_px / 2);
+
+dx_outer = X_grid_px - x_top;
+dy_abs = abs(Y_grid_px - cy);
+width_at_x = dx_outer / slope;
+mask_outer = (dx_outer >= 0) & (dx_outer <= a_opts.height_px) & ...
+    (dy_abs <= width_at_x);
+
+x_top_inner = x_top + a_opts.stroke_px * 1.8;
+dx_inner = X_grid_px - x_top_inner;
+width_inner_at_x = dx_inner / slope;
+mask_inner_cone = (dx_inner >= 0) & (dy_abs <= width_inner_at_x);
+
+x_bar_start = x_bottom - a_opts.bar_pos_px - a_opts.bar_width_px / 2;
+x_bar_end = x_bottom - a_opts.bar_pos_px + a_opts.bar_width_px / 2;
+mask_bar = (X_grid_px >= x_bar_start) & (X_grid_px <= x_bar_end);
+
+imag_target_raw = mask_outer & (~mask_inner_cone | mask_bar);
 imag_target = imgaussfilt(double(imag_target_raw), 0.5);
 imag_target = imag_target / max(imag_target(:));
 imag_target_design = imag_target;
