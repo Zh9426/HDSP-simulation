@@ -22,6 +22,4 @@ phase_board_exit_repair_outputs/
 *.mat
 *.pt
 
-# Keep tracked outputs under codex-managed work archives.
-!codex_managed_reports/**/outputs/
-!codex_managed_reports/**/outputs/**
+codex_managed_reports/**/outputs/
