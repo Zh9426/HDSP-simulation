@@ -53,17 +53,18 @@ cfg.python_lr_restart_decay = 0.82;
 cfg.python_lr_min_ratio = 0.05;
 cfg.python_executable = 'python';
 
-cfg.git_commit_short = get_git_commit_short();
-cfg.output_root_dir = fullfile(pwd, 'initial_phase_outputs');
+cfg.repo_root = fileparts(mfilename('fullpath'));
+cfg.git_commit_short = get_git_commit_short(cfg.repo_root);
+cfg.output_root_dir = fullfile(cfg.repo_root, 'initial_phase_outputs');
 cfg.output_dir = fullfile(cfg.output_root_dir, cfg.git_commit_short);
 cfg.transport_dir = 'C:\Users\Zh89\Desktop\transport';
 cfg.python_input_mat = fullfile(cfg.transport_dir, 'target_for_python.mat');
 cfg.python_output_mat = fullfile(cfg.transport_dir, 'dl_phase_init.mat');
-cfg.python_script = fullfile(pwd, 'PANN_Holography.py');
+cfg.python_script = fullfile(cfg.repo_root, 'PANN_Holography.py');
 end
 
-function git_commit_short = get_git_commit_short()
-[status, hash_text] = system('git rev-parse --short HEAD');
+function git_commit_short = get_git_commit_short(repo_root)
+[status, hash_text] = system(sprintf('git -C "%s" rev-parse --short HEAD', repo_root));
 if status ~= 0
     git_commit_short = 'nogit';
     return;
