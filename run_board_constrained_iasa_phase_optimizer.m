@@ -29,7 +29,13 @@ end
 dark_mask_pad = ~(line_mask_pad | halo_mask_pad);
 
 weight_pad = 0.05 + target_pad * 1.95;
-history = zeros(cfg.iasa_epochs, 6);
+history = zeros(cfg.iasa_epochs, 8);
+checkpoint_epochs = cfg.iasa_checkpoint_epochs(:)';
+checkpoint_records = struct([]);
+best_quality_score = -inf;
+best_epoch = 0;
+best_layer_map = layer_map;
+best_phase_bias = phase_bias_seed;
 
 for epoch = 1:cfg.iasa_epochs
     source_pad = zeros(propagator.Nx_pad, propagator.Ny_pad);
@@ -82,9 +88,28 @@ for epoch = 1:cfg.iasa_epochs
         blended_phase, phase_step, cfg.min_base_layers, source_mask, phase_bias_seed, use_dither);
 
     focus_crop = rec_amp_norm(propagator.center_idx, propagator.center_idx);
-    history(epoch, :) = quick_amp_scores(focus_crop, target_amp, target_amp > cfg.target_mask_threshold);
+    scores = quick_amp_scores(focus_crop, target_amp, target_amp > cfg.target_mask_threshold);
+    history(epoch, :) = scores;
+
+    if scores(8) > best_quality_score
+        best_quality_score = scores(8);
+        best_epoch = epoch;
+        best_layer_map = layer_map;
+        best_phase_bias = phase_bias_seed;
+    end
+
+    if any(epoch == checkpoint_epochs)
+        record = make_checkpoint_record(epoch, scores);
+        if isempty(checkpoint_records)
+            checkpoint_records = record;
+        else
+            checkpoint_records(end + 1) = record;
+        end
+    end
 end
 
+layer_map = best_layer_map;
+phase_bias_seed = best_phase_bias;
 final_phase = mod(layer_map * phase_step, 2*pi);
 final_phase(~source_mask) = 0;
 focus = compute_asm_focus_field(final_phase, source_mask, propagator);
@@ -97,6 +122,15 @@ result.phase_bias = phase_bias_seed;
 result.asm_amp = focus.amp;
 result.asm_amp_norm = focus.amp_norm;
 result.history = history;
+result.optimizer_metrics = struct( ...
+    'configured_epochs', cfg.iasa_epochs, ...
+    'selected_epoch', best_epoch, ...
+    'best_loop_quality_score', best_quality_score, ...
+    'checkpoint_epochs', checkpoint_epochs, ...
+    'checkpoint_records', checkpoint_records, ...
+    'uniformity_enabled', cfg.iasa_uniformity_enabled, ...
+    'uniformity_beta', cfg.iasa_uniformity_beta, ...
+    'uniformity_gain_limit', cfg.iasa_uniformity_gain_limit);
 result.max_layer_index = max_layer_index;
 end
 
@@ -128,5 +162,20 @@ target_cv = std(target_vals(:)) / (mean(target_vals(:)) + eps);
 target_p10 = prctile(target_vals(:), 10);
 target_p50 = prctile(target_vals(:), 50);
 p10_over_p50 = target_p10 / (target_p50 + eps);
-scores = [pcc, nmse, energy_efficiency, target_cv, p10_over_p50, max(pred(:))];
+target_peak_over_mean = max(target_vals(:)) / (mean(target_vals(:)) + eps);
+quality_score = pcc + energy_efficiency + p10_over_p50 - target_cv - 0.10 * target_peak_over_mean;
+scores = [pcc, nmse, energy_efficiency, target_cv, p10_over_p50, max(pred(:)), target_peak_over_mean, quality_score];
+end
+
+function record = make_checkpoint_record(epoch, scores)
+record = struct();
+record.epoch = epoch;
+record.pcc = scores(1);
+record.nmse = scores(2);
+record.energy_efficiency = scores(3);
+record.target_uniformity_cv = scores(4);
+record.target_p10_over_p50 = scores(5);
+record.peak_norm = scores(6);
+record.target_peak_over_mean = scores(7);
+record.loop_quality_score = scores(8);
 end

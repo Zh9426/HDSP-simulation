@@ -37,7 +37,8 @@ cfg.python_z_constraint_offsets_m = 0;
 cfg.min_base_layers = 2;
 
 cfg.phase_case_mode = 'pure_board_iasa';
-cfg.iasa_epochs = 300;
+cfg.iasa_epochs = 500;
+cfg.iasa_checkpoint_epochs = [10, 20, 30, 50, 75, 100, 150, 200, 250, 300, 350, 400, 450, 500];
 cfg.iasa_beta = 0.60;
 cfg.iasa_dark_weight = 0.0;
 cfg.iasa_halo_weight = 0.05;

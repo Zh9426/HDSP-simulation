@@ -84,6 +84,21 @@ for idx = 1:numel(results.phase_cases)
     summary.cases(idx).asm_nmse = pm.asm_nmse;
     if isfield(case_now, 'optimizer_metrics')
         summary.cases(idx).optimizer_metrics = case_now.optimizer_metrics;
+        om = case_now.optimizer_metrics;
+        if isfield(om, 'selected_epoch')
+            fprintf(fid, 'optimizer_selected_epoch: %d\n', om.selected_epoch);
+            fprintf(fid, 'optimizer_best_loop_quality_score: %.6f\n', om.best_loop_quality_score);
+        end
+        if isfield(om, 'checkpoint_records')
+            fprintf(fid, 'optimizer_checkpoints:\n');
+            for rec_idx = 1:numel(om.checkpoint_records)
+                rec = om.checkpoint_records(rec_idx);
+                fprintf(fid, '  epoch %d | score %.6f | PCC %.4f | EE %.2f%% | CV %.4f | P10/P50 %.4f | peak/mean %.4f\n', ...
+                    rec.epoch, rec.loop_quality_score, rec.pcc, rec.energy_efficiency * 100, ...
+                    rec.target_uniformity_cv, rec.target_p10_over_p50, rec.target_peak_over_mean);
+            end
+            fprintf(fid, '\n');
+        end
     end
 end
 

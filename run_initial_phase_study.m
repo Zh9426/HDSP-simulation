@@ -39,6 +39,7 @@ phase_cases(1).history = pure_board_iasa.history;
 phase_cases(1).layer_map = pure_board_iasa.layer_map;
 phase_cases(1).phase_step = pure_board_iasa.phase_step;
 phase_cases(1).phase_bias = pure_board_iasa.phase_bias;
+phase_cases(1).optimizer_metrics = pure_board_iasa.optimizer_metrics;
 
 for idx = 1:numel(phase_cases)
     phase_cases(idx).asm_metrics = calculate_pressure_metrics( ...
