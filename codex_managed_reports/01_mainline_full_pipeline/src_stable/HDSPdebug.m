@@ -161,13 +161,15 @@ python_rng_seed = 9426;
 python_lr_restart_cycle = 5000;
 python_lr_restart_decay = 0.82;
 python_lr_min_ratio = 0.05;
-[git_status, git_hash_text] = system('git rev-parse --short HEAD');
+src_dir = fileparts(mfilename('fullpath'));
+work_dir = fileparts(src_dir);
+repo_root = fileparts(fileparts(work_dir));
+[git_status, git_hash_text] = system(sprintf('git -C "%s" rev-parse --short HEAD', repo_root));
 if git_status == 0
     git_commit_short = regexprep(strtrim(git_hash_text), '[^A-Za-z0-9._-]', '_');
 else
     git_commit_short = 'nogit';
 end
-work_dir = fileparts(fileparts(mfilename('fullpath')));
 branch_output_dir = fullfile(work_dir, 'outputs', git_commit_short);
 if ~exist(branch_output_dir, 'dir')
     mkdir(branch_output_dir);
