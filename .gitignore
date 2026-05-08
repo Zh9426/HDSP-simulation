@@ -26,6 +26,4 @@ summary.txt
 target_for_python.mat
 dl_phase_init.mat
 
-# Keep tracked outputs under codex-managed work archives.
-!codex_managed_reports/**/outputs/
-!codex_managed_reports/**/outputs/**
+codex_managed_reports/**/outputs/
