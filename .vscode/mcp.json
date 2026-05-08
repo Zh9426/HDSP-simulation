@@ -1,0 +1,13 @@
+{
+  "servers": {
+    "matlab": {
+      "type": "stdio",
+      "command": "C:\\Users\\Zh89\\.codex\\mcp-bin\\matlab-mcp-core-server-win64.exe",
+      "args": [
+        "--matlab-root=C:\\Program Files\\MATLAB\\R2024b",
+        "--initial-working-folder=F:\\GitHub\\HDSP-simulation",
+        "--disable-telemetry=true"
+      ]
+    }
+  }
+}
