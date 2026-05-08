@@ -144,6 +144,7 @@ if "branch_output_dir" in data:
 design_key = "imag_target_design" if "imag_target_design" in data else "imag_target"
 target_amp = torch.tensor(data[design_key], dtype=torch.float32, device=device)
 target_amp_raw = torch.tensor(data["imag_target"], dtype=torch.float32, device=device)
+target_signature = matlab_string(data["target_signature"]) if "target_signature" in data else ""
 
 Nx, Ny = int(data["Nx"].item()), int(data["Ny"].item())
 Lx = float(data["Lx"].item())
@@ -468,6 +469,7 @@ best_metrics = {
     "lr_restart_cycle": int(lr_restart_cycle),
     "lr_restart_decay": float(lr_restart_decay),
     "lr_min_ratio": float(lr_min_ratio),
+    "target_signature": target_signature,
     "min_epochs": int(min_epochs),
     "early_stop_patience": int(early_stop_patience),
     "top_quality_records_json": json.dumps(top_quality_records),
@@ -510,6 +512,7 @@ sio.savemat(
         "optimal_layer_map": dithered_layers.astype(np.float32),
         "phase_step": np.array([[phase_step]], dtype=np.float32),
         "target_dose_design": target_dose_design_compat,
+        "target_signature": target_signature,
         "line_target_mask": target_binary.detach().cpu().numpy().astype(np.float32),
         "halo_target_mask": halo_mask.detach().cpu().numpy().astype(np.float32),
         "python_loss_history": history_np,
@@ -532,6 +535,7 @@ sio.savemat(
         "python_metrics": best_metrics,
         "python_asm_amp_norm": best_amp_norm.detach().cpu().numpy().astype(np.float32),
         "target_dose_design": target_dose_design_compat,
+        "target_signature": target_signature,
         "target_threshold_norm": np.array([[target_threshold_norm]], dtype=np.float32),
         "low_quantile_goal": np.array([[low_quantile_goal]], dtype=np.float32),
         "target_mean_amp_goal": np.array([[target_mean_amp_goal]], dtype=np.float32),

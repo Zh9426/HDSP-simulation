@@ -15,6 +15,7 @@ def stack_term(terms_by_z, key):
 
 
 def aggregate_z_quality_terms(terms_by_z):
+    """Aggregate per-z cure metrics with explicit worst-plane penalties."""
     coverage = stack_term(terms_by_z, "target_coverage")
     p05_over_p50 = stack_term(terms_by_z, "target_p05_over_p50")
     p10_over_p50 = stack_term(terms_by_z, "target_p10_over_p50")
@@ -81,6 +82,12 @@ def compute_cure_quality_terms(
     low_quantile_goal=0.88,
     target_mean_amp_goal=None,
 ):
+    """Return differentiable quality terms for threshold-driven curing.
+
+    The target mask should be uniformly above a normalized pressure threshold.
+    Background penalties are area-based so an isolated bright pixel is less
+    important than a sustained above-threshold leak.
+    """
     if pred_amp_raw is None:
         pred_amp_raw = pred_amp_norm
 
@@ -163,8 +170,16 @@ def compute_cure_quality_terms(
     target_contrast_loss = 1.0 / (target_to_global_mean + 1e-8)
 
     dark_mean_loss = torch.mean(dark_energy_vals) if dark_energy_vals.numel() > 4 else zero
-    dark_area_loss = torch.mean(torch.relu(dark_amp_vals - threshold) ** 2) / (threshold**2 + 1e-8) if dark_amp_vals.numel() > 4 else zero
-    dark_area_fraction = torch.mean((dark_amp_vals >= threshold).float()) if dark_amp_vals.numel() > 4 else zero
+    dark_area_loss = (
+        torch.mean(torch.relu(dark_amp_vals - threshold) ** 2) / (threshold**2 + 1e-8)
+        if dark_amp_vals.numel() > 4
+        else zero
+    )
+    dark_area_fraction = (
+        torch.mean((dark_amp_vals >= threshold).float())
+        if dark_amp_vals.numel() > 4
+        else zero
+    )
     halo_loss = torch.mean(halo_energy_vals) if halo_energy_vals.numel() > 4 else zero
     energy_efficiency = torch.sum(pred_energy * target_binary) / (torch.sum(pred_energy) + 1e-8)
 
