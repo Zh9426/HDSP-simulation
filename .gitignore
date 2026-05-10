@@ -29,3 +29,4 @@ target_for_python.mat
 dl_phase_init.mat
 
 codex_managed_reports/**/outputs/
+*.csv
