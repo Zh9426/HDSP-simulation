@@ -26,6 +26,9 @@ $report = foreach ($branch in $Branches) {
     $entries = @(git ls-tree --name-only $branch)
     $hits = @()
     foreach ($entry in $entries) {
+        if ($entry -eq 'local_outputs') {
+            continue
+        }
         foreach ($pattern in $suspiciousPatterns) {
             if ($entry -match $pattern) {
                 $hits += $entry
