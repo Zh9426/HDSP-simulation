@@ -177,8 +177,8 @@ python_learning_rate = 0.06;
 python_min_epochs = 6500;
 python_early_stop_patience = 4200;
 python_rng_seed = 9426;
-python_lr_restart_cycle = 5000;
-python_lr_restart_decay = 0.82;
+python_lr_restart_cycle = python_epochs + 1;
+python_lr_restart_decay = 1.0;
 python_lr_min_ratio = 0.05;
 src_dir = fileparts(mfilename('fullpath'));
 work_dir = fileparts(src_dir);
@@ -777,22 +777,22 @@ for phase = 1:2
     if phase == 1
         %曝光时间，声压与冷却时间粗查
         fprintf('\n[第一阶段:粗扫]...\n');
-        P_list = (1.60 : 0.06 : 2.20) * 1e6;
-        E_list = 0.48 : 0.03 : 0.60;
-        C_list = [0.44, 0.54];
+        P_list = (1.80 : 0.08 : 2.60) * 1e6;
+        E_list = 0.50 : 0.04 : 0.70;
+        C_list = [0.44, 0.54, 0.64];
     else
         %细查
          fprintf('\n[第二阶段: 微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
             best_coarse.P/1e6, best_coarse.E, best_coarse.C);
-        P_list = max(1.50e6, best_coarse.P - 0.08e6) : 0.02e6 : (best_coarse.P + 0.08e6);
-        E_list = max(0.44, best_coarse.E - 0.03) : 0.01 : min(0.64, best_coarse.E + 0.03);
-        C_list = best_coarse.C;
+        P_list = max(1.70e6, best_coarse.P - 0.12e6) : 0.02e6 : min(2.80e6, best_coarse.P + 0.12e6);
+        E_list = max(0.46, best_coarse.E - 0.05) : 0.01 : min(0.78, best_coarse.E + 0.05);
+        C_list = unique([max(0.34, best_coarse.C - 0.10), best_coarse.C, min(0.74, best_coarse.C + 0.10)]);
     end
 
     [Pg, Eg, Cg] = ndgrid(P_list, E_list, C_list);
     params_all = [Pg(:), Eg(:), Cg(:)];
     energy_index = (params_all(:, 1) / 1e6).^2 .* params_all(:, 2);
-    valid_mask = (energy_index >= 0.25) & (energy_index <= 2.4);
+    valid_mask = (energy_index >= 0.35) & (energy_index <= 5.0);
     params_valid = sortrows(params_all(valid_mask, :), 1);
     num_tests = size(params_valid, 1);
     current_P = -1;

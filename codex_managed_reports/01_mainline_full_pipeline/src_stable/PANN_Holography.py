@@ -133,6 +133,7 @@ git_commit_short = current_git_commit_short(repo_dir)
 work_dir = os.path.dirname(repo_dir)
 branch_output_dir = os.path.join(work_dir, "outputs", git_commit_short)
 os.makedirs(branch_output_dir, exist_ok=True)
+best_snapshot_file = os.path.join(branch_output_dir, "pann_phase_output_best_snapshot.mat")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("\n[INFO] PANN-Pressure-Holo start: threshold coverage + target uniformity prioritization (EE deweighted)")
@@ -461,6 +462,8 @@ dithered_phase = np.mod(dithered_layers * phase_step, TWO_PI).astype(np.float32)
 dithered_phase *= mask_np.astype(np.float32)
 
 history_np = np.array(history, dtype=np.float32)
+final_quality_score = float(history_np[-1, 15]) if history_np.size else float("nan")
+quality_drawdown = float(best_quality_score - final_quality_score) if history_np.size else float("nan")
 best_source_field = torch.exp(1j * torch.tensor(dithered_phase, dtype=torch.float32, device=device)) * source_mask
 best_target_field = propagate_asm(best_source_field)
 best_amp = torch.abs(best_target_field)
@@ -487,6 +490,8 @@ best_target_peak = torch.max(best_target_vals) if best_target_vals.numel() > 4 e
 best_metrics = {
     "best_loss": float(best_loss),
     "best_quality_score": float(best_quality_score),
+    "final_quality_score": final_quality_score,
+    "quality_drawdown": quality_drawdown,
     "selected_epoch": int(best_state["epoch"]),
     "final_epoch": int(history_np[-1, 0]) if history_np.size else 0,
     "configured_epochs": int(epochs),
@@ -572,6 +577,22 @@ sio.savemat(
     },
 )
 
+sio.savemat(
+    best_snapshot_file,
+    {
+        "optimal_initial_phase": dithered_phase,
+        "optimal_phase_bias": np.array([[phase_bias_final.item()]], dtype=np.float32),
+        "optimal_layer_map": dithered_layers.astype(np.float32),
+        "selected_epoch": np.array([[best_state["epoch"]]], dtype=np.int32),
+        "best_quality_score": np.array([[best_quality_score]], dtype=np.float32),
+        "final_quality_score": np.array([[final_quality_score]], dtype=np.float32),
+        "quality_drawdown": np.array([[quality_drawdown]], dtype=np.float32),
+        "python_asm_amp_norm": best_amp_norm.detach().cpu().numpy().astype(np.float32),
+        "python_metrics": best_metrics,
+        "target_signature": target_signature,
+    },
+)
+
 np.savetxt(
     os.path.join(branch_output_dir, "pann_training_history.csv"),
     history_np,
@@ -618,4 +639,5 @@ except Exception as plot_error:
     print(f"[WARN] Could not write PANN metric figure: {plot_error}")
 
 print(f"\n[OK] Phase initialization written to: {output_file}")
+print(f"[OK] Best-snapshot mat written to: {best_snapshot_file}")
 print(f"[OK] Branch metrics written to: {branch_output_dir}")
