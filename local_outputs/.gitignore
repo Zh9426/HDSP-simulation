@@ -1,0 +1,3 @@
+# Branch-local scratch outputs live here and stay out of Git.
+*
+!.gitignore
