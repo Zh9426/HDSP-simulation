@@ -16,10 +16,11 @@ fprintf(fid, 'Created at: %s\n', results.created_at);
 fprintf(fid, 'Output directory: %s\n', results.cfg.output_dir);
 fprintf(fid, 'IASA epochs: %d\n\n', results.cfg.iasa_epochs);
 
-rows = cell(numel(results.phase_cases) + 1, 16);
+rows = cell(numel(results.phase_cases) + 1, 19);
 rows(1, :) = {'label', 'best_z_offset_mm', 'quality_score', 'mean_target_pressure_pa', ...
     'peak_target_pressure_pa', 'target_cv', 'p10_over_p50', 'p05_over_p50', ...
-    'peak_over_mean', 'energy_efficiency', 'dark_energy_leakage', 'pcc', 'nmse', ...
+    'peak_over_mean', 'dark_p99_over_target_p50', 'dark_peak_over_target_p50', ...
+    'dark_high_area_fraction', 'energy_efficiency', 'dark_energy_leakage', 'pcc', 'nmse', ...
     'asm_pcc', 'optimizer_selected_epoch', 'optimizer_best_loop_quality_score'};
 
 for idx = 1:numel(results.phase_cases)
@@ -48,6 +49,9 @@ for idx = 1:numel(results.phase_cases)
     fprintf(fid, 'target_uniformity_cv: %.6f\n', km.target_uniformity_cv);
     fprintf(fid, 'target_p10_over_p50: %.6f\n', km.target_p10_over_p50);
     fprintf(fid, 'target_peak_over_mean: %.6f\n', km.target_peak_over_mean);
+    fprintf(fid, 'dark_p99_over_target_p50: %.6f\n', km.dark_p99_over_target_p50);
+    fprintf(fid, 'dark_peak_over_target_p50: %.6f\n', km.dark_peak_over_target_p50);
+    fprintf(fid, 'dark_high_area_fraction: %.6f\n', km.dark_high_area_fraction);
     fprintf(fid, 'energy_efficiency: %.6f\n', km.energy_efficiency);
     fprintf(fid, 'dark_energy_leakage: %.6f\n', km.dark_energy_leakage);
     fprintf(fid, 'pcc: %.6f\n', km.pcc);
@@ -65,6 +69,9 @@ for idx = 1:numel(results.phase_cases)
     summary.cases(idx).target_p10_over_p50 = km.target_p10_over_p50;
     summary.cases(idx).target_p05_over_p50 = km.target_p05_over_p50;
     summary.cases(idx).target_peak_over_mean = km.target_peak_over_mean;
+    summary.cases(idx).dark_p99_over_target_p50 = km.dark_p99_over_target_p50;
+    summary.cases(idx).dark_peak_over_target_p50 = km.dark_peak_over_target_p50;
+    summary.cases(idx).dark_high_area_fraction = km.dark_high_area_fraction;
     summary.cases(idx).energy_efficiency = km.energy_efficiency;
     summary.cases(idx).dark_energy_leakage = km.dark_energy_leakage;
     summary.cases(idx).pcc = km.pcc;
@@ -79,7 +86,8 @@ for idx = 1:numel(results.phase_cases)
     rows(idx + 1, :) = {case_now.label, case_now.kwave.best_z_offset_m * 1e3, ...
         km.target_pressure_quality_score, km.mean_target_pressure_pa, ...
         km.peak_target_pressure_pa, km.target_uniformity_cv, km.target_p10_over_p50, ...
-        km.target_p05_over_p50, km.target_peak_over_mean, km.energy_efficiency, ...
+        km.target_p05_over_p50, km.target_peak_over_mean, km.dark_p99_over_target_p50, ...
+        km.dark_peak_over_target_p50, km.dark_high_area_fraction, km.energy_efficiency, ...
         km.dark_energy_leakage, km.pcc, km.nmse, pm.asm_target_pcc, ...
         selected_epoch, best_loop_quality};
 end
@@ -90,10 +98,10 @@ summary.ranking = summary.cases(order);
 fprintf(fid, '[Ranking]\n');
 for rank_idx = 1:numel(order)
     case_now = summary.cases(order(rank_idx));
-    fprintf(fid, '%d. %s | score %.6f | CV %.4f | P10/P50 %.4f | EE %.2f%%\n', ...
+    fprintf(fid, '%d. %s | score %.6f | CV %.4f | P10/P50 %.4f | DarkP99/P50 %.3f | EE %.2f%%\n', ...
         rank_idx, case_now.label, case_now.target_pressure_quality_score, ...
         case_now.target_uniformity_cv, case_now.target_p10_over_p50, ...
-        case_now.energy_efficiency * 100);
+        case_now.dark_p99_over_target_p50, case_now.energy_efficiency * 100);
 end
 fclose(fid);
 

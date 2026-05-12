@@ -32,6 +32,9 @@ for idx = 1:numel(results.phase_cases)
     fprintf(fid, 'target_p90_over_mean: %.6f\n', m.target_p90_over_mean);
     fprintf(fid, 'target_p95_over_mean: %.6f\n', m.target_p95_over_mean);
     fprintf(fid, 'target_peak_over_mean: %.6f\n', m.target_peak_over_mean);
+    fprintf(fid, 'dark_p99_over_target_p50: %.6f\n', m.dark_p99_over_target_p50);
+    fprintf(fid, 'dark_peak_over_target_p50: %.6f\n', m.dark_peak_over_target_p50);
+    fprintf(fid, 'dark_high_area_fraction: %.6f\n', m.dark_high_area_fraction);
     fprintf(fid, 'target_pressure_quality_score: %.6f\n', m.target_pressure_quality_score);
     fprintf(fid, 'focus_contrast: %.6f\n', m.focus_contrast);
     fprintf(fid, 'energy_efficiency: %.6f\n', m.energy_efficiency);
@@ -66,6 +69,9 @@ for idx = 1:numel(results.phase_cases)
     summary.cases(idx).target_p90_over_mean = m.target_p90_over_mean;
     summary.cases(idx).target_p95_over_mean = m.target_p95_over_mean;
     summary.cases(idx).target_peak_over_mean = m.target_peak_over_mean;
+    summary.cases(idx).dark_p99_over_target_p50 = m.dark_p99_over_target_p50;
+    summary.cases(idx).dark_peak_over_target_p50 = m.dark_peak_over_target_p50;
+    summary.cases(idx).dark_high_area_fraction = m.dark_high_area_fraction;
     summary.cases(idx).target_pressure_quality_score = m.target_pressure_quality_score;
     summary.cases(idx).focus_contrast = m.focus_contrast;
     summary.cases(idx).energy_efficiency = m.energy_efficiency;

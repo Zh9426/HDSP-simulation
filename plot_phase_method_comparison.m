@@ -72,9 +72,9 @@ set(gca, 'XTick', xpos, 'XTickLabel', cellstr(labels), 'XTickLabelRotation', 25)
 ylabel('Quality score'); title('k-Wave Quality Score'); grid on;
 
 nexttile;
-bar(xpos, arrayfun(@(c) c.kwave.metrics.energy_efficiency * 100, cases));
+bar(xpos, arrayfun(@(c) c.kwave.metrics.dark_p99_over_target_p50, cases));
 set(gca, 'XTick', xpos, 'XTickLabel', cellstr(labels), 'XTickLabelRotation', 25);
-ylabel('Energy in target (%)'); title('Energy Utilization'); grid on;
+ylabel('Dark P99 / target P50'); title('Background Relative Pressure'); grid on;
 
 nexttile;
 bar(xpos, arrayfun(@(c) c.kwave.metrics.target_uniformity_cv, cases));

@@ -120,6 +120,8 @@ record.target_uniformity_cv = read_metric(case_now, 'target_uniformity_cv');
 record.target_p10_over_p50 = read_metric(case_now, 'target_p10_over_p50');
 record.target_p95_over_mean = read_metric(case_now, 'target_p95_over_mean');
 record.target_peak_over_mean = read_metric(case_now, 'target_peak_over_mean');
+record.dark_p99_over_target_p50 = read_metric(case_now, 'dark_p99_over_target_p50');
+record.dark_peak_over_target_p50 = read_metric(case_now, 'dark_peak_over_target_p50');
 record.dark_energy_leakage = read_metric(case_now, 'dark_energy_leakage');
 record.mean_target_pressure_pa = read_metric(case_now, 'mean_target_pressure_pa');
 record.peak_target_pressure_pa = read_metric(case_now, 'peak_target_pressure_pa');
@@ -171,6 +173,7 @@ function delta = calculate_delta(current, baseline)
 delta = struct();
 fields = {'score', 'pcc', 'energy_efficiency', 'target_uniformity_cv', ...
     'target_p10_over_p50', 'target_p95_over_mean', 'target_peak_over_mean', ...
+    'dark_p99_over_target_p50', 'dark_peak_over_target_p50', ...
     'dark_energy_leakage', 'mean_target_pressure_pa', 'peak_target_pressure_pa', ...
     'asm_target_pcc'};
 for idx = 1:numel(fields)
@@ -190,8 +193,11 @@ end
 if current.target_peak_over_mean > baseline.target_peak_over_mean
     directions{end + 1} = 'target peak/mean is worse; suppress in-target hot spots';
 end
-if current.energy_efficiency < baseline.energy_efficiency
-    directions{end + 1} = 'energy efficiency is worse; reduce dark-field energy leakage';
+if current.dark_p99_over_target_p50 > baseline.dark_p99_over_target_p50
+    directions{end + 1} = 'background P99 is closer to target pressure; keep background below the target band';
+end
+if current.dark_peak_over_target_p50 > baseline.dark_peak_over_target_p50
+    directions{end + 1} = 'background peak is worse; suppress isolated background hot spots';
 end
 if current.pcc < baseline.pcc
     directions{end + 1} = 'pattern PCC is worse; recover target shape fidelity';

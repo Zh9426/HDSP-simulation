@@ -146,11 +146,29 @@ pcc = sum(pred_centered .* target_centered) / ...
 nmse = sum((pred(:) - target(:)).^2) / (sum(target(:).^2) + eps);
 energy_efficiency = sum(pred(target_mask).^2) / (sum(pred(:).^2) + eps);
 target_vals = pred(target_mask);
+dark_vals = pred(~target_mask);
 target_cv = std(target_vals(:)) / (mean(target_vals(:)) + eps);
 target_p10 = prctile(target_vals(:), 10);
 target_p50 = prctile(target_vals(:), 50);
+target_p05 = prctile(target_vals(:), 5);
+target_p95 = prctile(target_vals(:), 95);
 p10_over_p50 = target_p10 / (target_p50 + eps);
+target_uniformity_score = 1 / (1 + target_cv);
 target_peak_over_mean = max(target_vals(:)) / (mean(target_vals(:)) + eps);
-quality_score = pcc + energy_efficiency + p10_over_p50 - target_cv - 0.10 * target_peak_over_mean;
+target_p05_over_p50 = target_p05 / (target_p50 + eps);
+target_p95_over_mean = target_p95 / (mean(target_vals(:)) + eps);
+dark_p99_over_target_p50 = prctile(dark_vals(:), 99) / (target_p50 + eps);
+dark_peak_over_target_p50 = max(dark_vals(:)) / (target_p50 + eps);
+dark_high_area_fraction = mean(dark_vals(:) >= 0.72 * target_p50);
+dark_relative_penalty = max(dark_p99_over_target_p50 - 0.72, 0)^2 + ...
+    0.35 * max(dark_peak_over_target_p50 - 0.95, 0)^2 + ...
+    0.5 * dark_high_area_fraction;
+quality_score = 2.8 * target_uniformity_score + ...
+    2.2 * p10_over_p50 + ...
+    1.2 * target_p05_over_p50 + ...
+    0.5 * pcc - ...
+    1.2 * max(target_p95_over_mean - 1.25, 0)^2 - ...
+    0.8 * max(target_peak_over_mean - 1.60, 0)^2 - ...
+    1.6 * dark_relative_penalty;
 scores = [pcc, nmse, energy_efficiency, target_cv, p10_over_p50, max(pred(:)), target_peak_over_mean, quality_score];
 end
