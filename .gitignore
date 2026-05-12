@@ -2,8 +2,8 @@
 __pycache__/
 *.pyc
 
-# Branch-local scratch outputs live here. Anything that must survive branch
-# cleanup belongs in codex_managed_reports/*/outputs/ instead.
+# Branch-local scratch outputs live here. Anything inside stays local and
+# never goes to the remote.
 local_outputs/*
 !local_outputs/.gitignore
 codex_analysis/
@@ -25,7 +25,6 @@ phase_board_exit_repair_outputs/
 *.mat
 *.pt
 
-# Keep archived report outputs versioned.
-!codex_managed_reports/**/outputs/
+# Keep report output directories, but never version their runtime contents.
+codex_managed_reports/**/outputs/*
 !codex_managed_reports/**/outputs/.gitkeep
-!codex_managed_reports/**/outputs/**
