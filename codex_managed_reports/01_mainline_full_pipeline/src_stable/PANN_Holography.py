@@ -182,6 +182,7 @@ dz = float(data["dz"].item())
 f0 = float(data["f0"].item())
 c_water = float(data["c_water"].item())
 c_board = float(data["c_board"].item())
+aperture_radius = float(data["aperture_radius"].item()) if "aperture_radius" in data else 32e-3
 thermal_sigma_px = float(data["thermal_sigma_px"].item()) if "thermal_sigma_px" in data else 1.0
 min_base_layers = int(data["min_base_layers"].item()) if "min_base_layers" in data else 2
 target_threshold_norm = float(data["target_threshold_norm"].item()) if "target_threshold_norm" in data else 0.60
@@ -253,7 +254,7 @@ max_layer_index = min_base_layers + int(math.ceil(TWO_PI / phase_step)) + 1
 x_vec = torch.linspace(-Lx / 2, Lx / 2, Nx, device=device)
 y_vec = torch.linspace(-Lx / 2, Lx / 2, Ny, device=device)
 Y_grid, X_grid = torch.meshgrid(y_vec, x_vec, indexing="ij")
-source_mask = ((X_grid**2 + Y_grid**2) <= (32e-3) ** 2).float()
+source_mask = ((X_grid**2 + Y_grid**2) <= aperture_radius**2).float()
 target_mean_amp_goal = target_mean_amp_goal_ratio * math.sqrt(
     float(torch.sum(source_mask).detach().cpu()) / (float(torch.sum(target_binary).detach().cpu()) + 1e-8)
 )

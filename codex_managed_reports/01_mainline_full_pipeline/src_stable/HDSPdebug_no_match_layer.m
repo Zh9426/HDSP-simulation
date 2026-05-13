@@ -32,6 +32,8 @@ pdms_thickness = 7e-3;
 focus_scan_radius = 3e-3;
 focus_edge_warn_mm = 0.5;
 lambda_water = c_water / f0;
+aperture_margin = 0.5e-3;
+aperture_radius = min(32e-3, Lx / 2 - aperture_margin);
 c_match = 1980;
 density_match = 1003;
 alpha_coeff_match = 0.01;
@@ -115,6 +117,7 @@ fprintf('==================================================\n');
 fprintf('Grid dx = dy = dz = %.4f mm\n', dx * 1e3);
 fprintf('PPW: %.2f\n', lambda_water / dx);
 fprintf('Grid size: %d x %d x %d (%.1f M cells)\n', Nx, Ny, Nz, (Nx * Ny * Nz) / 1e6);
+fprintf('Aperture radius: %.2f mm\n', aperture_radius * 1e3);
 fprintf('Match layer: disabled (control copy)\n');
 fprintf('==================================================\n');
 
@@ -218,6 +221,7 @@ target_signature = sprintf('%.12g|', target_signature_parts);
 save(export_path, 'imag_target', 'imag_target_design', 'Nx', 'Ny', 'Lx', ...
     'lambda_water', 'z_target_dist', 'dx', 'dz', 'f0', 'c_water', ...
     'c_board', 'density_water', 'density_board', 'alpha_coeff_water', ...
+    'aperture_radius', ...
     'thermal_sigma_px', 'min_base_layers', 'target_threshold_norm', ...
     'low_quantile_goal', 'target_mean_amp_goal_ratio', ...
     'python_z_constraint_offsets_m', 'python_epochs', ...
@@ -291,7 +295,7 @@ mask_halo(center_idx, center_idx) = halo_target_mask > 0.5;
 mask_dark = ~(mask_line | mask_halo);
 
 [Y_grid_source, X_grid_source] = meshgrid(x, x);
-circle_mask_board = (X_grid_source.^2 + Y_grid_source.^2) <= (32e-3)^2;
+circle_mask_board = (X_grid_source.^2 + Y_grid_source.^2) <= aperture_radius^2;
 k_board_val = 2 * pi * f0 / c_board;
 k_water_val = 2 * pi * f0 / c_water;
 k_diff = abs(k_water_val - k_board_val);
