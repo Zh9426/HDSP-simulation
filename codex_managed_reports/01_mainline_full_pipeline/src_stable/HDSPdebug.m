@@ -5,10 +5,10 @@ catch
 end
 %% 1. 参数设置
 Nx = 512;
-Lx = 65e-3;
+Lx = Nx * 0.11e-3;
 Ny = Nx; Ly = Lx; 
 System_Offset = 2.03e-3;
-z_target_dist = 16e-3;
+z_target_dist = 13e-3;
 f0 = 4.5e6;
 c_water = 1480;
 c_board = 2430;
@@ -29,9 +29,12 @@ alpha_power_pdms = 1.5;
 Cp_pdms = 1460;
 k_pdms = 0.15;
 pdms_thickness = 7e-3;
-focus_scan_radius = 6e-3;
+focus_scan_radius = 3e-3;
 focus_edge_warn_mm = 0.5;
 lambda_water = c_water / f0;
+c_match = 1980;
+density_match = 1003;
+alpha_coeff_match = 0.01;
 phase_refine_mode = 'python_iasa'; %相位叠加模式
 iasa_epoch = 150;
 iasa_anchor_eta = 1.0;
@@ -100,7 +103,7 @@ cure_model.thermal_cavitation_gate_power = 0.8;
 dx = Lx / Nx;
 dy = dx;
 dz = dx;
-Lz_needed = 20e-3;
+Lz_needed = 18e-3;
 Nz_min = ceil(Lz_needed / dz);
 optimal_sizes = [128, 192, 216, 256, 300, 384, 512];
 Nz = optimal_sizes(find(optimal_sizes >= Nz_min, 1));
@@ -112,6 +115,7 @@ fprintf('==================================================\n');
 fprintf('Grid dx = dy = dz = %.4f mm\n', dx * 1e3);
 fprintf('PPW: %.2f\n', lambda_water / dx);
 fprintf('Grid size: %d x %d x %d (%.1f M cells)\n', Nx, Ny, Nz, (Nx * Ny * Nz) / 1e6);
+fprintf('Match layer: 1 cell | c = %.0f m/s | rho = %.0f kg/m^3\n', c_match, density_match);
 fprintf('==================================================\n');
 
 %% 2.目标图案
@@ -397,12 +401,16 @@ medium.alpha_power = alpha_power_water;
 alpha_coeff_board = 1.5;
 pml_size = 10;
 source_z_idx = pml_size + 5;
-z_board_start_idx = source_z_idx + 1;
+z_match_idx = source_z_idx + 1;
+z_board_start_idx = z_match_idx + 1;
 
 for i = 1:Nx
     for j = 1:Ny
         n_layers = net_num_board(i, j);
         if n_layers > 0
+            medium.sound_speed(i, j, z_match_idx) = c_match;
+            medium.density(i, j, z_match_idx) = density_match;
+            medium.alpha_coeff(i, j, z_match_idx) = alpha_coeff_match;
             z_start = z_board_start_idx;
             z_end = z_board_start_idx + n_layers - 1;
             medium.sound_speed(i, j, z_start:z_end) = c_board;
