@@ -9,8 +9,6 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from pann_quality_metrics import aggregate_z_quality_terms, compute_cure_quality_terms
-
 TWO_PI = 2.0 * math.pi
 
 
@@ -114,17 +112,6 @@ def current_git_commit_short(repo_path):
         return "nogit"
 
 
-def damped_periodic_lr_lambda(epoch, restart_cycle, restart_decay, min_ratio):
-    cycle_len = max(1, int(restart_cycle))
-    epoch_now = int(epoch)
-    cycle_idx = epoch_now // cycle_len
-    position = (epoch_now % cycle_len) / cycle_len
-
-    peak_ratio = max(min_ratio, float(restart_decay) ** cycle_idx)
-    oscillation = 0.5 * (1.0 + math.cos(2.0 * math.pi * position))
-    return min_ratio + (peak_ratio - min_ratio) * oscillation
-
-
 transport_dir = r"C:\Users\Zh89\Desktop\transport"
 input_file = os.path.join(transport_dir, "target_for_python.mat")
 output_file = os.path.join(transport_dir, "dl_phase_init.mat")
@@ -135,20 +122,18 @@ branch_output_dir = os.path.join(work_dir, "outputs", git_commit_short)
 os.makedirs(branch_output_dir, exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("\n[INFO] PANN-Pressure-Holo start: threshold coverage + target uniformity optimization")
+print("\n[INFO] PANN-Thermal-Holo start: HDSP0507 python_only core")
 
 if not os.path.exists(input_file):
     raise FileNotFoundError(f"Cannot find transport input: {input_file}")
 
 data = sio.loadmat(input_file)
-transport_is_current = True
 if "branch_output_dir" in data:
     transport_output_dir = matlab_string(data["branch_output_dir"])
     if os.path.basename(os.path.normpath(transport_output_dir)) == git_commit_short:
         branch_output_dir = transport_output_dir
         os.makedirs(branch_output_dir, exist_ok=True)
     else:
-        transport_is_current = False
         raise RuntimeError(
             f"Stale transport branch_output_dir: {transport_output_dir}. "
             f"Expected output directory for commit {git_commit_short}. "
@@ -157,22 +142,20 @@ if "branch_output_dir" in data:
 else:
     raise RuntimeError(
         "target_for_python.mat is missing branch_output_dir. "
-        "This is an old transport file. Run "
-        "codex_managed_reports/01_mainline_full_pipeline/src_stable/HDSPdebug.m "
+        "Run codex_managed_reports/01_mainline_full_pipeline/src_stable/HDSPdebug.m "
         "until the Python pause, then run this Python script again."
     )
 
 if "target_signature" not in data:
     raise RuntimeError(
         "target_for_python.mat is missing target_signature. "
-        "This is an old transport file and may not match the MATLAB run. "
-        "Regenerate it from the 01 MATLAB main workflow before training."
+        "Regenerate it from the current MATLAB main workflow before training."
     )
 
+target_signature = matlab_string(data["target_signature"])
 design_key = "imag_target_design" if "imag_target_design" in data else "imag_target"
 target_amp = torch.tensor(data[design_key], dtype=torch.float32, device=device)
 target_amp_raw = torch.tensor(data["imag_target"], dtype=torch.float32, device=device)
-target_signature = matlab_string(data["target_signature"]) if "target_signature" in data else ""
 
 Nx, Ny = int(data["Nx"].item()), int(data["Ny"].item())
 Lx = float(data["Lx"].item())
@@ -185,23 +168,6 @@ c_board = float(data["c_board"].item())
 aperture_radius = float(data["aperture_radius"].item()) if "aperture_radius" in data else 32e-3
 thermal_sigma_px = float(data["thermal_sigma_px"].item()) if "thermal_sigma_px" in data else 1.0
 min_base_layers = int(data["min_base_layers"].item()) if "min_base_layers" in data else 2
-target_threshold_norm = float(data["target_threshold_norm"].item()) if "target_threshold_norm" in data else 0.60
-low_quantile_goal = float(data["low_quantile_goal"].item()) if "low_quantile_goal" in data else 0.88
-target_mean_amp_goal_ratio = float(data["target_mean_amp_goal_ratio"].item()) if "target_mean_amp_goal_ratio" in data else 0.12
-epochs = int(data["python_epochs"].item()) if "python_epochs" in data else 10000
-learning_rate = float(data["python_learning_rate"].item()) if "python_learning_rate" in data else 0.06
-min_epochs = int(data["python_min_epochs"].item()) if "python_min_epochs" in data else min(6500, epochs)
-early_stop_patience = int(data["python_early_stop_patience"].item()) if "python_early_stop_patience" in data else 4200
-python_rng_seed = int(data["python_rng_seed"].item()) if "python_rng_seed" in data else 9426
-lr_restart_cycle = int(data["python_lr_restart_cycle"].item()) if "python_lr_restart_cycle" in data else 5000
-lr_restart_decay = float(data["python_lr_restart_decay"].item()) if "python_lr_restart_decay" in data else 0.82
-lr_min_ratio = float(data["python_lr_min_ratio"].item()) if "python_lr_min_ratio" in data else 0.05
-if transport_is_current and "python_z_constraint_offsets_m" in data:
-    z_constraint_offsets = np.asarray(data["python_z_constraint_offsets_m"], dtype=np.float32).reshape(-1)
-else:
-    z_constraint_offsets = np.array([0.0], dtype=np.float32)
-if not np.any(np.isclose(z_constraint_offsets, 0.0)):
-    z_constraint_offsets = np.sort(np.append(z_constraint_offsets, 0.0)).astype(np.float32)
 
 resolution_limit_mm = 0.61 * lambda_water * 1000.0
 sigma_mm = resolution_limit_mm * 0.35
@@ -221,6 +187,9 @@ far_dark_np = np.logical_not(halo_target_np).astype(np.float32)
 target_binary = torch.tensor(line_target_np, dtype=torch.float32, device=device)
 halo_mask = torch.tensor(halo_ring_np, dtype=torch.float32, device=device)
 far_dark_mask = torch.tensor(far_dark_np, dtype=torch.float32, device=device)
+target_dose_np = scipy.ndimage.gaussian_filter(line_target_np, max(0.8, thermal_sigma_px))
+target_dose = torch.tensor(target_dose_np, dtype=torch.float32, device=device)
+target_dose = normalize_map(torch.maximum(target_dose, 0.35 * target_smooth))
 target_raw_norm = normalize_map(target_amp_raw)
 
 pad_factor = 2
@@ -231,19 +200,14 @@ ky = torch.arange(-Ny_pad / 2, Ny_pad / 2, device=device) * dk
 Kx, Ky = torch.meshgrid(kx, ky, indexing="ij")
 Kz_sq = (2.0 * math.pi / lambda_water) ** 2 - Kx**2 - Ky**2
 Kz_sq = torch.clamp(Kz_sq, min=0.0)
-Kz = torch.sqrt(Kz_sq)
-H_forward_by_offset = {
-    float(offset): torch.exp(1j * Kz * (z_target + float(offset)))
-    for offset in z_constraint_offsets
-}
-H_forward = H_forward_by_offset[min(H_forward_by_offset.keys(), key=lambda offset: abs(offset))]
+H_forward = torch.exp(1j * torch.sqrt(Kz_sq) * z_target)
 
 
-def propagate_asm(source_field, H_forward_now=H_forward):
+def propagate_asm(source_field):
     pad_len_x, pad_len_y = Nx // 2, Ny // 2
     padded_field = F.pad(source_field, (pad_len_y, pad_len_y, pad_len_x, pad_len_x), mode="constant", value=0)
     spectrum = torch.fft.fftshift(torch.fft.fft2(torch.fft.ifftshift(padded_field)))
-    propagated = torch.fft.fftshift(torch.fft.ifft2(torch.fft.ifftshift(spectrum * H_forward_now)))
+    propagated = torch.fft.fftshift(torch.fft.ifft2(torch.fft.ifftshift(spectrum * H_forward)))
     return propagated[pad_len_x:-pad_len_x, pad_len_y:-pad_len_y]
 
 
@@ -255,33 +219,24 @@ x_vec = torch.linspace(-Lx / 2, Lx / 2, Nx, device=device)
 y_vec = torch.linspace(-Lx / 2, Lx / 2, Ny, device=device)
 Y_grid, X_grid = torch.meshgrid(y_vec, x_vec, indexing="ij")
 source_mask = ((X_grid**2 + Y_grid**2) <= aperture_radius**2).float()
-target_mean_amp_goal = target_mean_amp_goal_ratio * math.sqrt(
-    float(torch.sum(source_mask).detach().cpu()) / (float(torch.sum(target_binary).detach().cpu()) + 1e-8)
-)
 
-target_weight = 1.0 + 5.0 * target_binary
-dark_weight = 1.0 + 1.0 * halo_mask + 1.5 * far_dark_mask
-weight_map = target_weight + dark_weight
+dark_weight = 1.0 + 8.0 * halo_mask + 12.0 * far_dark_mask
+edge_weight = 1.0 + 2.5 * torch.abs(target_smooth - gaussian_blur2d(target_smooth, 1.0))
+weight_map = dark_weight * edge_weight
 
-torch.manual_seed(python_rng_seed)
+torch.manual_seed(9426)
 if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(python_rng_seed)
+    torch.cuda.manual_seed_all(9426)
 initial_phase = (torch.rand(Nx, Ny, device=device) * TWO_PI) - math.pi
 phase_map = torch.nn.Parameter(initial_phase)
 phase_bias = torch.nn.Parameter(torch.zeros(1, device=device))
 
-optimizer = optim.AdamW([phase_map, phase_bias], lr=learning_rate, weight_decay=0.0)
-scheduler = optim.lr_scheduler.LambdaLR(
-    optimizer,
-    lr_lambda=lambda epoch: damped_periodic_lr_lambda(epoch, lr_restart_cycle, lr_restart_decay, lr_min_ratio),
-)
+optimizer = optim.Adam([phase_map, phase_bias], lr=0.06)
+scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=2500, eta_min=0.003)
+epochs = 5000
 
 best_loss = float("inf")
-best_quality_score = -float("inf")
 best_state = None
-best_epoch = 0
-stop_reason = "max_epochs"
-top_quality_records = []
 history = []
 
 for epoch in range(epochs):
@@ -289,109 +244,39 @@ for epoch in range(epochs):
 
     phase_quantized, layer_continuous = quantize_phase_ste(phase_map, phase_bias, phase_step, min_base_layers)
     source_field = torch.exp(1j * phase_quantized) * source_mask
-    quality_terms_by_z = []
-    corr_losses = []
-    wmse_losses = []
-    center_quality_terms = None
-    for offset, H_now in H_forward_by_offset.items():
-        target_field = propagate_asm(source_field, H_now)
-        pred_amp = torch.abs(target_field)
-        pred_amp_norm = normalize_map(pred_amp)
-        terms_now = compute_cure_quality_terms(
-            pred_amp_norm,
-            target_binary,
-            halo_mask,
-            far_dark_mask,
-            pred_amp_raw=pred_amp,
-            threshold_norm=target_threshold_norm,
-            low_quantile_goal=low_quantile_goal,
-            target_mean_amp_goal=target_mean_amp_goal,
-        )
-        quality_terms_by_z.append(terms_now)
-        corr_losses.append(pearson_correlation_loss(pred_amp_norm, target_raw_norm))
-        wmse_losses.append(torch.mean(weight_map * (pred_amp_norm - target_raw_norm) ** 2))
-        if abs(offset) < 1e-12:
-            center_quality_terms = terms_now
+    target_field = propagate_asm(source_field)
 
-    if center_quality_terms is None:
-        center_quality_terms = quality_terms_by_z[len(quality_terms_by_z) // 2]
+    pred_amp = torch.abs(target_field)
+    pred_energy = normalize_map(pred_amp**2)
+    pred_dose = normalize_map(gaussian_blur2d(pred_energy, thermal_sigma_px))
 
-    z_terms = aggregate_z_quality_terms(quality_terms_by_z)
-    loss_amp_corr = torch.mean(torch.stack(corr_losses))
-    loss_amp_wmse = torch.mean(torch.stack(wmse_losses))
+    loss_dose_corr = pearson_correlation_loss(pred_dose, target_dose)
+    loss_dose_wmse = torch.mean(weight_map * (pred_dose - target_dose) ** 2)
 
-    loss_energy_uniformity = z_terms["mean_energy_uniformity_loss"]
-    loss_amp_uniformity = z_terms["mean_amp_uniformity_loss"]
-    loss_threshold = z_terms["mean_threshold_loss"]
-    loss_low_quantile = z_terms["mean_low_quantile_loss"]
-    loss_target_mean_amp = z_terms["mean_target_mean_amp_loss"]
-    loss_target_contrast = z_terms["mean_target_contrast_loss"]
-    loss_peak_balance = z_terms["mean_peak_balance_loss"]
-    loss_halo = z_terms["mean_halo_loss"]
-    loss_dark = z_terms["mean_dark_mean_loss"]
-    loss_dark_area = z_terms["mean_dark_area_loss"]
-    current_ee = z_terms["mean_energy_efficiency"]
+    inside_vals = pred_dose[target_binary > 0.5]
+    loss_uniformity = torch.var(inside_vals) if inside_vals.numel() > 4 else torch.tensor(0.0, device=device)
+
+    halo_vals = pred_dose[halo_mask > 0.5]
+    loss_halo = torch.mean(halo_vals**2) if halo_vals.numel() > 4 else torch.tensor(0.0, device=device)
+    dark_vals = pred_dose[far_dark_mask > 0.5]
+    loss_dark = torch.mean(dark_vals**2)
+
+    current_ee = torch.sum(pred_energy * target_binary) / (torch.sum(pred_energy) + 1e-8)
     loss_ee = 1.0 - current_ee
 
+    raw_mismatch = torch.mean((normalize_map(pred_amp) - target_raw_norm) ** 2)
     loss_layer_margin = torch.mean((layer_continuous - torch.round(layer_continuous)) ** 2)
-    quality_score = z_terms["mean_quality_score"] + 0.5 * z_terms["worst_quality_score"] + 0.25 * (1.0 - loss_amp_corr)
 
     total_loss = (
-        7.0 * loss_threshold
-        + 5.0 * loss_low_quantile
-        + 4.0 * z_terms["worst_target_coverage_loss"]
-        + 3.0 * z_terms["worst_low_quantile_loss"]
-        + 1.5 * z_terms["worst_cv_loss"]
-        + 4.0 * loss_peak_balance
-        + 2.0 * z_terms["worst_peak_balance_loss"]
-        + 2.0 * loss_target_mean_amp
-        + 3.5 * loss_amp_uniformity
-        + 2.0 * loss_energy_uniformity
-        + 1.5 * loss_ee
-        + 0.8 * loss_target_contrast
-        + 0.7 * loss_amp_corr
-        + 0.4 * loss_amp_wmse
-        + 0.6 * loss_dark_area
-        + 0.2 * loss_dark
-        + 0.4 * loss_halo
+        1.4 * loss_dose_corr
+        + 2.8 * loss_dose_wmse
+        + 4.0 * loss_uniformity
+        + 4.0 * loss_halo
+        + 5.0 * loss_dark
+        + 2.0 * loss_ee
+        + 0.6 * raw_mismatch
         + 0.15 * loss_layer_margin
     )
-
-    with torch.no_grad():
-        phase_margin = torch.mean(torch.abs(layer_continuous - torch.round(layer_continuous)))
-        history.append(
-            [
-                epoch + 1,
-                float(total_loss.detach().cpu()),
-                float((1.0 - loss_amp_corr).detach().cpu()),
-                float(current_ee.detach().cpu()),
-                float(loss_amp_wmse.detach().cpu()),
-                float(loss_energy_uniformity.detach().cpu()),
-                float(loss_halo.detach().cpu()),
-                float(loss_dark.detach().cpu()),
-                float(loss_dark_area.detach().cpu()),
-                float(phase_margin.detach().cpu()),
-                float(z_terms["mean_target_cv"].detach().cpu()),
-                float(z_terms["worst_target_cv"].detach().cpu()),
-                float(loss_threshold.detach().cpu()),
-                float(z_terms["mean_target_p10_over_p50"].detach().cpu()),
-                float(z_terms["mean_dark_area_fraction"].detach().cpu()),
-                float(quality_score.detach().cpu()),
-                float(z_terms["mean_target_coverage"].detach().cpu()),
-                float(loss_low_quantile.detach().cpu()),
-                float(loss_target_mean_amp.detach().cpu()),
-                float(z_terms["mean_target_mean_raw"].detach().cpu()),
-                float(z_terms["mean_target_to_global_mean"].detach().cpu()),
-                float(z_terms["worst_target_coverage"].detach().cpu()),
-                float(z_terms["worst_target_p10_over_p50"].detach().cpu()),
-                float(z_terms["mean_target_p05_over_p50"].detach().cpu()),
-                float(z_terms["mean_target_p90_over_mean"].detach().cpu()),
-                float(z_terms["mean_target_p95_over_mean"].detach().cpu()),
-                float(z_terms["mean_target_peak_over_mean"].detach().cpu()),
-                float(loss_peak_balance.detach().cpu()),
-                float(optimizer.param_groups[0]["lr"]),
-            ]
-        )
 
     total_loss.backward()
     optimizer.step()
@@ -399,56 +284,36 @@ for epoch in range(epochs):
 
     with torch.no_grad():
         phase_bias[:] = torch.remainder(phase_bias, TWO_PI)
+        history.append(
+            [
+                epoch + 1,
+                float(total_loss.detach().cpu()),
+                float((1.0 - loss_dose_corr).detach().cpu()),
+                float(current_ee.detach().cpu()),
+                float(loss_uniformity.detach().cpu()),
+                float(loss_halo.detach().cpu()),
+                float(loss_dark.detach().cpu()),
+                float(raw_mismatch.detach().cpu()),
+                float(loss_layer_margin.detach().cpu()),
+                float(optimizer.param_groups[0]["lr"]),
+            ]
+        )
 
     if total_loss.item() < best_loss:
         best_loss = total_loss.item()
-
-    if quality_score.item() > best_quality_score:
-        best_quality_score = quality_score.item()
-        best_epoch = epoch + 1
         best_state = {
             "phase_map": phase_map.detach().clone(),
             "phase_bias": phase_bias.detach().clone(),
             "epoch": epoch + 1,
             "learning_rate": optimizer.param_groups[0]["lr"],
         }
-        top_quality_records.append(
-            {
-                "epoch": epoch + 1,
-                "quality_score": float(quality_score.detach().cpu()),
-                "total_loss": float(total_loss.detach().cpu()),
-                "amplitude_corr": float((1.0 - loss_amp_corr).detach().cpu()),
-                "mean_energy_efficiency": float(current_ee.detach().cpu()),
-                "mean_target_cv": float(z_terms["mean_target_cv"].detach().cpu()),
-                "mean_target_p10_over_p50": float(z_terms["mean_target_p10_over_p50"].detach().cpu()),
-                "mean_target_peak_over_mean": float(z_terms["mean_target_peak_over_mean"].detach().cpu()),
-                "mean_target_coverage": float(z_terms["mean_target_coverage"].detach().cpu()),
-                "learning_rate": optimizer.param_groups[0]["lr"],
-            }
-        )
-        top_quality_records = sorted(top_quality_records, key=lambda item: item["quality_score"], reverse=True)[:5]
 
     if (epoch + 1) % 100 == 0:
         print(
-            f"Epoch [{epoch + 1}/{epochs}] | AmpCorr: {1.0 - loss_amp_corr.item():.4f} "
-            f"| MeanCov: {z_terms['mean_target_coverage'].item() * 100:.2f}% | WorstCov: {z_terms['worst_target_coverage'].item() * 100:.2f}% "
-            f"| WorstP10/P50: {z_terms['worst_target_p10_over_p50'].item():.4f} "
-            f"| WorstCV: {z_terms['worst_target_cv'].item():.4f} | EE: {current_ee.item() * 100:.2f}% "
-            f"| P95/Mean: {z_terms['mean_target_p95_over_mean'].item():.3f} | Peak/Mean: {z_terms['mean_target_peak_over_mean'].item():.3f} "
-            f"| MeanAmp: {z_terms['mean_target_mean_raw'].item():.3f}/{target_mean_amp_goal:.3f} "
-            f"| ThrLoss: {loss_threshold.item():.4f} | DarkArea: {loss_dark_area.item():.4f} "
-            f"| Quality: {quality_score.item():.4f} | Loss: {total_loss.item():.4f}"
+            f"Epoch [{epoch + 1}/{epochs}] | DoseCorr: {1.0 - loss_dose_corr.item():.4f} "
+            f"| EE: {current_ee.item() * 100:.2f}% | Halo: {loss_halo.item():.4f} "
+            f"| Dark: {loss_dark.item():.4f} | Loss: {total_loss.item():.4f}"
         )
-
-    epochs_to_next_restart = lr_restart_cycle - ((epoch + 1) % lr_restart_cycle)
-    near_next_restart = 0 < epochs_to_next_restart <= 600
-    if epoch + 1 >= min_epochs and epoch + 1 - best_epoch >= early_stop_patience and not near_next_restart:
-        stop_reason = f"early_stop_no_quality_gain_{early_stop_patience}"
-        print(
-            f"[INFO] Early stopping at epoch {epoch + 1}: best quality "
-            f"{best_quality_score:.4f} was reached at epoch {best_epoch}."
-        )
-        break
 
 phase_map_final = best_state["phase_map"]
 phase_bias_final = best_state["phase_bias"]
@@ -460,68 +325,31 @@ dithered_layers = error_diffusion_quantize_layers(layer_continuous, mask_np, min
 dithered_phase = np.mod(dithered_layers * phase_step, TWO_PI).astype(np.float32)
 dithered_phase *= mask_np.astype(np.float32)
 
-history_np = np.array(history, dtype=np.float32)
 best_source_field = torch.exp(1j * torch.tensor(dithered_phase, dtype=torch.float32, device=device)) * source_mask
 best_target_field = propagate_asm(best_source_field)
 best_amp = torch.abs(best_target_field)
 best_amp_norm = normalize_map(best_amp)
-best_quality_terms = compute_cure_quality_terms(
-    best_amp_norm,
-    target_binary,
-    halo_mask,
-    far_dark_mask,
-    pred_amp_raw=best_amp,
-    threshold_norm=target_threshold_norm,
-    low_quantile_goal=low_quantile_goal,
-    target_mean_amp_goal=target_mean_amp_goal,
-)
-best_target_vals = best_amp_norm[target_binary > 0.5]
-best_dark_vals = best_amp_norm[far_dark_mask > 0.5]
-best_target_p05 = torch.quantile(best_target_vals, 0.05) if best_target_vals.numel() > 4 else torch.tensor(0.0, device=device)
-best_target_p10 = torch.quantile(best_target_vals, 0.10) if best_target_vals.numel() > 4 else torch.tensor(0.0, device=device)
-best_target_p50 = torch.quantile(best_target_vals, 0.50) if best_target_vals.numel() > 4 else torch.tensor(0.0, device=device)
-best_target_p90 = torch.quantile(best_target_vals, 0.90) if best_target_vals.numel() > 4 else torch.tensor(0.0, device=device)
-best_target_p95 = torch.quantile(best_target_vals, 0.95) if best_target_vals.numel() > 4 else torch.tensor(0.0, device=device)
-best_target_mean = torch.mean(best_target_vals) if best_target_vals.numel() > 4 else torch.tensor(0.0, device=device)
-best_target_peak = torch.max(best_target_vals) if best_target_vals.numel() > 4 else torch.tensor(0.0, device=device)
+best_energy = normalize_map(best_amp**2)
+best_dose = normalize_map(gaussian_blur2d(best_energy, thermal_sigma_px))
+
+inside_vals = best_dose[target_binary > 0.5]
+halo_vals = best_dose[halo_mask > 0.5]
+dark_vals = best_dose[far_dark_mask > 0.5]
 best_metrics = {
     "best_loss": float(best_loss),
-    "best_quality_score": float(best_quality_score),
     "selected_epoch": int(best_state["epoch"]),
-    "final_epoch": int(history_np[-1, 0]) if history_np.size else 0,
     "configured_epochs": int(epochs),
-    "stop_reason": stop_reason,
     "selected_learning_rate": float(best_state["learning_rate"]),
-    "initial_learning_rate": float(learning_rate),
-    "rng_seed": int(python_rng_seed),
-    "lr_schedule": "damped_periodic_cosine",
-    "lr_restart_cycle": int(lr_restart_cycle),
-    "lr_restart_decay": float(lr_restart_decay),
-    "lr_min_ratio": float(lr_min_ratio),
+    "rng_seed": 9426,
     "target_signature": target_signature,
-    "min_epochs": int(min_epochs),
-    "early_stop_patience": int(early_stop_patience),
-    "top_quality_records_json": json.dumps(top_quality_records),
     "device": str(device),
-    "target_threshold_norm": float(target_threshold_norm),
-    "low_quantile_goal": float(low_quantile_goal),
-    "target_mean_amp_goal": float(target_mean_amp_goal),
-    "target_mean_amp_goal_ratio": float(target_mean_amp_goal_ratio),
-    "z_constraint_offsets_m": z_constraint_offsets.astype(float).tolist(),
+    "aperture_radius_m": float(aperture_radius),
     "amplitude_corr": float(1.0 - pearson_correlation_loss(best_amp_norm, target_raw_norm).detach().cpu()),
-    "energy_efficiency": float(best_quality_terms["energy_efficiency"].detach().cpu()),
-    "target_coverage": float(best_quality_terms["target_coverage"].detach().cpu()),
-    "target_mean_amp_raw": float(best_quality_terms["target_mean_raw"].detach().cpu()),
-    "target_to_global_mean": float(best_quality_terms["target_to_global_mean"].detach().cpu()),
-    "target_uniformity_cv": float((torch.std(best_target_vals) / (torch.mean(best_target_vals) + 1e-8)).detach().cpu()) if best_target_vals.numel() > 1 else 0.0,
-    "target_p05_over_p50": float((best_target_p05 / (best_target_p50 + 1e-8)).detach().cpu()),
-    "target_p10_over_p50": float((best_target_p10 / (best_target_p50 + 1e-8)).detach().cpu()),
-    "target_p90_over_mean": float((best_target_p90 / (best_target_mean + 1e-8)).detach().cpu()),
-    "target_p95_over_mean": float((best_target_p95 / (best_target_mean + 1e-8)).detach().cpu()),
-    "target_peak_over_mean": float((best_target_peak / (best_target_mean + 1e-8)).detach().cpu()),
-    "target_peak_balance_loss": float(best_quality_terms["peak_balance_loss"].detach().cpu()),
-    "dark_mean_norm": float(torch.mean(best_dark_vals).detach().cpu()) if best_dark_vals.numel() > 1 else 0.0,
-    "dark_area_fraction": float(best_quality_terms["dark_area_fraction"].detach().cpu()),
+    "dose_corr": float(1.0 - pearson_correlation_loss(best_dose, target_dose).detach().cpu()),
+    "energy_efficiency": float((torch.sum(best_energy * target_binary) / (torch.sum(best_energy) + 1e-8)).detach().cpu()),
+    "target_uniformity_var": float(torch.var(inside_vals).detach().cpu()) if inside_vals.numel() > 4 else 0.0,
+    "halo_energy_mean": float(torch.mean(halo_vals**2).detach().cpu()) if halo_vals.numel() > 4 else 0.0,
+    "dark_energy_mean": float(torch.mean(dark_vals**2).detach().cpu()) if dark_vals.numel() > 4 else 0.0,
     "phase_bias_rad": float(phase_bias_final.item()),
     "phase_step_rad": float(phase_step),
     "layer_min": int(np.min(dithered_layers[mask_np > 0.5])),
@@ -529,9 +357,7 @@ best_metrics = {
     "layer_std": float(np.std(dithered_layers[mask_np > 0.5])),
 }
 
-# Keep the legacy field so HDSPdebug.m can reuse the new optimizer without
-# changing its current load contract.
-target_dose_design_compat = np.square(normalize_map(target_amp).detach().cpu().numpy()).astype(np.float32)
+history_np = np.array(history, dtype=np.float32)
 
 sio.savemat(
     output_file,
@@ -540,17 +366,14 @@ sio.savemat(
         "optimal_phase_bias": np.array([[phase_bias_final.item()]], dtype=np.float32),
         "optimal_layer_map": dithered_layers.astype(np.float32),
         "phase_step": np.array([[phase_step]], dtype=np.float32),
-        "target_dose_design": target_dose_design_compat,
-        "target_signature": target_signature,
+        "target_dose_design": target_dose.detach().cpu().numpy().astype(np.float32),
         "line_target_mask": target_binary.detach().cpu().numpy().astype(np.float32),
         "halo_target_mask": halo_mask.detach().cpu().numpy().astype(np.float32),
+        "target_signature": target_signature,
         "python_loss_history": history_np,
         "python_metrics": best_metrics,
         "python_asm_amp_norm": best_amp_norm.detach().cpu().numpy().astype(np.float32),
-        "target_threshold_norm": np.array([[target_threshold_norm]], dtype=np.float32),
-        "low_quantile_goal": np.array([[low_quantile_goal]], dtype=np.float32),
-        "target_mean_amp_goal": np.array([[target_mean_amp_goal]], dtype=np.float32),
-        "z_constraint_offsets_m": z_constraint_offsets.astype(np.float32),
+        "aperture_radius": np.array([[aperture_radius]], dtype=np.float32),
     },
 )
 
@@ -563,12 +386,9 @@ sio.savemat(
         "python_loss_history": history_np,
         "python_metrics": best_metrics,
         "python_asm_amp_norm": best_amp_norm.detach().cpu().numpy().astype(np.float32),
-        "target_dose_design": target_dose_design_compat,
+        "target_dose_design": target_dose.detach().cpu().numpy().astype(np.float32),
         "target_signature": target_signature,
-        "target_threshold_norm": np.array([[target_threshold_norm]], dtype=np.float32),
-        "low_quantile_goal": np.array([[low_quantile_goal]], dtype=np.float32),
-        "target_mean_amp_goal": np.array([[target_mean_amp_goal]], dtype=np.float32),
-        "z_constraint_offsets_m": z_constraint_offsets.astype(np.float32),
+        "aperture_radius": np.array([[aperture_radius]], dtype=np.float32),
     },
 )
 
@@ -576,14 +396,12 @@ np.savetxt(
     os.path.join(branch_output_dir, "pann_training_history.csv"),
     history_np,
     delimiter=",",
-    header="epoch,total_loss,amplitude_corr,mean_energy_efficiency,amplitude_wmse,mean_energy_uniformity_loss,mean_halo_loss,mean_dark_loss,mean_dark_area_loss,phase_margin,mean_target_cv,worst_target_cv,mean_threshold_loss,mean_target_p10_over_p50,mean_dark_area_fraction,quality_score,mean_target_coverage,mean_low_quantile_loss,mean_target_mean_amp_loss,mean_target_mean_amp_raw,mean_target_to_global_mean,worst_target_coverage,worst_target_p10_over_p50,mean_target_p05_over_p50,mean_target_p90_over_mean,mean_target_p95_over_mean,mean_target_peak_over_mean,mean_peak_balance_loss,learning_rate",
+    header="epoch,total_loss,dose_corr,energy_efficiency,uniformity_var,halo_loss,dark_loss,raw_mismatch,layer_margin,learning_rate",
     comments="",
 )
 
-json_metrics = dict(best_metrics)
-json_metrics["top_quality_records"] = top_quality_records
 with open(os.path.join(branch_output_dir, "pann_training_summary.json"), "w", encoding="utf-8") as f:
-    json.dump(json_metrics, f, indent=2)
+    json.dump(best_metrics, f, indent=2)
 
 try:
     import matplotlib.pyplot as plt
@@ -593,19 +411,16 @@ try:
     axes[0, 0].set_title("Total loss")
     axes[0, 0].set_xlabel("Epoch")
     axes[0, 0].grid(True, alpha=0.3)
-    axes[0, 1].plot(history_np[:, 0], history_np[:, 16], label="Mean coverage")
-    axes[0, 1].plot(history_np[:, 0], history_np[:, 21], label="Worst coverage")
-    axes[0, 1].set_title("Threshold coverage")
+    axes[0, 1].plot(history_np[:, 0], history_np[:, 2], label="Dose corr")
+    axes[0, 1].plot(history_np[:, 0], history_np[:, 3], label="EE")
+    axes[0, 1].set_title("Dose / efficiency")
     axes[0, 1].set_xlabel("Epoch")
     axes[0, 1].legend()
     axes[0, 1].grid(True, alpha=0.3)
-    axes[1, 0].plot(history_np[:, 0], history_np[:, 10], label="Mean target CV")
-    axes[1, 0].plot(history_np[:, 0], history_np[:, 11], label="Worst target CV")
-    axes[1, 0].plot(history_np[:, 0], history_np[:, 25], label="P95/Mean")
-    axes[1, 0].plot(history_np[:, 0], history_np[:, 26], label="Peak/Mean")
-    axes[1, 0].plot(history_np[:, 0], history_np[:, 19], label="Target mean amp")
-    axes[1, 0].axhline(target_mean_amp_goal, color="gray", linestyle="--", linewidth=1.0, label="Mean amp goal")
-    axes[1, 0].set_title("Pressure-quality constraints")
+    axes[1, 0].plot(history_np[:, 0], history_np[:, 4], label="Uniformity var")
+    axes[1, 0].plot(history_np[:, 0], history_np[:, 5], label="Halo")
+    axes[1, 0].plot(history_np[:, 0], history_np[:, 6], label="Dark")
+    axes[1, 0].set_title("Background penalties")
     axes[1, 0].set_xlabel("Epoch")
     axes[1, 0].legend()
     axes[1, 0].grid(True, alpha=0.3)
