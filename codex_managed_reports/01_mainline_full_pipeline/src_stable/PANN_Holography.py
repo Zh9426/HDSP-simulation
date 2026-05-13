@@ -133,10 +133,9 @@ git_commit_short = current_git_commit_short(repo_dir)
 work_dir = os.path.dirname(repo_dir)
 branch_output_dir = os.path.join(work_dir, "outputs", git_commit_short)
 os.makedirs(branch_output_dir, exist_ok=True)
-best_snapshot_file = os.path.join(branch_output_dir, "pann_phase_output_best_snapshot.mat")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("\n[INFO] PANN-Pressure-Holo start: threshold coverage + target uniformity prioritization (EE deweighted)")
+print("\n[INFO] PANN-Pressure-Holo start: threshold coverage + target uniformity optimization")
 
 if not os.path.exists(input_file):
     raise FileNotFoundError(f"Cannot find transport input: {input_file}")
@@ -255,12 +254,9 @@ x_vec = torch.linspace(-Lx / 2, Lx / 2, Nx, device=device)
 y_vec = torch.linspace(-Lx / 2, Lx / 2, Ny, device=device)
 Y_grid, X_grid = torch.meshgrid(y_vec, x_vec, indexing="ij")
 source_mask = ((X_grid**2 + Y_grid**2) <= (32e-3) ** 2).float()
-target_mean_amp_goal = None
-if target_mean_amp_goal_ratio > 1e-8:
-    target_mean_amp_goal = target_mean_amp_goal_ratio * math.sqrt(
-        float(torch.sum(source_mask).detach().cpu()) / (float(torch.sum(target_binary).detach().cpu()) + 1e-8)
-    )
-target_mean_amp_goal_scalar = 0.0 if target_mean_amp_goal is None else float(target_mean_amp_goal)
+target_mean_amp_goal = target_mean_amp_goal_ratio * math.sqrt(
+    float(torch.sum(source_mask).detach().cpu()) / (float(torch.sum(target_binary).detach().cpu()) + 1e-8)
+)
 
 target_weight = 1.0 + 5.0 * target_binary
 dark_weight = 1.0 + 1.0 * halo_mask + 1.5 * far_dark_mask
@@ -340,15 +336,17 @@ for epoch in range(epochs):
     quality_score = z_terms["mean_quality_score"] + 0.5 * z_terms["worst_quality_score"] + 0.25 * (1.0 - loss_amp_corr)
 
     total_loss = (
-        8.0 * loss_threshold
-        + 6.0 * loss_low_quantile
-        + 5.0 * z_terms["worst_target_coverage_loss"]
-        + 4.5 * z_terms["worst_low_quantile_loss"]
-        + 3.5 * z_terms["worst_cv_loss"]
-        + 5.0 * loss_peak_balance
-        + 3.0 * z_terms["worst_peak_balance_loss"]
-        + 5.5 * loss_amp_uniformity
-        + 3.5 * loss_energy_uniformity
+        7.0 * loss_threshold
+        + 5.0 * loss_low_quantile
+        + 4.0 * z_terms["worst_target_coverage_loss"]
+        + 3.0 * z_terms["worst_low_quantile_loss"]
+        + 1.5 * z_terms["worst_cv_loss"]
+        + 4.0 * loss_peak_balance
+        + 2.0 * z_terms["worst_peak_balance_loss"]
+        + 2.0 * loss_target_mean_amp
+        + 3.5 * loss_amp_uniformity
+        + 2.0 * loss_energy_uniformity
+        + 1.5 * loss_ee
         + 0.8 * loss_target_contrast
         + 0.7 * loss_amp_corr
         + 0.4 * loss_amp_wmse
@@ -434,9 +432,9 @@ for epoch in range(epochs):
             f"Epoch [{epoch + 1}/{epochs}] | AmpCorr: {1.0 - loss_amp_corr.item():.4f} "
             f"| MeanCov: {z_terms['mean_target_coverage'].item() * 100:.2f}% | WorstCov: {z_terms['worst_target_coverage'].item() * 100:.2f}% "
             f"| WorstP10/P50: {z_terms['worst_target_p10_over_p50'].item():.4f} "
-            f"| WorstCV: {z_terms['worst_target_cv'].item():.4f} | EE(sec): {current_ee.item() * 100:.2f}% "
+            f"| WorstCV: {z_terms['worst_target_cv'].item():.4f} | EE: {current_ee.item() * 100:.2f}% "
             f"| P95/Mean: {z_terms['mean_target_p95_over_mean'].item():.3f} | Peak/Mean: {z_terms['mean_target_peak_over_mean'].item():.3f} "
-            f"| MeanAmp: {z_terms['mean_target_mean_raw'].item():.3f}/{target_mean_amp_goal_scalar:.3f} "
+            f"| MeanAmp: {z_terms['mean_target_mean_raw'].item():.3f}/{target_mean_amp_goal:.3f} "
             f"| ThrLoss: {loss_threshold.item():.4f} | DarkArea: {loss_dark_area.item():.4f} "
             f"| Quality: {quality_score.item():.4f} | Loss: {total_loss.item():.4f}"
         )
@@ -462,8 +460,6 @@ dithered_phase = np.mod(dithered_layers * phase_step, TWO_PI).astype(np.float32)
 dithered_phase *= mask_np.astype(np.float32)
 
 history_np = np.array(history, dtype=np.float32)
-final_quality_score = float(history_np[-1, 15]) if history_np.size else float("nan")
-quality_drawdown = float(best_quality_score - final_quality_score) if history_np.size else float("nan")
 best_source_field = torch.exp(1j * torch.tensor(dithered_phase, dtype=torch.float32, device=device)) * source_mask
 best_target_field = propagate_asm(best_source_field)
 best_amp = torch.abs(best_target_field)
@@ -490,8 +486,6 @@ best_target_peak = torch.max(best_target_vals) if best_target_vals.numel() > 4 e
 best_metrics = {
     "best_loss": float(best_loss),
     "best_quality_score": float(best_quality_score),
-    "final_quality_score": final_quality_score,
-    "quality_drawdown": quality_drawdown,
     "selected_epoch": int(best_state["epoch"]),
     "final_epoch": int(history_np[-1, 0]) if history_np.size else 0,
     "configured_epochs": int(epochs),
@@ -510,7 +504,7 @@ best_metrics = {
     "device": str(device),
     "target_threshold_norm": float(target_threshold_norm),
     "low_quantile_goal": float(low_quantile_goal),
-    "target_mean_amp_goal": target_mean_amp_goal_scalar,
+    "target_mean_amp_goal": float(target_mean_amp_goal),
     "target_mean_amp_goal_ratio": float(target_mean_amp_goal_ratio),
     "z_constraint_offsets_m": z_constraint_offsets.astype(float).tolist(),
     "amplitude_corr": float(1.0 - pearson_correlation_loss(best_amp_norm, target_raw_norm).detach().cpu()),
@@ -554,7 +548,7 @@ sio.savemat(
         "python_asm_amp_norm": best_amp_norm.detach().cpu().numpy().astype(np.float32),
         "target_threshold_norm": np.array([[target_threshold_norm]], dtype=np.float32),
         "low_quantile_goal": np.array([[low_quantile_goal]], dtype=np.float32),
-        "target_mean_amp_goal": np.array([[target_mean_amp_goal_scalar]], dtype=np.float32),
+        "target_mean_amp_goal": np.array([[target_mean_amp_goal]], dtype=np.float32),
         "z_constraint_offsets_m": z_constraint_offsets.astype(np.float32),
     },
 )
@@ -572,24 +566,8 @@ sio.savemat(
         "target_signature": target_signature,
         "target_threshold_norm": np.array([[target_threshold_norm]], dtype=np.float32),
         "low_quantile_goal": np.array([[low_quantile_goal]], dtype=np.float32),
-        "target_mean_amp_goal": np.array([[target_mean_amp_goal_scalar]], dtype=np.float32),
+        "target_mean_amp_goal": np.array([[target_mean_amp_goal]], dtype=np.float32),
         "z_constraint_offsets_m": z_constraint_offsets.astype(np.float32),
-    },
-)
-
-sio.savemat(
-    best_snapshot_file,
-    {
-        "optimal_initial_phase": dithered_phase,
-        "optimal_phase_bias": np.array([[phase_bias_final.item()]], dtype=np.float32),
-        "optimal_layer_map": dithered_layers.astype(np.float32),
-        "selected_epoch": np.array([[best_state["epoch"]]], dtype=np.int32),
-        "best_quality_score": np.array([[best_quality_score]], dtype=np.float32),
-        "final_quality_score": np.array([[final_quality_score]], dtype=np.float32),
-        "quality_drawdown": np.array([[quality_drawdown]], dtype=np.float32),
-        "python_asm_amp_norm": best_amp_norm.detach().cpu().numpy().astype(np.float32),
-        "python_metrics": best_metrics,
-        "target_signature": target_signature,
     },
 )
 
@@ -625,7 +603,7 @@ try:
     axes[1, 0].plot(history_np[:, 0], history_np[:, 25], label="P95/Mean")
     axes[1, 0].plot(history_np[:, 0], history_np[:, 26], label="Peak/Mean")
     axes[1, 0].plot(history_np[:, 0], history_np[:, 19], label="Target mean amp")
-    axes[1, 0].axhline(target_mean_amp_goal_scalar, color="gray", linestyle="--", linewidth=1.0, label="Mean amp goal")
+    axes[1, 0].axhline(target_mean_amp_goal, color="gray", linestyle="--", linewidth=1.0, label="Mean amp goal")
     axes[1, 0].set_title("Pressure-quality constraints")
     axes[1, 0].set_xlabel("Epoch")
     axes[1, 0].legend()
@@ -639,5 +617,4 @@ except Exception as plot_error:
     print(f"[WARN] Could not write PANN metric figure: {plot_error}")
 
 print(f"\n[OK] Phase initialization written to: {output_file}")
-print(f"[OK] Best-snapshot mat written to: {best_snapshot_file}")
 print(f"[OK] Branch metrics written to: {branch_output_dir}")

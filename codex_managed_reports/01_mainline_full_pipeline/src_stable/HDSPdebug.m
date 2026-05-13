@@ -32,7 +32,7 @@ pdms_thickness = 7e-3;
 focus_scan_radius = 6e-3;
 focus_edge_warn_mm = 0.5;
 lambda_water = c_water / f0;
-phase_refine_mode = 'python_only'; %相位叠加模式
+phase_refine_mode = 'python_iasa'; %相位叠加模式
 iasa_epoch = 150;
 iasa_anchor_eta = 1.0;
 research_mode.enabled = 0;
@@ -148,6 +148,7 @@ mask_bar = (X_grid_px >= x_bar_start) & (X_grid_px <= x_bar_end);
 imag_target_raw = mask_outer & (~mask_inner_cone | mask_bar);
 imag_target = imgaussfilt(double(imag_target_raw), 0.5);
 imag_target = imag_target / max(imag_target(:));
+imag_target_design = imag_target;
 %热学固化估计，提前腐蚀目标
 thermal_alpha_guess = 0.15 / (1100 * 1800);
 thermal_exposure_guess = 0.35;
@@ -169,16 +170,16 @@ end
 export_path = fullfile(transport_dir, 'target_for_python.mat');
 min_base_layers = 2;
 target_threshold_norm = 0.60;
-low_quantile_goal = 0.92;
-target_mean_amp_goal_ratio = 0.00;
+low_quantile_goal = 0.88;
+target_mean_amp_goal_ratio = 0.12;
 python_z_constraint_offsets_m = 0;
 python_epochs = 10000;
 python_learning_rate = 0.06;
 python_min_epochs = 6500;
 python_early_stop_patience = 4200;
 python_rng_seed = 9426;
-python_lr_restart_cycle = python_epochs + 1;
-python_lr_restart_decay = 1.0;
+python_lr_restart_cycle = 5000;
+python_lr_restart_decay = 0.82;
 python_lr_min_ratio = 0.05;
 src_dir = fileparts(mfilename('fullpath'));
 work_dir = fileparts(src_dir);
@@ -768,7 +769,7 @@ z_crop_len = z_crop_end - z_crop_start + 1;
 
 best_IoU_global = 0;
 best_record = struct();
-best_coarse = struct('P', 1.80e6, 'E', 0.3, 'C', 0.2);
+best_coarse = struct('P', 1.5e6, 'E', 0.3, 'C', 0.2);
 near_best_iou_tol = 0.01;
 scan_records = zeros(10000, 11);
 scan_record_count = 0;
@@ -777,22 +778,22 @@ for phase = 1:2
     if phase == 1
         %曝光时间，声压与冷却时间粗查
         fprintf('\n[第一阶段:粗扫]...\n');
-        C_list = [0.44, 0.54, 0.64];
-        P_list = ( 2: 0.1 : 2.80) * 1e6;
-        E_list = 0.1 : 0.05 : 0.70;
+        P_list = (1.40 : 0.04 : 1.56) * 1e6;
+        E_list = 0.48 : 0.03 : 0.60;
+        C_list = [0.44, 0.54];
     else
         %细查
          fprintf('\n[第二阶段: 微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
             best_coarse.P/1e6, best_coarse.E, best_coarse.C);
-        P_list = max(1.70e6, best_coarse.P - 0.12e6) : 0.02e6 : min(2.80e6, best_coarse.P + 0.12e6);
-        E_list = max(0.46, best_coarse.E - 0.05) : 0.01 : min(0.78, best_coarse.E + 0.05);
-        C_list = unique([max(0.34, best_coarse.C - 0.10), best_coarse.C, min(0.74, best_coarse.C + 0.10)]);
+        P_list = max(1.36e6, best_coarse.P - 0.04e6) : 0.02e6 : (best_coarse.P + 0.04e6);
+        E_list = max(0.44, best_coarse.E - 0.03) : 0.01 : min(0.64, best_coarse.E + 0.03);
+        C_list = best_coarse.C;
     end
 
     [Pg, Eg, Cg] = ndgrid(P_list, E_list, C_list);
     params_all = [Pg(:), Eg(:), Cg(:)];
     energy_index = (params_all(:, 1) / 1e6).^2 .* params_all(:, 2);
-    valid_mask = (energy_index >= 0.35) & (energy_index <= 5.0);
+    valid_mask = (energy_index >= 0.25) & (energy_index <= 2.4);
     params_valid = sortrows(params_all(valid_mask, :), 1);
     num_tests = size(params_valid, 1);
     current_P = -1;
@@ -1235,7 +1236,7 @@ end
 fprintf('PCC: %.4f\n', best_corr);
 fprintf('SSIM: %.4f\n', SSIM_val);
 fprintf('NMSE: %.4f\n', NMSE);
-fprintf('EE(次要): %.2f%%\n', Energy_Efficiency * 100);
+fprintf('EE: %.2f%%\n', Energy_Efficiency * 100);
 fprintf('Python ASM PCC/SSIM/NMSE: %.4f / %.4f / %.4f\n', asm_python_pcc, asm_python_ssim, asm_python_nmse);
 fprintf('IASA ASM   PCC/SSIM/NMSE: %.4f / %.4f / %.4f\n', asm_iasa_pcc, asm_iasa_ssim, asm_iasa_nmse);
 fprintf('ASM(IASA)-kWave PCC/NMSE: %.4f / %.4f\n', asm_kwave_corr, asm_kwave_nmse);
@@ -1334,7 +1335,7 @@ if fid > 0
     fprintf(fid, 'Outputs: %s\n\n', out_dir);
     fprintf(fid, 'Design/best field distance: %.2f / %.2f mm (shift %.2f mm)\n', ...
         design_z_dist_mm, actual_z_dist_mm, focus_shift_mm);
-    fprintf(fid, 'PCC/SSIM/NMSE/EE_secondary: %.4f / %.4f / %.4f / %.2f%%\n', ...
+    fprintf(fid, 'PCC/SSIM/NMSE/EE: %.4f / %.4f / %.4f / %.2f%%\n', ...
         best_corr, SSIM_val, NMSE, Energy_Efficiency * 100);
     fprintf(fid, 'ASM IASA/Python PCC: %.4f / %.4f\n', asm_iasa_pcc, asm_python_pcc);
     fprintf(fid, 'Exit amp CV/min-max: %.4f / %.4f\n', exit_amp_cv, exit_amp_min_ratio);

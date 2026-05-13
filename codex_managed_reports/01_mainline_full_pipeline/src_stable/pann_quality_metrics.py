@@ -184,12 +184,14 @@ def compute_cure_quality_terms(
     energy_efficiency = torch.sum(pred_energy * target_binary) / (torch.sum(pred_energy) + 1e-8)
 
     quality_score = (
-        5.0 * target_coverage
-        + 2.0 * target_p05_over_p50
-        + 3.5 * target_p10_over_p50
-        + 2.5 / (1.0 + target_cv)
-        + 0.5 * torch.log1p(target_to_global_mean)
-        - 1.5 * peak_balance_loss
+        4.0 * target_coverage
+        + 1.5 * target_p05_over_p50
+        + 2.5 * target_p10_over_p50
+        + 1.5 / (1.0 + target_cv)
+        + 0.8 * energy_efficiency
+        + 0.4 * torch.log1p(target_to_global_mean)
+        - 0.7 * target_mean_amp_loss
+        - 1.2 * peak_balance_loss
         - 0.8 * dark_area_fraction
         - 0.2 * halo_loss
     )
