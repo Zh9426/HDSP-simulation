@@ -28,3 +28,4 @@ phase_board_exit_repair_outputs/
 # Keep report output directories, but never version their runtime contents.
 codex_managed_reports/**/outputs/*
 !codex_managed_reports/**/outputs/.gitkeep
+/initial_phase_method_outputs
