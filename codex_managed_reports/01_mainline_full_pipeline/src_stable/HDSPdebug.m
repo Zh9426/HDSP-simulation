@@ -5,10 +5,10 @@ catch
 end
 %% 1. 参数设置
 Nx = 512;
-Lx = Nx * 0.11e-3;
+Lx = 65e-3;
 Ny = Nx; Ly = Lx; 
 System_Offset = 2.03e-3;
-z_target_dist = 13e-3;
+z_target_dist = 16e-3;
 f0 = 4.5e6;
 c_water = 1480;
 c_board = 2430;
@@ -29,14 +29,13 @@ alpha_power_pdms = 1.5;
 Cp_pdms = 1460;
 k_pdms = 0.15;
 pdms_thickness = 7e-3;
-focus_scan_radius = 3e-3;
+focus_scan_radius = 6e-3;
 focus_edge_warn_mm = 0.5;
 lambda_water = c_water / f0;
-aperture_margin = 0.5e-3;
-aperture_radius = min(32e-3, Lx / 2 - aperture_margin);
-c_match = 1980;
-density_match = 1003;
-alpha_coeff_match = 0.01;
+aperture_radius = 32e-3;
+c_match = 2285;
+density_match = 869;
+alpha_coeff_match = alpha_coeff_water;
 phase_refine_mode = 'python_only'; %相位叠加模式
 iasa_epoch = 150;
 iasa_anchor_eta = 0.0;
@@ -105,7 +104,7 @@ cure_model.thermal_cavitation_gate_power = 0.8;
 dx = Lx / Nx;
 dy = dx;
 dz = dx;
-Lz_needed = 18e-3;
+Lz_needed = 20e-3;
 Nz_min = ceil(Lz_needed / dz);
 optimal_sizes = [128, 192, 216, 256, 300, 384, 512];
 Nz = optimal_sizes(find(optimal_sizes >= Nz_min, 1));
@@ -790,16 +789,16 @@ for phase = 1:2
     if phase == 1
         %曝光时间，声压与冷却时间粗查
         fprintf('\n[第一阶段:粗扫]...\n');
-        P_list = (1.40 : 0.04 : 1.56) * 1e6;
-        E_list = 0.48 : 0.03 : 0.60;
-        C_list = [0.44, 0.54];
+        P_list = (1.60 : 0.04 : 1.84) * 1e6;
+        E_list = 0.60 : 0.03 : 0.78;
+        C_list = [0.20, 0.28, 0.36];
     else
         %细查
          fprintf('\n[第二阶段: 微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
             best_coarse.P/1e6, best_coarse.E, best_coarse.C);
-        P_list = max(1.36e6, best_coarse.P - 0.04e6) : 0.02e6 : (best_coarse.P + 0.04e6);
-        E_list = max(0.44, best_coarse.E - 0.03) : 0.01 : min(0.64, best_coarse.E + 0.03);
-        C_list = best_coarse.C;
+        P_list = max(1.52e6, best_coarse.P - 0.06e6) : 0.02e6 : min(1.96e6, best_coarse.P + 0.12e6);
+        E_list = max(0.54, best_coarse.E - 0.04) : 0.01 : min(0.86, best_coarse.E + 0.08);
+        C_list = unique(max(0.16, min(0.48, best_coarse.C + [-0.08, 0, 0.08])));
     end
 
     [Pg, Eg, Cg] = ndgrid(P_list, E_list, C_list);
