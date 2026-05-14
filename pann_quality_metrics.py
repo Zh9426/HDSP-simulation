@@ -17,6 +17,8 @@ def stack_term(terms_by_z, key):
 def aggregate_z_quality_terms(terms_by_z):
     """Aggregate per-z cure metrics with explicit worst-plane penalties."""
     coverage = stack_term(terms_by_z, "target_coverage")
+    target_p10 = stack_term(terms_by_z, "target_p10")
+    target_p20 = stack_term(terms_by_z, "target_p20")
     p05_over_p50 = stack_term(terms_by_z, "target_p05_over_p50")
     p10_over_p50 = stack_term(terms_by_z, "target_p10_over_p50")
     p75_over_p25 = stack_term(terms_by_z, "target_p75_over_p25")
@@ -26,6 +28,14 @@ def aggregate_z_quality_terms(terms_by_z):
     p90_over_mean = stack_term(terms_by_z, "target_p90_over_mean")
     p95_over_mean = stack_term(terms_by_z, "target_p95_over_mean")
     peak_over_mean = stack_term(terms_by_z, "target_peak_over_mean")
+    target_floor_loss = stack_term(terms_by_z, "target_floor_loss")
+    dark_ceiling_loss = stack_term(terms_by_z, "dark_ceiling_loss")
+    separation_loss = stack_term(terms_by_z, "separation_loss")
+    dark_band_spread_loss = stack_term(terms_by_z, "dark_band_spread_loss")
+    dark_cv = stack_term(terms_by_z, "dark_cv")
+    dark_p50 = stack_term(terms_by_z, "dark_p50")
+    dark_p95 = stack_term(terms_by_z, "dark_p95")
+    dark_p99 = stack_term(terms_by_z, "dark_p99")
     dark_p99_over_target_p50 = stack_term(terms_by_z, "dark_p99_over_target_p50")
     dark_peak_over_target_p50 = stack_term(terms_by_z, "dark_peak_over_target_p50")
     dark_high_area_fraction = stack_term(terms_by_z, "dark_high_area_fraction")
@@ -46,6 +56,14 @@ def aggregate_z_quality_terms(terms_by_z):
         "mean_low_quantile_loss": torch.mean(stack_term(terms_by_z, "low_quantile_loss")),
         "mean_target_band_spread_loss": torch.mean(band_spread_loss),
         "worst_target_band_spread_loss": torch.max(band_spread_loss),
+        "mean_target_floor_loss": torch.mean(target_floor_loss),
+        "worst_target_floor_loss": torch.max(target_floor_loss),
+        "mean_dark_ceiling_loss": torch.mean(dark_ceiling_loss),
+        "worst_dark_ceiling_loss": torch.max(dark_ceiling_loss),
+        "mean_separation_loss": torch.mean(separation_loss),
+        "worst_separation_loss": torch.max(separation_loss),
+        "mean_dark_band_spread_loss": torch.mean(dark_band_spread_loss),
+        "worst_dark_band_spread_loss": torch.max(dark_band_spread_loss),
         "mean_target_mean_amp_loss": torch.mean(stack_term(terms_by_z, "target_mean_amp_loss")),
         "mean_amp_uniformity_loss": torch.mean(stack_term(terms_by_z, "amp_uniformity_loss")),
         "mean_energy_uniformity_loss": torch.mean(stack_term(terms_by_z, "energy_uniformity_loss")),
@@ -62,6 +80,10 @@ def aggregate_z_quality_terms(terms_by_z):
         "mean_target_coverage": mean_target_coverage,
         "worst_target_coverage": worst_target_coverage,
         "worst_target_coverage_loss": torch.relu(1.0 - worst_target_coverage) ** 2,
+        "mean_target_p10": torch.mean(target_p10),
+        "mean_target_p20": torch.mean(target_p20),
+        "worst_target_p10": torch.min(target_p10),
+        "worst_target_p20": torch.min(target_p20),
         "mean_target_p10_over_p50": mean_p10_over_p50,
         "worst_target_p10_over_p50": worst_p10_over_p50,
         "mean_target_p05_over_p50": mean_p05_over_p50,
@@ -84,6 +106,12 @@ def aggregate_z_quality_terms(terms_by_z):
         "worst_dark_p99_over_target_p50": torch.max(dark_p99_over_target_p50),
         "mean_dark_peak_over_target_p50": torch.mean(dark_peak_over_target_p50),
         "worst_dark_peak_over_target_p50": torch.max(dark_peak_over_target_p50),
+        "mean_dark_cv": torch.mean(dark_cv),
+        "worst_dark_cv": torch.max(dark_cv),
+        "mean_dark_p50": torch.mean(dark_p50),
+        "mean_dark_p95": torch.mean(dark_p95),
+        "mean_dark_p99": torch.mean(dark_p99),
+        "worst_dark_p99": torch.max(dark_p99),
         "mean_dark_high_area_fraction": torch.mean(dark_high_area_fraction),
         "mean_dark_area_fraction": torch.mean(stack_term(terms_by_z, "dark_area_fraction")),
         "mean_target_mean_raw": torch.mean(stack_term(terms_by_z, "target_mean_raw")),
@@ -141,16 +169,26 @@ def compute_cure_quality_terms(
             "target_band_spread_loss": zero,
             "target_p05_over_p50": zero,
             "target_p10_over_p50": zero,
+            "target_p10": zero,
+            "target_p20": zero,
             "target_p75_over_p25": zero,
             "target_p90_over_p10": zero,
             "target_p95_over_p05": zero,
             "target_p90_over_mean": zero,
             "target_p95_over_mean": zero,
             "target_peak_over_mean": zero,
+            "target_floor_loss": zero,
             "dark_mean_loss": zero,
             "dark_area_loss": zero,
             "dark_relative_loss": zero,
+            "dark_ceiling_loss": zero,
+            "separation_loss": zero,
+            "dark_band_spread_loss": zero,
+            "dark_cv": zero,
             "dark_area_fraction": zero,
+            "dark_p50": zero,
+            "dark_p95": zero,
+            "dark_p99": zero,
             "dark_p95_over_target_p50": zero,
             "dark_p99_over_target_p50": zero,
             "dark_peak_over_target_p50": zero,
@@ -173,14 +211,15 @@ def compute_cure_quality_terms(
     threshold_loss = torch.mean(torch.relu(threshold - inside_amp_vals) ** 2) / (threshold**2 + 1e-8)
     target_coverage = torch.mean((inside_amp_vals >= threshold).float())
 
+    target_p05 = torch.quantile(inside_amp_vals, 0.05)
     target_p10 = torch.quantile(inside_amp_vals, 0.10)
+    target_p20 = torch.quantile(inside_amp_vals, 0.20)
     target_p25 = torch.quantile(inside_amp_vals, 0.25)
     target_p50 = torch.quantile(inside_amp_vals, 0.50)
     target_p75 = torch.quantile(inside_amp_vals, 0.75)
     target_p90 = torch.quantile(inside_amp_vals, 0.90)
     target_p95 = torch.quantile(inside_amp_vals, 0.95)
     target_peak = torch.max(inside_amp_vals)
-    target_p05 = torch.quantile(inside_amp_vals, 0.05)
     target_p05_over_p50 = target_p05 / (target_p50 + 1e-8)
     target_p10_over_p50 = target_p10 / (target_p50 + 1e-8)
     target_p75_over_p25 = target_p75 / (target_p25 + 1e-8)
@@ -201,6 +240,10 @@ def compute_cure_quality_terms(
         + 0.8 * torch.relu(target_p90_over_p10 - 1.95) ** 2
         + 0.45 * torch.relu(target_p95_over_p05 - 2.60) ** 2
     )
+    target_floor_loss = (
+        torch.relu(threshold - target_p10) ** 2 / (threshold**2 + 1e-8)
+        + 0.7 * torch.relu((threshold * 1.02) - target_p20) ** 2 / (threshold**2 + 1e-8)
+    )
     target_mean_amp_loss = zero
     if target_mean_amp_goal is not None:
         target_mean_goal = torch.tensor(target_mean_amp_goal, dtype=pred_amp_norm.dtype, device=pred_amp_norm.device)
@@ -209,15 +252,32 @@ def compute_cure_quality_terms(
 
     dark_mean_loss = torch.mean(dark_energy_vals) if dark_energy_vals.numel() > 4 else zero
     if dark_amp_vals.numel() > 4:
+        dark_p50 = torch.quantile(dark_amp_vals, 0.50)
         dark_p95 = torch.quantile(dark_amp_vals, 0.95)
         dark_p99 = torch.quantile(dark_amp_vals, 0.99)
         dark_peak = torch.max(dark_amp_vals)
+        dark_mean = torch.mean(dark_amp_vals)
+        dark_std = torch.std(dark_amp_vals)
+        dark_cv = dark_std / (dark_mean + 1e-8)
         dark_p95_over_target_p50 = dark_p95 / (target_p50 + 1e-8)
         dark_p99_over_target_p50 = dark_p99 / (target_p50 + 1e-8)
         dark_peak_over_target_p50 = dark_peak / (target_p50 + 1e-8)
         dark_limit = 0.72 * target_p50
         dark_area_loss = torch.mean(torch.relu(dark_amp_vals - dark_limit) ** 2) / (target_p50**2 + 1e-8)
         dark_high_area_fraction = torch.mean((dark_amp_vals >= dark_limit).float())
+        dark_ceiling = 0.62 * threshold
+        dark_ceiling_loss = (
+            torch.relu(dark_p95 - dark_ceiling) ** 2 / (threshold**2 + 1e-8)
+            + 1.4 * torch.relu(dark_p99 - dark_ceiling) ** 2 / (threshold**2 + 1e-8)
+        )
+        separation_margin = target_p10 - dark_p99
+        separation_goal = 0.12 * threshold
+        separation_loss = torch.relu(separation_goal - separation_margin) ** 2 / (threshold**2 + 1e-8)
+        dark_band_spread_loss = (
+            torch.relu((dark_p95 / (dark_p50 + 1e-8)) - 1.18) ** 2
+            + 0.9 * torch.relu((dark_p99 / (dark_p50 + 1e-8)) - 1.32) ** 2
+            + 0.25 * dark_cv**2
+        )
         dark_relative_loss = (
             torch.relu(dark_p99_over_target_p50 - 0.72) ** 2
             + 0.35 * torch.relu(dark_peak_over_target_p50 - 0.95) ** 2
@@ -225,25 +285,36 @@ def compute_cure_quality_terms(
         )
         dark_area_fraction = torch.mean((dark_amp_vals >= threshold).float())
     else:
+        dark_p50 = zero
+        dark_p95 = zero
+        dark_p99 = zero
+        dark_cv = zero
         dark_p95_over_target_p50 = zero
         dark_p99_over_target_p50 = zero
         dark_peak_over_target_p50 = zero
         dark_high_area_fraction = zero
         dark_area_loss = zero
         dark_relative_loss = zero
+        dark_ceiling_loss = zero
+        separation_loss = zero
+        dark_band_spread_loss = zero
         dark_area_fraction = zero
     halo_loss = torch.mean(halo_energy_vals) if halo_energy_vals.numel() > 4 else zero
     energy_efficiency = torch.sum(pred_energy * target_binary) / (torch.sum(pred_energy) + 1e-8)
 
     quality_score = (
-        2.8 / (1.0 + target_cv)
-        + 2.2 * target_p10_over_p50
-        + 1.2 * target_p05_over_p50
+        2.0 / (1.0 + target_cv)
+        + 1.8 * target_p10_over_p50
+        + 0.9 * target_p05_over_p50
         + 0.8 * target_coverage
-        - 1.4 * target_band_spread_loss
-        - 1.8 * peak_balance_loss
-        - 1.6 * dark_relative_loss
-        - 0.4 * dark_high_area_fraction
+        - 1.2 * target_floor_loss
+        - 1.2 * target_band_spread_loss
+        - 1.4 * peak_balance_loss
+        - 1.3 * dark_relative_loss
+        - 1.2 * dark_ceiling_loss
+        - 1.4 * separation_loss
+        - 0.7 * dark_band_spread_loss
+        - 0.3 * dark_high_area_fraction
     )
 
     return {
@@ -264,8 +335,11 @@ def compute_cure_quality_terms(
         "low_quantile_loss": low_quantile_loss,
         "peak_balance_loss": peak_balance_loss,
         "target_band_spread_loss": target_band_spread_loss,
+        "target_floor_loss": target_floor_loss,
         "target_p05_over_p50": target_p05_over_p50,
         "target_p10_over_p50": target_p10_over_p50,
+        "target_p10": target_p10,
+        "target_p20": target_p20,
         "target_p75_over_p25": target_p75_over_p25,
         "target_p90_over_p10": target_p90_over_p10,
         "target_p95_over_p05": target_p95_over_p05,
@@ -275,7 +349,14 @@ def compute_cure_quality_terms(
         "dark_mean_loss": dark_mean_loss,
         "dark_area_loss": dark_area_loss,
         "dark_relative_loss": dark_relative_loss,
+        "dark_ceiling_loss": dark_ceiling_loss,
+        "separation_loss": separation_loss,
+        "dark_band_spread_loss": dark_band_spread_loss,
+        "dark_cv": dark_cv,
         "dark_area_fraction": dark_area_fraction,
+        "dark_p50": dark_p50,
+        "dark_p95": dark_p95,
+        "dark_p99": dark_p99,
         "dark_p95_over_target_p50": dark_p95_over_target_p50,
         "dark_p99_over_target_p50": dark_p99_over_target_p50,
         "dark_peak_over_target_p50": dark_peak_over_target_p50,

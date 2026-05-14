@@ -70,6 +70,25 @@ def test_dark_area_loss_ignores_single_hotspot_more_than_area_leakage():
     assert single_terms["dark_area_loss"] < area_terms["dark_area_loss"]
 
 
+def test_cure_quality_prefers_target_background_separation_over_bright_platform():
+    target, halo, far_dark = make_masks()
+
+    separated = torch.full((8, 8), 0.12, dtype=torch.float32)
+    separated[target > 0.5] = 0.82
+
+    platform = torch.full((8, 8), 0.62, dtype=torch.float32)
+    platform[target > 0.5] = 0.78
+
+    separated_terms = compute_cure_quality_terms(separated, target, halo, far_dark)
+    platform_terms = compute_cure_quality_terms(platform, target, halo, far_dark)
+
+    assert separated_terms["target_floor_loss"] < platform_terms["target_floor_loss"]
+    assert separated_terms["dark_ceiling_loss"] < platform_terms["dark_ceiling_loss"]
+    assert separated_terms["separation_loss"] < platform_terms["separation_loss"]
+    assert separated_terms["dark_band_spread_loss"] <= platform_terms["dark_band_spread_loss"]
+    assert separated_terms["quality_score"] > platform_terms["quality_score"]
+
+
 def test_cure_quality_prefers_absolute_target_strength_when_shape_matches():
     target, halo, far_dark = make_masks()
     amp_norm = torch.zeros((8, 8), dtype=torch.float32)
@@ -120,5 +139,6 @@ if __name__ == "__main__":
     test_cure_quality_prefers_uniform_target_over_hot_partial_target()
     test_cure_quality_penalizes_target_internal_spikes()
     test_dark_area_loss_ignores_single_hotspot_more_than_area_leakage()
+    test_cure_quality_prefers_target_background_separation_over_bright_platform()
     test_cure_quality_prefers_absolute_target_strength_when_shape_matches()
     test_z_quality_aggregation_penalizes_the_worst_plane()
