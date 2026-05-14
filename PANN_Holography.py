@@ -53,6 +53,78 @@ def quantize_phase_ste(phase_map, phase_bias, phase_step, min_base_layers):
     return phase_quantized, layer_continuous
 
 
+def build_layer_map_numpy(layer_continuous, mask_np, min_base_layers, max_layer_index, use_dither):
+    if use_dither:
+        return error_diffusion_quantize_layers(layer_continuous, mask_np, min_base_layers, max_layer_index)
+
+    layer_map = np.rint(layer_continuous).astype(np.int32)
+    layer_map = np.clip(layer_map, min_base_layers, max_layer_index)
+    layer_map[mask_np < 0.5] = min_base_layers
+    return layer_map
+
+
+def project_phase_to_board_ste(
+    phase_map,
+    phase_bias,
+    phase_step,
+    min_base_layers,
+    source_mask,
+    max_layer_index,
+    offset_search_radius_steps=0.5,
+    offset_search_count=9,
+    use_dither=False,
+):
+    phase_wrapped = torch.remainder(phase_map, TWO_PI)
+    mask_np = source_mask.detach().cpu().numpy().astype(np.float32)
+
+    best_cost = None
+    best_delta = 0.0
+    best_layer_map_np = None
+
+    center = (offset_search_count - 1) / 2.0
+    phase_wrapped_np = phase_wrapped.detach().cpu().numpy()
+    phase_bias_scalar = float(torch.remainder(phase_bias.detach(), TWO_PI).item())
+
+    for offset_idx in range(offset_search_count):
+        relative = 0.0
+        if offset_search_count > 1:
+            relative = (offset_idx - center) / center
+        delta_now = relative * offset_search_radius_steps * phase_step
+        offset_now = phase_bias_scalar + delta_now
+
+        phase_shifted_np = np.mod(phase_wrapped_np + offset_now, TWO_PI)
+        layer_cont_np = phase_shifted_np / phase_step + min_base_layers
+        layer_map_np = build_layer_map_numpy(
+            layer_cont_np,
+            mask_np,
+            min_base_layers,
+            max_layer_index,
+            use_dither=use_dither,
+        )
+        phase_candidate_np = np.mod(layer_map_np * phase_step, TWO_PI)
+
+        residual = np.angle(np.exp(1j * (phase_candidate_np - phase_shifted_np)))
+        valid = mask_np > 0.5
+        phase_cost = float(np.mean(np.square(residual[valid])))
+
+        if best_cost is None or phase_cost < best_cost:
+            best_cost = phase_cost
+            best_delta = delta_now
+            best_layer_map_np = layer_map_np
+
+    offset_delta = torch.tensor(best_delta, dtype=phase_map.dtype, device=phase_map.device)
+    selected_bias = torch.remainder(phase_bias + offset_delta, TWO_PI)
+    phase_shifted = torch.remainder(phase_wrapped + selected_bias, TWO_PI)
+
+    layer_continuous = phase_shifted / phase_step + min_base_layers
+    layer_map_tensor = torch.tensor(best_layer_map_np, dtype=phase_map.dtype, device=phase_map.device)
+    phase_projected_hard = torch.remainder(layer_map_tensor * phase_step, TWO_PI) * source_mask
+    phase_projected = phase_shifted + (phase_projected_hard - phase_shifted).detach()
+    phase_projected = phase_projected * source_mask
+
+    return phase_projected, layer_continuous, layer_map_tensor, selected_bias
+
+
 def error_diffusion_quantize_layers(layer_continuous, mask, min_base_layers, max_layer_index):
     work = layer_continuous.astype(np.float64).copy()
     layer_map = np.full_like(work, min_base_layers, dtype=np.int32)
@@ -245,6 +317,9 @@ def propagate_asm(source_field, H_forward_now=H_forward):
 k_diff = abs(2.0 * math.pi * f0 / c_water - 2.0 * math.pi * f0 / c_board)
 phase_step = k_diff * dz
 max_layer_index = min_base_layers + int(math.ceil(TWO_PI / phase_step)) + 1
+board_projection_use_dither_in_loop = False
+board_projection_offset_search_count = 9
+board_projection_offset_radius_steps = 0.5
 
 x_vec = torch.linspace(-Lx / 2, Lx / 2, Nx, device=device)
 y_vec = torch.linspace(-Lx / 2, Lx / 2, Ny, device=device)
@@ -286,8 +361,18 @@ history = []
 for epoch in range(epochs):
     optimizer.zero_grad()
 
-    phase_quantized, layer_continuous = quantize_phase_ste(phase_map, phase_bias, phase_step, min_base_layers)
-    source_field = torch.exp(1j * phase_quantized) * source_mask
+    phase_projected, layer_continuous, layer_map_hard, selected_phase_bias = project_phase_to_board_ste(
+        phase_map,
+        phase_bias,
+        phase_step,
+        min_base_layers,
+        source_mask,
+        max_layer_index,
+        offset_search_radius_steps=board_projection_offset_radius_steps,
+        offset_search_count=board_projection_offset_search_count,
+        use_dither=board_projection_use_dither_in_loop,
+    )
+    source_field = torch.exp(1j * phase_projected) * source_mask
     quality_terms_by_z = []
     corr_losses = []
     wmse_losses = []
@@ -360,7 +445,8 @@ for epoch in range(epochs):
     with torch.no_grad():
         phase_margin = torch.mean(torch.abs(layer_continuous - torch.round(layer_continuous)))
         candidate_phase_map = phase_map.detach().clone()
-        candidate_phase_bias = phase_bias.detach().clone()
+        candidate_phase_bias = selected_phase_bias.detach().clone()
+        candidate_layer_map = layer_map_hard.detach().clone()
         candidate_learning_rate = float(optimizer.param_groups[0]["lr"])
         history.append(
             [
@@ -408,7 +494,7 @@ for epoch in range(epochs):
     scheduler.step()
 
     with torch.no_grad():
-        phase_bias[:] = torch.remainder(phase_bias, TWO_PI)
+        phase_bias[:] = selected_phase_bias
 
     if total_loss.item() < best_loss:
         best_loss = total_loss.item()
@@ -419,6 +505,7 @@ for epoch in range(epochs):
         best_state = {
             "phase_map": candidate_phase_map,
             "phase_bias": candidate_phase_bias,
+            "layer_map": candidate_layer_map,
             "epoch": epoch + 1,
             "learning_rate": candidate_learning_rate,
         }
@@ -467,19 +554,15 @@ for epoch in range(epochs):
         )
         break
 
-# 4. export dithered result
-phase_map_final = best_state["phase_map"]
+# 4. export board-constrained result
 phase_bias_final = best_state["phase_bias"]
-wrapped_phase = torch.remainder(phase_map_final + phase_bias_final, TWO_PI)
-layer_continuous = (wrapped_phase / phase_step + min_base_layers).detach().cpu().numpy()
 mask_np = source_mask.detach().cpu().numpy()
-
-dithered_layers = error_diffusion_quantize_layers(layer_continuous, mask_np, min_base_layers, max_layer_index)
-dithered_phase = np.mod(dithered_layers * phase_step, TWO_PI).astype(np.float32)
-dithered_phase *= mask_np.astype(np.float32)
+projected_layers = best_state["layer_map"].detach().cpu().numpy().astype(np.int32)
+projected_phase = np.mod(projected_layers * phase_step, TWO_PI).astype(np.float32)
+projected_phase *= mask_np.astype(np.float32)
 
 history_np = np.array(history, dtype=np.float32)
-best_source_field = torch.exp(1j * torch.tensor(dithered_phase, dtype=torch.float32, device=device)) * source_mask
+best_source_field = torch.exp(1j * torch.tensor(projected_phase, dtype=torch.float32, device=device)) * source_mask
 best_target_field = propagate_asm(best_source_field)
 best_amp = torch.abs(best_target_field)
 best_amp_norm = normalize_map(best_amp)
@@ -553,17 +636,21 @@ best_metrics = {
     "dark_relative_loss": float(best_quality_terms["dark_relative_loss"].detach().cpu()),
     "phase_bias_rad": float(phase_bias_final.item()),
     "phase_step_rad": float(phase_step),
-    "layer_min": int(np.min(dithered_layers[mask_np > 0.5])),
-    "layer_max": int(np.max(dithered_layers[mask_np > 0.5])),
-    "layer_std": float(np.std(dithered_layers[mask_np > 0.5])),
+    "layer_min": int(np.min(projected_layers[mask_np > 0.5])),
+    "layer_max": int(np.max(projected_layers[mask_np > 0.5])),
+    "layer_std": float(np.std(projected_layers[mask_np > 0.5])),
+    "board_constraint_mode": "in_loop_projection_round",
+    "board_projection_use_dither_in_loop": bool(board_projection_use_dither_in_loop),
+    "board_projection_offset_search_count": int(board_projection_offset_search_count),
+    "board_projection_offset_radius_steps": float(board_projection_offset_radius_steps),
 }
 
 sio.savemat(
     output_file,
     {
-        "optimal_initial_phase": dithered_phase,
+        "optimal_initial_phase": projected_phase,
         "optimal_phase_bias": np.array([[phase_bias_final.item()]], dtype=np.float32),
-        "optimal_layer_map": dithered_layers.astype(np.float32),
+        "optimal_layer_map": projected_layers.astype(np.float32),
         "phase_step": np.array([[phase_step]], dtype=np.float32),
         "line_target_mask": target_binary.detach().cpu().numpy().astype(np.float32),
         "halo_target_mask": halo_mask.detach().cpu().numpy().astype(np.float32),
@@ -580,9 +667,9 @@ sio.savemat(
 sio.savemat(
     os.path.join(branch_output_dir, "pann_phase_output_snapshot.mat"),
     {
-        "optimal_initial_phase": dithered_phase,
+        "optimal_initial_phase": projected_phase,
         "optimal_phase_bias": np.array([[phase_bias_final.item()]], dtype=np.float32),
-        "optimal_layer_map": dithered_layers.astype(np.float32),
+        "optimal_layer_map": projected_layers.astype(np.float32),
         "python_loss_history": history_np,
         "python_metrics": best_metrics,
         "python_asm_amp_norm": best_amp_norm.detach().cpu().numpy().astype(np.float32),
