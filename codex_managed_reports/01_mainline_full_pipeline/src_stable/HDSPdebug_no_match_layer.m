@@ -770,7 +770,19 @@ scan_report_top_n = 5;
 p_3d_abs = abs(p_field_3d);
 focal_slice_abs = p_3d_abs(:, :, best_idx_global);
 roi_mask = (imag_target > 0.5);
-median_roi_p = median(focal_slice_abs(roi_mask));
+target_ref_percentile = 20;
+target_ref_p = prctile(focal_slice_abs(roi_mask), target_ref_percentile);
+target_trigger_percentile = 10;
+target_support_percentile = 20;
+dark_warn_percentile = 95;
+dark_guard_percentile = 99;
+scan_target_threshold_weight = 2.5;
+scan_background_guard_weight = 3.0;
+scan_separation_weight = 0.35;
+scan_iou_weight = 1.0;
+scan_dice_weight = 0.25;
+scan_over_cure_weight = 0.35;
+scan_under_cure_weight = 0.15;
 
 rho_pdms = density_pdms;  c_pdms_heat = c_pdms; Cp_pdms_heat = Cp_pdms; k_pdms_heat = k_pdms;
 rho_water_heat = density_water;  c_water_heat = c_water; Cp_water_heat = Cp_water; k_water_heat = k_water;
@@ -790,10 +802,12 @@ best_idx_crop = best_idx_global - z_crop_start + 1;
 z_crop_len = z_crop_end - z_crop_start + 1;
 
 best_IoU_global = 0;
+best_scan_score = -inf;
 best_record = struct();
 best_coarse = struct('P', 1.5e6, 'E', 0.3, 'C', 0.2);
 near_best_iou_tol = 0.01;
-scan_records = zeros(10000, 11);
+near_best_score_tol = 0.02;
+scan_records = zeros(10000, 16);
 scan_record_count = 0;
 
 for phase = 1:2
@@ -826,7 +840,7 @@ for phase = 1:2
         t_cool = params_valid(i, 3);
 
         if p_target ~= current_P
-            scale_factor = p_target / median_roi_p;
+            scale_factor = p_target / target_ref_p;
             p_3d_scaled = p_3d_abs * scale_factor;
             p_3d_scaled(p_3d_scaled > pressure_cap) = pressure_cap;
 
@@ -958,6 +972,19 @@ for phase = 1:2
             penalty_tmp, cure_model);
         Omega_tmp = cure_score_tmp;
         target_mask_2d = imag_target > 0.5;
+        dark_mask_2d = ~target_mask_2d;
+        focal_pressure_slice = p_3d_scaled(:, :, best_idx_global);
+        target_pressure_vals = focal_pressure_slice(target_mask_2d);
+        dark_pressure_vals = focal_pressure_slice(dark_mask_2d);
+        target_p10 = prctile(target_pressure_vals(:), target_trigger_percentile);
+        target_p20 = prctile(target_pressure_vals(:), target_support_percentile);
+        dark_p95 = prctile(dark_pressure_vals(:), dark_warn_percentile);
+        dark_p99 = prctile(dark_pressure_vals(:), dark_guard_percentile);
+        target_activation_gain = min(target_p10 / cavitation_model.pressure_on, 1.25);
+        background_guard_gain = min(cavitation_model.pressure_on / max(dark_p99, eps), 1.25);
+        separation_gain = min(target_p10 / max(dark_p99, eps), 3.0);
+        target_shortfall_penalty = max((cavitation_model.pressure_on - target_p10) / cavitation_model.pressure_on, 0).^2;
+        background_overdrive_penalty = max((dark_p99 - cavitation_model.pressure_on) / cavitation_model.pressure_on, 0).^2;
         threshold_result_tmp = evaluate_cure_prediction( ...
             Omega_tmp, target_mask_2d, cure_model.threshold);
         cured_mask_tmp = threshold_result_tmp.cured_mask;
@@ -966,11 +993,22 @@ for phase = 1:2
         current_over_cure = threshold_result_tmp.over_cure_ratio;
         current_under_cure = threshold_result_tmp.under_cure_ratio;
         current_coverage = threshold_result_tmp.cured_coverage;
+        selection_score = ...
+            scan_iou_weight * current_IoU + ...
+            scan_dice_weight * current_Dice + ...
+            scan_target_threshold_weight * target_activation_gain + ...
+            scan_background_guard_weight * background_guard_gain + ...
+            scan_separation_weight * separation_gain - ...
+            scan_over_cure_weight * current_over_cure - ...
+            scan_under_cure_weight * current_under_cure - ...
+            2.0 * target_shortfall_penalty - ...
+            3.0 * background_overdrive_penalty;
         current_Tmax = max(T_max_history_tmp);
         scan_record_count = scan_record_count + 1;
         scan_records(scan_record_count, :) = [phase, p_target / 1e6, t_exp, ...
             t_cool, threshold_result_tmp.threshold, current_IoU, current_Dice, ...
-            current_over_cure, current_under_cure, current_coverage, current_Tmax];
+            current_over_cure, current_under_cure, current_coverage, current_Tmax, ...
+            target_p10 / 1e6, target_p20 / 1e6, dark_p95 / 1e6, dark_p99 / 1e6, selection_score];
 
         if scan_verbose
             fprintf('  [%02d/%02d] P=%.2f MPa, Exp=%.2f s, Cool=%.2f s, Thr=%.2f | Tmax: %4.1f C | IoU: %.4f\n', ...
@@ -978,12 +1016,19 @@ for phase = 1:2
                 current_Tmax, current_IoU);
         end
 
-        if current_IoU > best_IoU_global
+        if selection_score > best_scan_score || ...
+                (abs(selection_score - best_scan_score) <= 1e-8 && current_IoU > best_IoU_global)
+            best_scan_score = selection_score;
             best_IoU_global = current_IoU;
             best_record.p_target = p_target;
             best_record.t_exp = t_exp;
             best_record.t_cool = t_cool;
+            best_record.selection_score = selection_score;
             best_record.cure_threshold = threshold_result_tmp.threshold;
+            best_record.target_p10 = target_p10;
+            best_record.target_p20 = target_p20;
+            best_record.dark_p95 = dark_p95;
+            best_record.dark_p99 = dark_p99;
             best_record.T_focal_2d = gather(double(T_3d_gpu(:, :, best_idx_crop)));
             best_record.Q_focal_2d = gather(double(Q_heat_3d_gpu(:, :, best_idx_crop)));
             best_record.Omega_final_2d = Omega_tmp;
@@ -1016,10 +1061,13 @@ fprintf('曝光时长: %.2f 秒\n', best_record.t_exp);
 fprintf('冷却时长: %.2f 秒\n', best_record.t_cool);
 fprintf('IoU: %.4f\n', best_IoU_global);
 scan_records = scan_records(1:scan_record_count, :);
-near_best_mask = scan_records(:, 6) >= best_IoU_global - near_best_iou_tol;
+fprintf('Scan score: %.4f | Target P10/P20: %.2f / %.2f MPa | Dark P95/P99: %.2f / %.2f MPa\n', ...
+    best_record.selection_score, best_record.target_p10 / 1e6, best_record.target_p20 / 1e6, ...
+    best_record.dark_p95 / 1e6, best_record.dark_p99 / 1e6);
+near_best_mask = scan_records(:, 16) >= best_scan_score - near_best_score_tol;
 near_best_records = scan_records(near_best_mask, :);
-fprintf('Near-best 参数组数(IoU within %.3f): %d / %d\n', ...
-    near_best_iou_tol, size(near_best_records, 1), size(scan_records, 1));
+fprintf('Near-best 参数组数(score within %.3f): %d / %d\n', ...
+    near_best_score_tol, size(near_best_records, 1), size(scan_records, 1));
 if ~isempty(near_best_records)
     fprintf('Near-best P/E/C/Thr范围: %.2f-%.2f MPa | %.2f-%.2f s | %.2f-%.2f s | %.2f-%.2f\n', ...
         min(near_best_records(:, 2)), max(near_best_records(:, 2)), ...
@@ -1029,13 +1077,13 @@ if ~isempty(near_best_records)
 end
 
 top_n = min(scan_report_top_n, size(scan_records, 1));
-top_records = sortrows(scan_records, -6);
-fprintf('Top-%d scan records: P MPa | Exp s | Cool s | Thr | IoU | Dice | Over | Under | Coverage | Tmax C\n', top_n);
+top_records = sortrows(scan_records, -16);
+fprintf('Top-%d scan records: P MPa | Exp s | Cool s | Thr | IoU | Dice | Over | Under | Coverage | Tmax C | TP10 | TP20 | DP95 | DP99 | Score\n', top_n);
 for top_i = 1:top_n
     row = top_records(top_i, :);
-    fprintf('  #%02d %.2f | %.2f | %.2f | %.2f | %.4f | %.4f | %.1f%% | %.1f%% | %.1f%% | %.1f\n', ...
+    fprintf('  #%02d %.2f | %.2f | %.2f | %.2f | %.4f | %.4f | %.1f%% | %.1f%% | %.1f%% | %.1f | %.2f | %.2f | %.2f | %.2f | %.4f\n', ...
         top_i, row(2), row(3), row(4), row(5), row(6), row(7), ...
-        row(8) * 100, row(9) * 100, row(10) * 100, row(11));
+        row(8) * 100, row(9) * 100, row(10) * 100, row(11), row(12), row(13), row(14), row(15), row(16));
 end
 
 target_median_pressure = best_record.p_target;
