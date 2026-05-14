@@ -242,27 +242,42 @@ if ~exist(import_path, 'file')
     error('没有找到 dl_phase_init.mat. 请确保已经算出初相');
 end
 phase_data = load(import_path);
-required_phase_fields = {'optimal_initial_phase', 'optimal_phase_bias', 'optimal_layer_map', ...
-    'target_dose_design', 'line_target_mask', 'halo_target_mask'};
+required_phase_fields = {'optimal_initial_phase', 'optimal_phase_bias', 'optimal_layer_map'};
 for field_idx = 1:numel(required_phase_fields)
     field_name = required_phase_fields{field_idx};
     if ~isfield(phase_data, field_name)
         error('Python相位输出缺少字段: %s', field_name);
     end
 end
-if ~isfield(phase_data, 'target_signature')
-    error('Python相位输出缺少target_signature. 请使用新版PANN_Holography.py重新运行。');
-end
-python_target_signature = char(string(phase_data.target_signature));
-if ~strcmp(strtrim(python_target_signature), strtrim(target_signature))
-    error('Python相位输出与当前MATLAB目标不匹配. 请重新运行PANN_Holography.py。');
-end
 optimal_initial_phase = phase_data.optimal_initial_phase;
 optimal_phase_bias = phase_data.optimal_phase_bias;
 optimal_layer_map = phase_data.optimal_layer_map;
-target_dose_design = phase_data.target_dose_design;
-line_target_mask = phase_data.line_target_mask;
-halo_target_mask = phase_data.halo_target_mask;
+if isfield(phase_data, 'target_signature')
+    python_target_signature = char(string(phase_data.target_signature));
+    if ~strcmp(strtrim(python_target_signature), strtrim(target_signature))
+        error('Python相位输出与当前MATLAB目标不匹配. 请重新运行PANN_Holography.py。');
+    end
+else
+    warning('Python相位输出缺少target_signature，当前使用MATLAB侧目标继续运行。');
+end
+if isfield(phase_data, 'target_dose_design')
+    target_dose_design = phase_data.target_dose_design;
+else
+    target_dose_design = max(imag_target_design, 0).^2;
+    warning('Python相位输出缺少target_dose_design，回退为当前MATLAB imag_target_design.^2。');
+end
+if isfield(phase_data, 'line_target_mask')
+    line_target_mask = phase_data.line_target_mask;
+else
+    line_target_mask = imag_target_design > 0.55;
+    warning('Python相位输出缺少line_target_mask，已根据当前MATLAB目标重建。');
+end
+if isfield(phase_data, 'halo_target_mask')
+    halo_target_mask = phase_data.halo_target_mask;
+else
+    halo_target_mask = imdilate(line_target_mask, strel('disk', 5)) & ~line_target_mask;
+    warning('Python相位输出缺少halo_target_mask，已根据当前MATLAB目标重建。');
+end
 %padding
 pad_factor = 2;
 Nx_pad = Nx * pad_factor;
