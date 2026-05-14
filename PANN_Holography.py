@@ -356,6 +356,9 @@ for epoch in range(epochs):
 
     with torch.no_grad():
         phase_margin = torch.mean(torch.abs(layer_continuous - torch.round(layer_continuous)))
+        candidate_phase_map = phase_map.detach().clone()
+        candidate_phase_bias = phase_bias.detach().clone()
+        candidate_learning_rate = float(optimizer.param_groups[0]["lr"])
         history.append(
             [
                 epoch + 1,
@@ -389,7 +392,7 @@ for epoch in range(epochs):
                 float(z_terms["mean_dark_p99_over_target_p50"].detach().cpu()),
                 float(z_terms["mean_dark_peak_over_target_p50"].detach().cpu()),
                 float(z_terms["mean_dark_high_area_fraction"].detach().cpu()),
-                float(optimizer.param_groups[0]["lr"]),
+                candidate_learning_rate,
             ]
         )
 
@@ -407,10 +410,10 @@ for epoch in range(epochs):
         best_quality_score = quality_score.item()
         best_epoch = epoch + 1
         best_state = {
-            "phase_map": phase_map.detach().clone(),
-            "phase_bias": phase_bias.detach().clone(),
+            "phase_map": candidate_phase_map,
+            "phase_bias": candidate_phase_bias,
             "epoch": epoch + 1,
-            "learning_rate": optimizer.param_groups[0]["lr"],
+            "learning_rate": candidate_learning_rate,
         }
         top_quality_records.append(
             {
