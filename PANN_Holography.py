@@ -640,9 +640,9 @@ best_metrics = {
     "layer_max": int(np.max(projected_layers[mask_np > 0.5])),
     "layer_std": float(np.std(projected_layers[mask_np > 0.5])),
     "board_constraint_mode": "in_loop_projection_round",
-    "board_projection_use_dither_in_loop": bool(board_projection_use_dither_in_loop),
-    "board_projection_offset_search_count": int(board_projection_offset_search_count),
-    "board_projection_offset_radius_steps": float(board_projection_offset_radius_steps),
+    "board_proj_use_dither": bool(board_projection_use_dither_in_loop),
+    "board_proj_offset_count": int(board_projection_offset_search_count),
+    "board_proj_offset_steps": float(board_projection_offset_radius_steps),
 }
 
 sio.savemat(
