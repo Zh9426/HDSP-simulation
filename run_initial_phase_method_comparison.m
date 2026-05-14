@@ -132,6 +132,7 @@ end
 function export_pann_transport_input(cfg, target)
 imag_target = target.amp;
 imag_target_design = target.amp;
+source_mask = target.source_mask;
 Nx = cfg.Nx;
 Ny = cfg.Ny;
 Lx = cfg.Lx;
@@ -161,7 +162,7 @@ python_lr_min_ratio = cfg.python_lr_min_ratio;
 if exist(cfg.python_output_mat, 'file')
     delete(cfg.python_output_mat);
 end
-save(cfg.python_input_mat, 'imag_target', 'imag_target_design', 'Nx', 'Ny', 'Lx', ...
+save(cfg.python_input_mat, 'imag_target', 'imag_target_design', 'source_mask', 'Nx', 'Ny', 'Lx', ...
     'lambda_water', 'z_target_dist', 'dx', 'dz', 'f0', 'c_water', ...
     'c_board', 'thermal_sigma_px', 'min_base_layers', ...
     'target_threshold_norm', 'low_quantile_goal', ...

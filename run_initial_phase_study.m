@@ -90,6 +90,7 @@ fprintf('==================================================\n');
 function export_pann_transport_input(cfg, target)
 imag_target = target.amp;
 imag_target_design = target.amp;
+source_mask = target.source_mask;
 Nx = cfg.Nx;
 Ny = cfg.Ny;
 Lx = cfg.Lx;
@@ -115,7 +116,7 @@ python_rng_seed = cfg.python_rng_seed;
 python_lr_restart_cycle = cfg.python_lr_restart_cycle;
 python_lr_restart_decay = cfg.python_lr_restart_decay;
 python_lr_min_ratio = cfg.python_lr_min_ratio;
-save(cfg.python_input_mat, 'imag_target', 'imag_target_design', 'Nx', 'Ny', 'Lx', ...
+save(cfg.python_input_mat, 'imag_target', 'imag_target_design', 'source_mask', 'Nx', 'Ny', 'Lx', ...
     'lambda_water', 'z_target_dist', 'dx', 'dz', 'f0', 'c_water', ...
     'c_board', 'thermal_sigma_px', 'min_base_layers', ...
     'target_threshold_norm', 'low_quantile_goal', ...

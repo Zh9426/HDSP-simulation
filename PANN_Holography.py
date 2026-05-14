@@ -207,13 +207,30 @@ kx = torch.arange(-Nx_pad / 2, Nx_pad / 2, device=device) * dk
 ky = torch.arange(-Ny_pad / 2, Ny_pad / 2, device=device) * dk
 Kx, Ky = torch.meshgrid(kx, ky, indexing="ij")
 Kz_sq = (2.0 * math.pi / lambda_water) ** 2 - Kx**2 - Ky**2
-Kz_sq = torch.clamp(Kz_sq, min=0.0)
-Kz = torch.sqrt(Kz_sq)
+propagating_mask = Kz_sq > 0
+Kz = torch.zeros_like(Kz_sq)
+Kz[propagating_mask] = torch.sqrt(Kz_sq[propagating_mask])
+kernel_dtype = torch.complex64 if Kz.dtype == torch.float32 else torch.complex128
+
+
+def make_forward_kernel(distance):
+    H = torch.zeros(Kz.shape, dtype=kernel_dtype, device=device)
+    phase = Kz[propagating_mask] * float(distance)
+    H[propagating_mask] = torch.cos(phase).to(kernel_dtype) + 1j * torch.sin(phase).to(kernel_dtype)
+    return H
+
+
 H_forward_by_offset = {
-    float(offset): torch.exp(1j * Kz * (z_target + float(offset)))
+    float(offset): make_forward_kernel(z_target + float(offset))
     for offset in z_constraint_offsets
 }
 H_forward = H_forward_by_offset[min(H_forward_by_offset.keys(), key=lambda offset: abs(offset))]
+asm_propagating_fraction = float(torch.mean(propagating_mask.float()).detach().cpu())
+asm_evanescent_fraction = 1.0 - asm_propagating_fraction
+print(
+    f"[INFO] ASM kernel: propagating {asm_propagating_fraction * 100:.2f}% | "
+    f"evanescent filtered {asm_evanescent_fraction * 100:.2f}%"
+)
 
 
 def propagate_asm(source_field, H_forward_now=H_forward):
@@ -232,7 +249,11 @@ max_layer_index = min_base_layers + int(math.ceil(TWO_PI / phase_step)) + 1
 x_vec = torch.linspace(-Lx / 2, Lx / 2, Nx, device=device)
 y_vec = torch.linspace(-Lx / 2, Lx / 2, Ny, device=device)
 Y_grid, X_grid = torch.meshgrid(y_vec, x_vec, indexing="ij")
-source_mask = ((X_grid**2 + Y_grid**2) <= (32e-3) ** 2).float()
+if "source_mask" in data:
+    source_mask_np = np.asarray(data["source_mask"], dtype=np.float32).squeeze()
+    source_mask = torch.tensor(source_mask_np, dtype=torch.float32, device=device)
+else:
+    source_mask = ((X_grid**2 + Y_grid**2) <= (32e-3) ** 2).float()
 target_mean_amp_goal = target_mean_amp_goal_ratio * math.sqrt(
     float(torch.sum(source_mask).detach().cpu()) / (float(torch.sum(target_binary).detach().cpu()) + 1e-8)
 )
@@ -486,6 +507,8 @@ best_metrics = {
     "early_stop_patience": int(early_stop_patience),
     "top_quality_records_json": json.dumps(top_quality_records),
     "device": str(device),
+    "asm_propagating_fraction": asm_propagating_fraction,
+    "asm_evanescent_fraction": asm_evanescent_fraction,
     "target_threshold_norm": float(target_threshold_norm),
     "low_quantile_goal": float(low_quantile_goal),
     "target_mean_amp_goal": float(target_mean_amp_goal),
