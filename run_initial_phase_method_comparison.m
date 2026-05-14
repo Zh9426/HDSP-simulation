@@ -4,6 +4,9 @@ cfg = initial_phase_config();
 cfg.iasa_epochs = 600;
 cfg.output_root_dir = fullfile(cfg.repo_root, 'initial_phase_method_outputs');
 cfg.output_dir = fullfile(cfg.output_root_dir, cfg.git_commit_short);
+if ~isfield(cfg, 'method_case_mode') || isempty(cfg.method_case_mode)
+    cfg.method_case_mode = 'python_only';
+end
 
 rng(cfg.rng_seed);
 if ~exist(cfg.output_dir, 'dir')
@@ -15,6 +18,7 @@ end
 
 fprintf('==================================================\n');
 fprintf('Initial phase method comparison: GS / WIASA / BIASA / Python hybrids\n');
+fprintf('Case mode: %s\n', cfg.method_case_mode);
 fprintf('IASA epochs: %d. No curing module. k-Wave evaluates pressure amplitude only.\n', cfg.iasa_epochs);
 fprintf('Grid: %d x %d | dx %.4f mm | target z %.2f mm\n', ...
     cfg.Nx, cfg.Ny, cfg.dx * 1e3, cfg.z_target_dist * 1e3);
@@ -24,9 +28,14 @@ fprintf('==================================================\n');
 target = build_a_phase_target(cfg);
 propagator = make_asm_propagator(cfg);
 
-export_pann_transport_input(cfg, target);
-wait_for_python_phase_output(cfg);
-python_phase_case = import_python_phase_case(cfg, target, propagator);
+requires_python = should_run_case(cfg, 'Python') || ...
+    should_run_case(cfg, 'Python + BIASA') || should_run_case(cfg, 'Python + WIASA');
+python_phase_case = [];
+if requires_python
+    export_pann_transport_input(cfg, target);
+    wait_for_python_phase_output(cfg);
+    python_phase_case = import_python_phase_case(cfg, target, propagator);
+end
 
 pure_seed = zeros(cfg.Nx, cfg.Ny);
 pure_seed(target.source_mask) = 2 * pi * rand(nnz(target.source_mask), 1);
@@ -37,20 +46,31 @@ iasa_options.use_dither = true;
 iasa_options.phase_bias_seed = 0;
 
 phase_cases = struct([]);
-phase_cases = append_case(phase_cases, standardize_phase_case( ...
-    run_continuous_iasa_phase_optimizer(pure_seed, target.amp, target.source_mask, propagator, cfg, 'GS', 'gs')));
-phase_cases = append_case(phase_cases, standardize_phase_case( ...
-    run_continuous_iasa_phase_optimizer(pure_seed, target.amp, target.source_mask, propagator, cfg, 'WIASA', 'wiasa')));
-phase_cases = append_case(phase_cases, standardize_phase_case( ...
-    run_board_constrained_iasa_phase_optimizer(pure_seed, target.amp, target.source_mask, propagator, cfg, 'BIASA', iasa_options)));
-phase_cases = append_case(phase_cases, standardize_phase_case(python_phase_case));
-
-python_biasa_options = iasa_options;
-python_biasa_options.phase_bias_seed = read_python_phase_bias(python_phase_case);
-phase_cases = append_case(phase_cases, standardize_phase_case( ...
-    run_board_constrained_iasa_phase_optimizer(python_phase_case.phase, target.amp, target.source_mask, propagator, cfg, 'Python + BIASA', python_biasa_options)));
-phase_cases = append_case(phase_cases, standardize_phase_case( ...
-    run_continuous_iasa_phase_optimizer(python_phase_case.phase, target.amp, target.source_mask, propagator, cfg, 'Python + WIASA', 'wiasa')));
+if should_run_case(cfg, 'GS')
+    phase_cases = append_case(phase_cases, standardize_phase_case( ...
+        run_continuous_iasa_phase_optimizer(pure_seed, target.amp, target.source_mask, propagator, cfg, 'GS', 'gs')));
+end
+if should_run_case(cfg, 'WIASA')
+    phase_cases = append_case(phase_cases, standardize_phase_case( ...
+        run_continuous_iasa_phase_optimizer(pure_seed, target.amp, target.source_mask, propagator, cfg, 'WIASA', 'wiasa')));
+end
+if should_run_case(cfg, 'BIASA')
+    phase_cases = append_case(phase_cases, standardize_phase_case( ...
+        run_board_constrained_iasa_phase_optimizer(pure_seed, target.amp, target.source_mask, propagator, cfg, 'BIASA', iasa_options)));
+end
+if should_run_case(cfg, 'Python')
+    phase_cases = append_case(phase_cases, standardize_phase_case(python_phase_case));
+end
+if should_run_case(cfg, 'Python + BIASA')
+    python_biasa_options = iasa_options;
+    python_biasa_options.phase_bias_seed = read_python_phase_bias(python_phase_case);
+    phase_cases = append_case(phase_cases, standardize_phase_case( ...
+        run_board_constrained_iasa_phase_optimizer(python_phase_case.phase, target.amp, target.source_mask, propagator, cfg, 'Python + BIASA', python_biasa_options)));
+end
+if should_run_case(cfg, 'Python + WIASA')
+    phase_cases = append_case(phase_cases, standardize_phase_case( ...
+        run_continuous_iasa_phase_optimizer(python_phase_case.phase, target.amp, target.source_mask, propagator, cfg, 'Python + WIASA', 'wiasa')));
+end
 
 for idx = 1:numel(phase_cases)
     phase_cases(idx).asm_metrics = calculate_pressure_metrics( ...
@@ -88,6 +108,26 @@ for idx = 1:numel(summary_report.ranking)
 end
 fprintf('Outputs written under ignored directory: %s\n', cfg.output_dir);
 fprintf('==================================================\n');
+
+function run_it = should_run_case(cfg, label)
+mode = lower(strtrim(cfg.method_case_mode));
+switch mode
+    case 'all'
+        run_it = true;
+    case 'python_only'
+        run_it = strcmp(label, 'Python');
+    case 'python_hybrids'
+        run_it = any(strcmp(label, {'Python', 'Python + BIASA', 'Python + WIASA'}));
+    case 'iterative_only'
+        run_it = any(strcmp(label, {'GS', 'WIASA', 'BIASA'}));
+    case 'wiasa_only'
+        run_it = strcmp(label, 'WIASA');
+    case 'biasa_only'
+        run_it = strcmp(label, 'BIASA');
+    otherwise
+        error('Unknown cfg.method_case_mode: %s', cfg.method_case_mode);
+end
+end
 
 function export_pann_transport_input(cfg, target)
 imag_target = target.amp;
@@ -166,12 +206,18 @@ result.history = [];
 result.layer_map = read_optional_field(data, 'optimal_layer_map', []);
 result.phase_step = read_optional_scalar(data, 'phase_step', NaN);
 result.phase_bias = read_optional_scalar(data, 'optimal_phase_bias', 0);
+python_metrics = read_optional_field(data, 'python_metrics', struct());
+selected_epoch = read_nested_scalar(python_metrics, 'selected_epoch', NaN);
+best_quality_score = read_nested_scalar(python_metrics, 'best_quality_score', NaN);
 result.optimizer_metrics = struct( ...
     'optimizer_mode', 'python', ...
     'board_projection', true, ...
     'python_history_rows', read_python_history_rows(data), ...
+    'selected_epoch', selected_epoch, ...
+    'best_loop_quality_score', best_quality_score, ...
     'phase_bias', result.phase_bias, ...
-    'phase_step', result.phase_step);
+    'phase_step', result.phase_step, ...
+    'python_metrics', python_metrics);
 end
 
 function phase_bias = read_python_phase_bias(python_case)
@@ -200,6 +246,14 @@ end
 function value = read_optional_field(data, field_name, default_value)
 if isfield(data, field_name) && ~isempty(data.(field_name))
     value = data.(field_name);
+else
+    value = default_value;
+end
+end
+
+function value = read_nested_scalar(data, field_name, default_value)
+if isstruct(data) && isfield(data, field_name) && ~isempty(data.(field_name))
+    value = double(data.(field_name)(1));
 else
     value = default_value;
 end

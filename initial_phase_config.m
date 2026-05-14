@@ -37,6 +37,7 @@ cfg.python_z_constraint_offsets_m = 0;
 cfg.min_base_layers = 2;
 
 cfg.phase_case_mode = 'pure_board_iasa';
+cfg.method_case_mode = 'python_only'; % all | python_only | python_hybrids | iterative_only
 cfg.iasa_epochs = 450;
 cfg.iasa_beta = 0.70;
 cfg.iasa_dark_weight = 0.0;
