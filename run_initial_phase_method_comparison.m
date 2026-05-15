@@ -160,7 +160,11 @@ python_lr_restart_decay = cfg.python_lr_restart_decay;
 python_lr_min_ratio = cfg.python_lr_min_ratio;
 
 if exist(cfg.python_output_mat, 'file')
-    delete(cfg.python_output_mat);
+    if isfield(cfg, 'preserve_existing_python_output') && cfg.preserve_existing_python_output
+        fprintf('[INFO] Preserving existing Python output:\n%s\n', cfg.python_output_mat);
+    else
+        delete(cfg.python_output_mat);
+    end
 end
 save(cfg.python_input_mat, 'imag_target', 'imag_target_design', 'source_mask', 'Nx', 'Ny', 'Lx', ...
     'lambda_water', 'z_target_dist', 'dx', 'dz', 'f0', 'c_water', ...
@@ -176,6 +180,9 @@ function wait_for_python_phase_output(cfg)
 command = sprintf('"%s" "%s"', cfg.python_executable, cfg.python_script);
 fprintf('\n==================================================\n');
 fprintf('Python optimizer input written to:\n%s\n\n', cfg.python_input_mat);
+if exist(cfg.python_output_mat, 'file')
+    fprintf('[INFO] Existing Python output is present and will be reused unless you overwrite it manually.\n');
+end
 fprintf('Run this command manually in PowerShell, then return to MATLAB and press any key:\n%s\n', command);
 fprintf('Expected Python output:\n%s\n', cfg.python_output_mat);
 fprintf('==================================================\n\n');

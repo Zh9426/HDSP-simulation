@@ -65,6 +65,7 @@ cfg.output_dir = fullfile(cfg.output_root_dir, cfg.git_commit_short);
 cfg.transport_dir = 'C:\Users\Zh89\Desktop\transport';
 cfg.python_input_mat = fullfile(cfg.transport_dir, 'target_for_python.mat');
 cfg.python_output_mat = fullfile(cfg.transport_dir, 'dl_phase_init.mat');
+cfg.preserve_existing_python_output = true;
 cfg.python_script = fullfile(cfg.repo_root, 'PANN_Holography.py');
 end
 
