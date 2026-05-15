@@ -1,3 +1,4 @@
+import json
 import math
 import os
 
@@ -24,8 +25,7 @@ def gaussian_blur2d(image_2d, sigma_px):
     kernel_4d = kernel_2d.unsqueeze(0).unsqueeze(0)
 
     image_4d = image_2d.unsqueeze(0).unsqueeze(0)
-    padding = radius
-    blurred = F.conv2d(image_4d, kernel_4d, padding=padding)
+    blurred = F.conv2d(image_4d, kernel_4d, padding=radius)
     return blurred.squeeze(0).squeeze(0)
 
 
@@ -79,18 +79,80 @@ def error_diffusion_quantize_layers(layer_continuous, mask, min_base_layers, max
     return layer_map
 
 
-# 0. physical config
+def matlab_string(value):
+    arr = np.asarray(value)
+    if arr.dtype.kind in {"U", "S"}:
+        return "".join(arr.reshape(-1).astype(str)).strip()
+    return str(arr.squeeze())
+
+
+def find_git_root(start_path):
+    current_path = os.path.abspath(start_path)
+    while True:
+        if os.path.exists(os.path.join(current_path, ".git")):
+            return current_path
+        parent_path = os.path.dirname(current_path)
+        if parent_path == current_path:
+            return start_path
+        current_path = parent_path
+
+
+def current_git_commit_short(repo_path):
+    git_root = find_git_root(repo_path)
+    head_path = os.path.join(git_root, ".git", "HEAD")
+    try:
+        with open(head_path, "r", encoding="utf-8") as f:
+            head = f.read().strip()
+        if head.startswith("ref:"):
+            ref_path = os.path.join(git_root, ".git", head.split(" ", 1)[1])
+            with open(ref_path, "r", encoding="utf-8") as f:
+                return f.read().strip()[:7]
+        return head[:7]
+    except OSError:
+        return "nogit"
+
+
 transport_dir = r"C:\Users\Zh89\Desktop\transport"
 input_file = os.path.join(transport_dir, "target_for_python.mat")
 output_file = os.path.join(transport_dir, "dl_phase_init.mat")
+repo_dir = os.path.dirname(os.path.abspath(__file__))
+git_commit_short = current_git_commit_short(repo_dir)
+work_dir = os.path.dirname(repo_dir)
+branch_output_dir = os.path.join(work_dir, "outputs", git_commit_short)
+os.makedirs(branch_output_dir, exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("\n[INFO] PANN-Thermal-Holo start: quantization-aware + dose-aware + jittered init")
+print("\n[INFO] PANN-Thermal-Holo start: HDSP0507 python_only core")
 
 if not os.path.exists(input_file):
     raise FileNotFoundError(f"Cannot find transport input: {input_file}")
 
 data = sio.loadmat(input_file)
+if "branch_output_dir" in data:
+    transport_output_dir = matlab_string(data["branch_output_dir"])
+    if os.path.basename(os.path.normpath(transport_output_dir)) == git_commit_short:
+        branch_output_dir = transport_output_dir
+        os.makedirs(branch_output_dir, exist_ok=True)
+    else:
+        raise RuntimeError(
+            f"Stale transport branch_output_dir: {transport_output_dir}. "
+            f"Expected output directory for commit {git_commit_short}. "
+            "Run the 01 MATLAB main workflow again before running Python."
+        )
+else:
+    raise RuntimeError(
+        "target_for_python.mat is missing branch_output_dir. "
+        "Run codex_managed_reports/01_mainline_full_pipeline/src_stable/HDSPdebug.m "
+        "until the Python pause, then run this Python script again."
+    )
+
+if "target_signature" not in data:
+    raise RuntimeError(
+        "target_for_python.mat is missing target_signature. "
+        "Regenerate it from the current MATLAB main workflow before training."
+    )
+
+target_signature = matlab_string(data["target_signature"])
 design_key = "imag_target_design" if "imag_target_design" in data else "imag_target"
 target_amp = torch.tensor(data[design_key], dtype=torch.float32, device=device)
 target_amp_raw = torch.tensor(data["imag_target"], dtype=torch.float32, device=device)
@@ -103,10 +165,10 @@ dz = float(data["dz"].item())
 f0 = float(data["f0"].item())
 c_water = float(data["c_water"].item())
 c_board = float(data["c_board"].item())
+aperture_radius = float(data["aperture_radius"].item()) if "aperture_radius" in data else 32e-3
 thermal_sigma_px = float(data["thermal_sigma_px"].item()) if "thermal_sigma_px" in data else 1.0
 min_base_layers = int(data["min_base_layers"].item()) if "min_base_layers" in data else 2
 
-# 1. target shaping
 resolution_limit_mm = 0.61 * lambda_water * 1000.0
 sigma_mm = resolution_limit_mm * 0.35
 sigma_px = sigma_mm / (Lx / Nx * 1000.0)
@@ -130,7 +192,6 @@ target_dose = torch.tensor(target_dose_np, dtype=torch.float32, device=device)
 target_dose = normalize_map(torch.maximum(target_dose, 0.35 * target_smooth))
 target_raw_norm = normalize_map(target_amp_raw)
 
-# 2. ASM operator
 pad_factor = 2
 Nx_pad, Ny_pad = Nx * pad_factor, Ny * pad_factor
 dk = 2.0 * math.pi / (Lx * pad_factor)
@@ -150,7 +211,6 @@ def propagate_asm(source_field):
     return propagated[pad_len_x:-pad_len_x, pad_len_y:-pad_len_y]
 
 
-# 3. quantization-aware optimization
 k_diff = abs(2.0 * math.pi * f0 / c_water - 2.0 * math.pi * f0 / c_board)
 phase_step = k_diff * dz
 max_layer_index = min_base_layers + int(math.ceil(TWO_PI / phase_step)) + 1
@@ -158,12 +218,15 @@ max_layer_index = min_base_layers + int(math.ceil(TWO_PI / phase_step)) + 1
 x_vec = torch.linspace(-Lx / 2, Lx / 2, Nx, device=device)
 y_vec = torch.linspace(-Lx / 2, Lx / 2, Ny, device=device)
 Y_grid, X_grid = torch.meshgrid(y_vec, x_vec, indexing="ij")
-source_mask = ((X_grid**2 + Y_grid**2) <= (32e-3) ** 2).float()
+source_mask = ((X_grid**2 + Y_grid**2) <= aperture_radius**2).float()
 
 dark_weight = 1.0 + 8.0 * halo_mask + 12.0 * far_dark_mask
 edge_weight = 1.0 + 2.5 * torch.abs(target_smooth - gaussian_blur2d(target_smooth, 1.0))
 weight_map = dark_weight * edge_weight
 
+torch.manual_seed(9426)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(9426)
 initial_phase = (torch.rand(Nx, Ny, device=device) * TWO_PI) - math.pi
 phase_map = torch.nn.Parameter(initial_phase)
 phase_bias = torch.nn.Parameter(torch.zeros(1, device=device))
@@ -174,6 +237,7 @@ epochs = 5000
 
 best_loss = float("inf")
 best_state = None
+history = []
 
 for epoch in range(epochs):
     optimizer.zero_grad()
@@ -220,12 +284,28 @@ for epoch in range(epochs):
 
     with torch.no_grad():
         phase_bias[:] = torch.remainder(phase_bias, TWO_PI)
+        history.append(
+            [
+                epoch + 1,
+                float(total_loss.detach().cpu()),
+                float((1.0 - loss_dose_corr).detach().cpu()),
+                float(current_ee.detach().cpu()),
+                float(loss_uniformity.detach().cpu()),
+                float(loss_halo.detach().cpu()),
+                float(loss_dark.detach().cpu()),
+                float(raw_mismatch.detach().cpu()),
+                float(loss_layer_margin.detach().cpu()),
+                float(optimizer.param_groups[0]["lr"]),
+            ]
+        )
 
     if total_loss.item() < best_loss:
         best_loss = total_loss.item()
         best_state = {
             "phase_map": phase_map.detach().clone(),
             "phase_bias": phase_bias.detach().clone(),
+            "epoch": epoch + 1,
+            "learning_rate": optimizer.param_groups[0]["lr"],
         }
 
     if (epoch + 1) % 100 == 0:
@@ -235,7 +315,6 @@ for epoch in range(epochs):
             f"| Dark: {loss_dark.item():.4f} | Loss: {total_loss.item():.4f}"
         )
 
-# 4. export dithered result
 phase_map_final = best_state["phase_map"]
 phase_bias_final = best_state["phase_bias"]
 wrapped_phase = torch.remainder(phase_map_final + phase_bias_final, TWO_PI)
@@ -245,6 +324,40 @@ mask_np = source_mask.detach().cpu().numpy()
 dithered_layers = error_diffusion_quantize_layers(layer_continuous, mask_np, min_base_layers, max_layer_index)
 dithered_phase = np.mod(dithered_layers * phase_step, TWO_PI).astype(np.float32)
 dithered_phase *= mask_np.astype(np.float32)
+
+best_source_field = torch.exp(1j * torch.tensor(dithered_phase, dtype=torch.float32, device=device)) * source_mask
+best_target_field = propagate_asm(best_source_field)
+best_amp = torch.abs(best_target_field)
+best_amp_norm = normalize_map(best_amp)
+best_energy = normalize_map(best_amp**2)
+best_dose = normalize_map(gaussian_blur2d(best_energy, thermal_sigma_px))
+
+inside_vals = best_dose[target_binary > 0.5]
+halo_vals = best_dose[halo_mask > 0.5]
+dark_vals = best_dose[far_dark_mask > 0.5]
+best_metrics = {
+    "best_loss": float(best_loss),
+    "selected_epoch": int(best_state["epoch"]),
+    "configured_epochs": int(epochs),
+    "selected_learning_rate": float(best_state["learning_rate"]),
+    "rng_seed": 9426,
+    "target_signature": target_signature,
+    "device": str(device),
+    "aperture_radius_m": float(aperture_radius),
+    "amplitude_corr": float(1.0 - pearson_correlation_loss(best_amp_norm, target_raw_norm).detach().cpu()),
+    "dose_corr": float(1.0 - pearson_correlation_loss(best_dose, target_dose).detach().cpu()),
+    "energy_efficiency": float((torch.sum(best_energy * target_binary) / (torch.sum(best_energy) + 1e-8)).detach().cpu()),
+    "target_uniformity_var": float(torch.var(inside_vals).detach().cpu()) if inside_vals.numel() > 4 else 0.0,
+    "halo_energy_mean": float(torch.mean(halo_vals**2).detach().cpu()) if halo_vals.numel() > 4 else 0.0,
+    "dark_energy_mean": float(torch.mean(dark_vals**2).detach().cpu()) if dark_vals.numel() > 4 else 0.0,
+    "phase_bias_rad": float(phase_bias_final.item()),
+    "phase_step_rad": float(phase_step),
+    "layer_min": int(np.min(dithered_layers[mask_np > 0.5])),
+    "layer_max": int(np.max(dithered_layers[mask_np > 0.5])),
+    "layer_std": float(np.std(dithered_layers[mask_np > 0.5])),
+}
+
+history_np = np.array(history, dtype=np.float32)
 
 sio.savemat(
     output_file,
@@ -256,7 +369,68 @@ sio.savemat(
         "target_dose_design": target_dose.detach().cpu().numpy().astype(np.float32),
         "line_target_mask": target_binary.detach().cpu().numpy().astype(np.float32),
         "halo_target_mask": halo_mask.detach().cpu().numpy().astype(np.float32),
+        "target_signature": target_signature,
+        "python_loss_history": history_np,
+        "python_metrics": best_metrics,
+        "python_asm_amp_norm": best_amp_norm.detach().cpu().numpy().astype(np.float32),
+        "aperture_radius": np.array([[aperture_radius]], dtype=np.float32),
     },
 )
 
+sio.savemat(
+    os.path.join(branch_output_dir, "pann_phase_output_snapshot.mat"),
+    {
+        "optimal_initial_phase": dithered_phase,
+        "optimal_phase_bias": np.array([[phase_bias_final.item()]], dtype=np.float32),
+        "optimal_layer_map": dithered_layers.astype(np.float32),
+        "python_loss_history": history_np,
+        "python_metrics": best_metrics,
+        "python_asm_amp_norm": best_amp_norm.detach().cpu().numpy().astype(np.float32),
+        "target_dose_design": target_dose.detach().cpu().numpy().astype(np.float32),
+        "target_signature": target_signature,
+        "aperture_radius": np.array([[aperture_radius]], dtype=np.float32),
+    },
+)
+
+np.savetxt(
+    os.path.join(branch_output_dir, "pann_training_history.csv"),
+    history_np,
+    delimiter=",",
+    header="epoch,total_loss,dose_corr,energy_efficiency,uniformity_var,halo_loss,dark_loss,raw_mismatch,layer_margin,learning_rate",
+    comments="",
+)
+
+with open(os.path.join(branch_output_dir, "pann_training_summary.json"), "w", encoding="utf-8") as f:
+    json.dump(best_metrics, f, indent=2)
+
+try:
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(2, 2, figsize=(11, 8), constrained_layout=True)
+    axes[0, 0].plot(history_np[:, 0], history_np[:, 1])
+    axes[0, 0].set_title("Total loss")
+    axes[0, 0].set_xlabel("Epoch")
+    axes[0, 0].grid(True, alpha=0.3)
+    axes[0, 1].plot(history_np[:, 0], history_np[:, 2], label="Dose corr")
+    axes[0, 1].plot(history_np[:, 0], history_np[:, 3], label="EE")
+    axes[0, 1].set_title("Dose / efficiency")
+    axes[0, 1].set_xlabel("Epoch")
+    axes[0, 1].legend()
+    axes[0, 1].grid(True, alpha=0.3)
+    axes[1, 0].plot(history_np[:, 0], history_np[:, 4], label="Uniformity var")
+    axes[1, 0].plot(history_np[:, 0], history_np[:, 5], label="Halo")
+    axes[1, 0].plot(history_np[:, 0], history_np[:, 6], label="Dark")
+    axes[1, 0].set_title("Background penalties")
+    axes[1, 0].set_xlabel("Epoch")
+    axes[1, 0].legend()
+    axes[1, 0].grid(True, alpha=0.3)
+    axes[1, 1].imshow(best_amp_norm.detach().cpu().numpy(), cmap="hot")
+    axes[1, 1].set_title("Best ASM amplitude")
+    axes[1, 1].axis("off")
+    fig.savefig(os.path.join(branch_output_dir, "pann_training_metrics.png"), dpi=220)
+    plt.close(fig)
+except Exception as plot_error:
+    print(f"[WARN] Could not write PANN metric figure: {plot_error}")
+
 print(f"\n[OK] Phase initialization written to: {output_file}")
+print(f"[OK] Branch metrics written to: {branch_output_dir}")
