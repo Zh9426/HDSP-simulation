@@ -1,0 +1,30 @@
+function ctx = params_base_4p5mhz_pdms_water(ctx)
+params = struct();
+params.name = 'base_4p5mhz_pdms_water';
+params.Nx = 128;
+params.Ny = 128;
+params.Lx = 40e-3;
+params.Ly = 40e-3;
+params.dx = params.Lx / params.Nx;
+params.dy = params.Ly / params.Ny;
+params.f0 = 4.5e6;
+params.c_water = 1500;
+params.c_board = 2500;
+params.c_pdms = 1030;
+params.rho_water = 1000;
+params.lambda_water = params.c_water / params.f0;
+params.z_target_dist = 16e-3;
+params.aperture_radius = 15e-3;
+params.phase_step = 2 * pi / 16;
+params.max_board_layers = 16;
+params.min_base_layers = 1;
+params.layer_thickness = params.lambda_water / 16;
+params.target_pressure_pa = 2.0e6;
+params.exposure_time_s = 0.24;
+params.cavitation_onset_pa = 1.45e6;
+params.cavitation_saturation_pa = 2.4e6;
+params.arrhenius_threshold = 1.0;
+params.runtime_output_root = fullfile(tempdir, 'hdsp_modular_runtime');
+ctx.params = params;
+end
+
