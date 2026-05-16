@@ -1,15 +1,37 @@
 # HDSP 历史节点重跑清单
 
-本清单用于固定 8 个核心重跑节点的代码来源、主入口、建议复制文件和建议导出物。
+本清单不再把“历史节点提交”视为“可直接运行的自包含快照”。
+
+从本版开始，每个节点拆成两层：
+
+- `milestone_commit`
+  - 用于论文、答辩和项目演化叙事的历史锚点
+- `runtime_bundle`
+  - 用于实际重跑的兼容运行组合
+  - 可以是单提交、同阶段多文件组合，或带手动 MATLAB -> Python 中转的运行集合
+
+另见 [runtime_compatibility_audit.md](./runtime_compatibility_audit.md)。
+
+## 兼容性状态标签
+
+- `self_contained`
+  - 历史节点接近自包含，可优先尝试直接重跑
+- `branch_bundle`
+  - 需要同阶段的一组 MATLAB 依赖文件，不应只恢复单文件
+- `external_pann`
+  - 依赖共享 `PANN_Holography.py` 和 `target_for_python.mat -> dl_phase_init.mat` 中转契约
+- `needs_audit`
+  - 当前 `src/` 仅为占位快照，不能视为最终可运行组合
 
 ## 1. `cc3dced2` 相位反演起点
 
 - 目录：`01_hologram_phase_recovery__IASA_0221_cc3dced2`
+- `milestone_commit`：`cc3dced24c06b0ad394da86e7ed49562126ed7da`
 - 主题：IASA 0221 版本，相位反演早期基线
-- 历史提交：`cc3dced24c06b0ad394da86e7ed49562126ed7da`
-- 主入口：`HDSP_debug0209.m`
-- 建议复制到 `src/`：
-  - `HDSP_debug0209.m`
+- 当前状态：`self_contained`
+- 当前主入口：`HDSP_debug0209.m`
+- 当前 `src/` 用途：
+  - 可作为首轮直接重跑候选
 - 建议导出图表：
   - 目标图案与重建振幅对比
   - 全息相位图
@@ -20,17 +42,18 @@
   - 最佳焦面位置
   - 早期聚焦/对比度指标
 - 重跑理由：
-  - 它是任务书中“迭代相位恢复算法”的最早可复核起点
-  - 后续所有相位优化结果都需要一个原始基线
+  - 对应任务书中的迭代相位恢复起点
+  - 为后续相位优化提供原始基线
 
 ## 2. `a4a3cd8e` 相位板结构映射
 
 - 目录：`02_phase_board_mapping__thickness_built_a4a3cd8e`
+- `milestone_commit`：`a4a3cd8e69cb2bc139baf2601c5f2722f7b74f4c`
 - 主题：`thickness_built` 相位板厚度构建
-- 历史提交：`a4a3cd8e69cb2bc139baf2601c5f2722f7b74f4c`
-- 主入口：`thickness_built.m`
-- 建议复制到 `src/`：
-  - `thickness_built.m`
+- 当前状态：`self_contained`
+- 当前主入口：`thickness_built.m`
+- 当前 `src/` 用途：
+  - 可作为首轮直接重跑候选
 - 建议导出图表：
   - wrapped 相位图
   - 实际构建相位图
@@ -42,23 +65,27 @@
   - 厚度范围
   - 若能稳定得到，则补充实体透镜出口相位误差
 - 重跑理由：
-  - 对应任务书“相位板微观结构参数映射”
+  - 对应任务书中的相位板微观结构映射
   - 是从理想相位走向可制造结构的关键节点
 
 ## 3. `dc6d9f95` 早期热固化闭环
 
 - 目录：`03_thermal_closure__temp_curing_dc6d9f95`
+- `milestone_commit`：`dc6d9f95a8f88942347e9fd94ba5359ac6e03217`
 - 主题：引入温度固化的早期闭环
-- 历史提交：`dc6d9f95a8f88942347e9fd94ba5359ac6e03217`
-- 主入口：`tempdebug.m`
-- 建议复制到 `src/`：
-  - `tempdebug.m`
-  - 视情况补 `HDSPdebug.m` 仅作对照，不作为首选入口
+- 当前状态：`branch_bundle`
+- 当前主入口：`tempdebug.m`
+- 当前 `src/` 用途：
+  - 仅代表当前已识别到的首选入口
+  - 不保证单文件即可运行
+- 运行组合策略：
+  - 优先以 `tempdebug.m` 为主
+  - 视缺失函数或变量，再补同阶段 `HDSPdebug.m` 或同目录依赖
 - 建议导出图表：
   - 目标图案与最佳焦面声压图
   - Z-scan 曲线
   - 温度场图
-  - 基于阈值的固化/空化覆盖图
+  - 基于阈值的固化或空化覆盖图
 - 建议导出 summary：
   - 最佳焦面位置
   - Correlation
@@ -69,19 +96,21 @@
   - 极值温度
 - 重跑理由：
   - 这是最早把声场结果和材料驱动效果接起来的闭环节点
-  - 可直接对应任务书中的“仿真结果分析与性能评估”
 
 ## 4. `2a953a3b` Arrhenius 热剂量节点
 
 - 目录：`04_arrhenius_thermal_dose__2a953a3b`
+- `milestone_commit`：`2a953a3b2c7af09f6e28fc91c63f1519cc7f7fa4`
 - 主题：Arrhenius 动力学引擎与动态声热耦合
-- 历史提交：`2a953a3b2c7af09f6e28fc91c63f1519cc7f7fa4`
-- 主入口：`tempdebug.m`
-- 建议复制到 `src/`：
-  - `tempdebug.m`
-  - `HDSPdebug.m`
-  - `IASAdebug.m`
-  - `PANN_Holography.py`
+- 当前状态：`branch_bundle`
+- 当前主入口：`tempdebug.m`
+- 当前 `src/` 用途：
+  - 代表当前已识别到的同阶段文件集合
+  - 不代表已经过完整兼容性核对
+- 运行组合策略：
+  - 以 `tempdebug.m` 为首选运行入口
+  - `HDSPdebug.m`、`IASAdebug.m`、`PANN_Holography.py` 仅表示该阶段已出现相关模块
+  - 需要逐项核对是否真实构成该节点的可运行组合
 - 建议导出图表：
   - 最佳焦面声压图
   - Z-scan 曲线
@@ -96,21 +125,25 @@
   - 峰值温度
   - IoU 或对应固化形貌指标
 - 重跑理由：
-  - 这是“温度阈值后处理”升级为“动力学固化评估”的关键节点
-  - 对任务书里的多物理场建模最有代表性
+  - 这是从温度阈值后处理升级为动力学固化评估的关键节点
 
 ## 5. `79d204af` Python/PANN 相位优化转折
 
 - 目录：`05_python_pann_phase_optimization__79d204af`
+- `milestone_commit`：`79d204afb3ab19a5ae773a8f2d67e0f8aafef965`
 - 主题：PANN 主导 IASA
-- 历史提交：`79d204afb3ab19a5ae773a8f2d67e0f8aafef965`
-- 主入口：`HDSPdebug.m`
-- 建议复制到 `src/`：
-  - `HDSPdebug.m`
-  - `tempdebug.m`
-- 说明：
-  - 若按原历史流程重跑，需要人为补入 `target_for_python.mat` / `dl_phase_init.mat` 中转
-  - 后续可在该目录下补一个本地包装说明，固定 MATLAB -> Python -> MATLAB 的手动流程
+- 当前状态：`external_pann` + `needs_audit`
+- 当前主入口：`HDSPdebug.m`
+- 关键事实：
+  - 该提交的 tree 中没有 `PANN_Holography.py`
+  - `HDSPdebug.m` 明确依赖 `C:\Users\Zh89\Desktop\transport`
+  - 运行契约是 `target_for_python.mat -> dl_phase_init.mat`
+- 当前 `src/` 用途：
+  - 只能作为历史节点说明
+  - 不能视为可直接运行环境
+- 运行组合策略：
+  - 必须单独确定与该节点兼容的 `PANN_Holography.py` 版本
+  - 必须保留 MATLAB 暂停、手动运行 Python、再回 MATLAB 的中转流程
 - 建议导出图表：
   - Python 初相引导前后对比图
   - 最佳焦面声压图
@@ -123,25 +156,21 @@
   - 热交联覆盖率
   - IoU
 - 重跑理由：
-  - 这是相位求解方法从传统 IASA 向 Python/PANN 引导优化的关键转折
-  - 对任务书中的“设计与优化”部分很重要
+  - 这是相位求解从传统 IASA 转向 Python/PANN 引导优化的关键转折
 
 ## 6. `7ef8144b` 出口复场诊断
 
 - 目录：`06_exit_field_diagnostics__7ef8144b`
+- `milestone_commit`：`7ef8144be47c2604157143d5ca97d9af611c21fc`
 - 主题：出口平面复场分析
-- 历史提交：`7ef8144be47c2604157143d5ca97d9af611c21fc`
-- 主入口：`HDSPdebug.m`
-- 建议复制到 `src/`：
-  - `HDSPdebug.m`
-  - `PANN_Holography.py`
-  - `compute_asm_focus_field.m`
-  - `error_diffuse_quantize_layers.m`
-  - `project_phase_to_board.m`
-- 可忽略：
-  - `2.fig`
-  - `__pycache__/...`
-  - 资料 PDF / Word
+- 当前状态：`external_pann` + `branch_bundle`
+- 当前主入口：`HDSPdebug.m`
+- 当前 `src/` 用途：
+  - 代表该阶段已知的核心 MATLAB 依赖
+  - `PANN_Holography.py` 仍需确认是否与该 MATLAB 入口严格匹配
+- 运行组合策略：
+  - 除 MATLAB 文件外，还要核对共享 PANN 脚本版本
+  - 不能把“同提交带了 PANN”直接等同于“与该节点入口兼容”
 - 建议导出图表：
   - 出口平面振幅图
   - 出口平面相位图
@@ -159,31 +188,25 @@
   - Exit-field ASM vs k-Wave PCC
   - IoU / Dice / over-cure / under-cure / coverage
 - 重跑理由：
-  - 它解释了“理想相位”和“真实厚板输出”之间的失配来源
-  - 可直接支撑任务书中的传播规律分析和关键因素识别
+  - 它解释了理想相位与真实厚板输出之间的失配来源
 
 ## 7. `35df2a62` 空化剂量主导固化
 
 - 目录：`07_cavitation_dose_curing__35df2a62`
+- `milestone_commit`：`35df2a62c7f26e3b78232c6ed4dcc02ca5565f96`
 - 主题：空化云一致性剂量
-- 历史提交：`35df2a62c7f26e3b78232c6ed4dcc02ca5565f96`
-- 主入口：`HDSPdebug.m`
-- 建议复制到 `src/`：
-  - `HDSPdebug.m`
-  - `PANN_Holography.py`
-  - `build_exit_plane_analysis_defaults.m`
-  - `compute_asm_focus_field.m`
-  - `compute_cavitation_activity_map.m`
-  - `compute_cavitation_cure_score.m`
-  - `compute_cavitation_dose_rate.m`
-  - `compute_cure_feedback_terms.m`
-  - `compute_thermal_aux_increment.m`
-  - `error_diffuse_quantize_layers.m`
-  - `project_phase_to_board.m`
-  - `select_cure_threshold.m`
-- 测试参考：
-  - `tests/test_compute_cavitation_dose_rate.m`
-  - `tests/test_compute_thermal_aux_increment.m`
+- 当前状态：`external_pann` + `branch_bundle`
+- 当前主入口：`HDSPdebug.m`
+- 当前 `src/` 用途：
+  - 表示空化固化阶段的关键 MATLAB 依赖已经初步归拢
+  - 但仍保留共享 PANN 中转依赖
+- 已确认特征：
+  - `HDSPdebug.m` 明确写入 `target_for_python.mat`
+  - 再读取 `dl_phase_init.mat`
+  - 说明仍遵守共享 PANN 中转契约
+- 运行组合策略：
+  - MATLAB 主入口可先按当前 bundle 审核
+  - PANN 版本仍需单独做兼容性确认
 - 建议导出图表：
   - 出口场与焦面图
   - 空化活性图
@@ -203,40 +226,29 @@
   - 过驱动惩罚 ROI mean
   - Top-10 scan records
 - 重跑理由：
-  - 这是 PDMS 类材料固化机理由热主导转向空化主导的决定性节点
-  - 对论文和答辩都属于高价值里程碑
+  - 这是 PDMS 类材料由热主导转向空化主导的决定性节点
 
 ## 8. `5e2692a0` 三材料并列固化系统
 
 - 目录：`08_multi_material_cure_profiles__5e2692a0`
+- `milestone_commit`：`5e2692a040916cdab672ad984abb889f27415435`
 - 主题：材料配套的三套固化系统
-- 历史提交：`5e2692a040916cdab672ad984abb889f27415435`
-- 主入口：
+- 当前状态：`branch_bundle`
+- 当前主入口：
   - `run_cure_system_profile_suite.m`
   - `simulate_cure_from_pressure_map.m`
-- 建议复制到 `src/`：
-  - `build_cure_system_profile.m`
-  - `compute_sonothermal_gel_dose_from_pressure_map.m`
-  - `simulate_cure_from_pressure_map.m`
-  - `run_cure_system_profile_suite.m`
-  - `default_cure_model_params.m`
-  - `compute_cavitation_activity_map.m`
-  - `compute_cavitation_cure_score.m`
-  - `compute_cavitation_dose_rate.m`
-  - `compute_thermal_aux_from_pressure_map.m`
-  - `compute_thermal_aux_increment.m`
-  - `evaluate_cure_prediction.m`
-  - `evaluate_cure_validation_cases.m`
-  - `select_cure_visualization_cases.m`
-  - `build_hdsp_validation_target.m`
-  - `build_pressure_validation_cases.m`
-- 测试参考：
-  - `tests/test_build_cure_system_profile.m`
-  - `tests/test_run_cure_system_profile_suite.m`
-  - `tests/test_simulate_cure_system_profiles.m`
+- 当前 `src/` 用途：
+  - 更接近一个可审计的模块化运行集合
+  - 但仍需实际执行验证
+- 已确认特征：
+  - `run_cure_system_profile_suite.m` 显式依赖
+    - `build_cure_system_profile`
+    - `build_pressure_validation_cases`
+    - `simulate_cure_from_pressure_map`
+  - 说明该节点天然应按模块 bundle 而不是单文件恢复
 - 建议导出图表：
-  - 三 profile 的 cured mask 对比图
-  - 三 profile 的 score / 温升 / 风险图对比
+  - 三个 profile 的 cured mask 对比图
+  - 三个 profile 的 score / 温升 / 风险图对比
   - 同一 pressure case 下的对比总览图
 - 建议导出 summary：
   - system / mechanism / material
@@ -248,13 +260,31 @@
   - Tmax
   - quality risk peak
 - 重跑理由：
-  - 这是当前项目架构最完整、最适合任务书收束表达的节点
-  - 它把不同材料的固化机理正式并列化，便于形成论文主线
+  - 这是当前项目架构最完整、最适合作任务书收束表达的节点
+
+## 当前结论
+
+### 可优先直接尝试的节点
+
+- `cc3dced2`
+- `a4a3cd8e`
+
+### 应按 MATLAB bundle 核查后再跑的节点
+
+- `dc6d9f95`
+- `2a953a3b`
+- `5e2692a0`
+
+### 必须把共享 PANN 中转作为显式依赖处理的节点
+
+- `79d204af`
+- `7ef8144b`
+- `35df2a62`
 
 ## 下一步执行顺序
 
-1. 先按本清单从历史提交复制源码到各节点 `src/`
-2. 每个节点补最小运行说明
-3. 统一设计结果导出格式
-4. 逐节点重跑并写入 `results_export/`
-5. 最后汇总跨节点对比 summary
+1. 先完成各节点 `runtime_bundle` 兼容性审计
+2. 将现有 `src/` 标记为“占位快照”或“候选运行组合”
+3. 优先重跑 `cc3dced2`、`a4a3cd8e`
+4. 再处理 `dc6d9f95`、`2a953a3b`、`5e2692a0`
+5. 最后单独核定 PANN 兼容版本，再进入 `79d204af`、`7ef8144b`、`35df2a62`
