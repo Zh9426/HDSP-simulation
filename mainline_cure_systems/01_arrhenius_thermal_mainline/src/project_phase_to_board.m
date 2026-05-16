@@ -1,4 +1,4 @@
-﻿function [phase_projected, layer_map_best, best_offset] = project_phase_to_board(phase_in, phase_step, base_layers, mask, offset_seed, use_dither)
+function [phase_projected, layer_map_best, best_offset] = project_phase_to_board(phase_in, phase_step, base_layers, mask, offset_seed, use_dither)
 phase_wrapped = mod(phase_in, 2*pi);
 
 if nargin < 6

@@ -1,4 +1,4 @@
-﻿function layer_map = error_diffuse_quantize_layers(layer_cont, mask, base_layers, max_layer_index)
+function layer_map = error_diffuse_quantize_layers(layer_cont, mask, base_layers, max_layer_index)
 [n_row, n_col] = size(layer_cont);
 work = double(layer_cont);
 layer_map = base_layers * ones(size(layer_cont));

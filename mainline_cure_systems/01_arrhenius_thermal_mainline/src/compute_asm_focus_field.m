@@ -1,4 +1,4 @@
-﻿function focus_amp = compute_asm_focus_field(phase_map, aperture_mask, Nx, Ny, H_forward)
+function focus_amp = compute_asm_focus_field(phase_map, aperture_mask, Nx, Ny, H_forward)
 pad_factor = size(H_forward, 1) / Nx;
 Nx_pad = Nx * pad_factor;
 Ny_pad = Ny * pad_factor;
