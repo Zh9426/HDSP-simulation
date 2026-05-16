@@ -976,7 +976,7 @@ try
         warning('Codex proposal-only analysis failed with status %d', analysis_status);
     end
 catch codex_export_error
-    warning('Codex runtime export failed: %s', codex_export_error.message);
+    warning('Codex:RuntimeExportFailed', '%s', codex_export_error.message);
 end
 fprintf('过固化: %.1f%%\n', over_cure_ratio * 100);
 fprintf('欠固化: %.1f%%\n', under_cure_ratio * 100);
