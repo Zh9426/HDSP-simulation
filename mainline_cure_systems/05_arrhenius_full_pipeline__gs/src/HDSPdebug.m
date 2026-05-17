@@ -14,48 +14,11 @@ c_water = 1480;
 c_board = 2430;
 density_water = 997;
 density_board = 1100;
-alpha_coeff_water = 0.002;
-alpha_power_water = 1.5;
-Cp_water = 4180;
-k_water = 0.6;
-c_couplant = c_water;
-density_couplant = density_water;
-alpha_coeff_couplant = alpha_coeff_water;
-alpha_power_couplant = alpha_power_water;
-c_pdms = 1070;
-density_pdms = 965;
-alpha_coeff_pdms = 5.0;
-alpha_power_pdms = 1.5;
-Cp_pdms = 1460;
-k_pdms = 0.15;
-pdms_thickness = 7e-3;
-focus_scan_radius = 6e-3;
-focus_edge_warn_mm = 0.5;
 lambda_water = c_water / f0;
-phase_refine_mode = 'python_only'; %相位叠加模式
+phase_refine_mode = 'pure_iasa'; %相位叠加模式
+phase_method = 'gs';
 iasa_epoch = 150;
 iasa_anchor_eta = 1.0;
-phase_rng_seed = 9426;
-iasa_beta = 0.70;
-iasa_target_mask_threshold = 0.45;
-iasa_uniformity_enabled = true;
-iasa_uniformity_beta = 0.30;
-iasa_uniformity_gain_limit = 2.5;
-iasa_target_gain_limit = 10.0;
-iasa_halo_weight = 0.05;
-iasa_dark_weight = 0.0;
-python_epochs = 10000;
-python_learning_rate = 0.06;
-python_min_epochs = 6500;
-python_early_stop_patience = 4200;
-python_rng_seed = phase_rng_seed;
-python_lr_restart_cycle = 5000;
-python_lr_restart_decay = 0.82;
-python_lr_min_ratio = 0.05;
-target_threshold_norm = 0.60;
-low_quantile_goal = 0.88;
-target_mean_amp_goal_ratio = 0.12;
-python_z_constraint_offsets_m = 0;
 research_mode.enabled = 0;
 research_mode.export_dir = 'C:\Users\Zh89\Desktop\transport\exit_amp_surrogate';
 research_mode.patch_size = 9;
@@ -63,53 +26,6 @@ research_mode.sample_stride = 1;
 research_mode.max_samples_per_run = 30000;
 research_mode.run_label = 'baseline';
 research_mode.enable_run_export = true;
-exit_plane_analysis.enabled = false;
-cavitation_model.enabled = true;
-cavitation_model.pressure_on = 1.72e6;
-cavitation_model.pressure_full = 1.98e6;
-cavitation_model.pressure_stream = 2.35e6;
-cavitation_model.pressure_damage = 2.80e6;
-cavitation_model.saturation_shape = 4.0;
-cavitation_model.trigger_sharpness = 3.0;
-cavitation_model.streaming_penalty_strength = 0.75;
-cavitation_model.streaming_penalty_power = 1.5;
-cavitation_model.smooth_sigma_px = 0.8;
-cavitation_model.z_sigma_mm = 0.8;
-thermal_feedback.source_scale = 0.02;
-thermal_feedback.absorption_gain = 0.05;
-thermal_feedback.conductivity_gain = 0.05;
-cavitation_model.heat_gain = 0.0;
-cavitation_model.trigger_gain = 5.6;
-cavitation_model.growth_gain = 0.0;
-thermal_feedback.trigger_gain = cavitation_model.trigger_gain;
-thermal_feedback.growth_gain = cavitation_model.growth_gain;
-cure_model.threshold = 1.0;
-cure_model.threshold_candidates = 1.00 : 0.05 : 1.40;
-cure_model.threshold_selection_mode = 'near_best_iou';
-cure_model.iou_drop_tolerance = 0.005;
-cure_model.over_cure_target = 0.22;
-cure_model.under_cure_target = 0.16;
-cure_model.over_cure_weight = 1.00;
-cure_model.under_cure_weight = 1.00;
-cure_model.dice_weight = 0.02;
-cure_model.iou_weight = 1.00;
-cure_model.global_penalty_weight = 0.03;
-cure_model.cavitation_dose_time = 0.04;
-cure_model.thermal_dose_time = 0.12;
-cure_model.thermal_delta_ref = 20.0;
-cure_model.thermal_weight = 0.15;
-cure_model.penalty_weight = 0.80;
-cure_model.bulk_ref_temp = 25.0;
-cure_model.dose_growth_floor = 0.65;
-cure_model.dose_trigger_weight = 0.35;
-cure_model.dose_cloud_radius_px = 2;
-cure_model.dose_cloud_floor = 0.35;
-cure_model.dose_cloud_power = 1.0;
-cure_model.dose_seed_floor = 0.85;
-cure_model.dose_seed_power = 1.0;
-cure_model.cooling_thermal_weight = 0.05;
-cure_model.thermal_cavitation_gate_floor = 0.05;
-cure_model.thermal_cavitation_gate_power = 0.8;
 
 dx = Lx / Nx;
 dy = dx;
@@ -163,113 +79,13 @@ if ~exist(transport_dir, 'dir')
 end
 export_path = fullfile(transport_dir, 'target_for_python.mat');
 min_base_layers = 2;
-branch_output_dir = fullfile(fileparts(mfilename('fullpath')), 'initial_phase_outputs', 'nogit');
-if strcmpi(phase_refine_mode, 'python_only') || strcmpi(phase_refine_mode, 'python_iasa')
-    save(export_path, 'imag_target', 'imag_target_design', 'Nx', 'Ny', 'Lx', ...
-        'lambda_water', 'z_target_dist', 'dx', 'dz', 'f0', 'c_water', ...
-        'c_board', 'density_water', 'density_board', 'alpha_coeff_water', ...
-        'thermal_sigma_px', 'min_base_layers', ...
-        'target_threshold_norm', 'low_quantile_goal', ...
-        'target_mean_amp_goal_ratio', 'python_z_constraint_offsets_m', ...
-        'branch_output_dir', 'python_epochs', 'python_learning_rate', ...
-        'python_min_epochs', 'python_early_stop_patience', 'python_rng_seed', ...
-        'python_lr_restart_cycle', 'python_lr_restart_decay', 'python_lr_min_ratio');
-end
-
 fprintf('\n==================================================\n');
-if strcmpi(phase_refine_mode, 'python_only') || strcmpi(phase_refine_mode, 'python_iasa')
-    fprintf('目标图案导出地址: %s\n', export_path);
-    fprintf('请运行新版 PANN_Holography.py 生成初相，再返回 MATLAB 继续。\n');
-else
-    fprintf('当前模式为 pure_iasa，跳过 Python 初相导出。\n');
-end
+fprintf('Pure IASA mode: %s\n', upper(phase_method));
+fprintf('Skip Python transport and build the initial phase directly in MATLAB.\n');
 fprintf('==================================================\n\n');
-if strcmpi(phase_refine_mode, 'python_only') || strcmpi(phase_refine_mode, 'python_iasa')
-    pause;
-end
 
 %% 3. 加载初相并用IASA复算
 fprintf('IASA...\n');
-pad_factor = 2;
-Nx_pad = Nx * pad_factor;
-Ny_pad = Ny * pad_factor;
-Lx_pad = Lx * pad_factor;
-dk_pad = 2 * pi / Lx_pad;
-kx_pad = (-Nx_pad/2 : Nx_pad/2-1) * dk_pad;
-[Kx_pad, Ky_pad] = meshgrid(kx_pad, kx_pad);
-k_water_wave = 2 * pi / lambda_water;
-Kz_sq = k_water_wave^2 - Kx_pad.^2 - Ky_pad.^2;
-propagating = (Kz_sq > 0);
-Kz = zeros(size(Kz_sq));
-Kz(propagating) = sqrt(Kz_sq(propagating));
-H_forward = zeros(size(Kz_sq));
-H_forward(propagating) = exp(1i * Kz(propagating) * z_target_dist);
-H_backward = conj(H_forward);
-center_idx = Nx/2+1:Nx/2+Nx;
-[Y_grid_source, X_grid_source] = meshgrid(x, x);
-circle_mask_board = (X_grid_source.^2 + Y_grid_source.^2) <= (32e-3)^2;
-k_board_val = 2 * pi * f0 / c_board;
-k_water_val = 2 * pi * f0 / c_water;
-k_diff = abs(k_water_val - k_board_val);
-phase_step = k_diff * dz;
-propagator = struct( ...
-    'Nx_pad', Nx_pad, ...
-    'Ny_pad', Ny_pad, ...
-    'center_idx', center_idx, ...
-    'H_forward', H_forward, ...
-    'H_backward', H_backward);
-optimizer_cfg = struct( ...
-    'f0', f0, ...
-    'c_water', c_water, ...
-    'c_board', c_board, ...
-    'dz', dz, ...
-    'min_base_layers', min_base_layers, ...
-    'iasa_epochs', iasa_epoch, ...
-    'iasa_beta', iasa_beta, ...
-    'target_mask_threshold', iasa_target_mask_threshold, ...
-    'iasa_halo_weight', iasa_halo_weight, ...
-    'iasa_dark_weight', iasa_dark_weight, ...
-    'iasa_target_gain_limit', iasa_target_gain_limit, ...
-    'iasa_anchor_eta', iasa_anchor_eta, ...
-    'iasa_uniformity_enabled', iasa_uniformity_enabled, ...
-    'iasa_uniformity_beta', iasa_uniformity_beta, ...
-    'iasa_uniformity_gain_limit', iasa_uniformity_gain_limit);
-phase_mode_context = struct( ...
-    'transport_dir', transport_dir, ...
-    'imag_target_design', imag_target_design, ...
-    'source_mask', circle_mask_board, ...
-    'phase_step', phase_step, ...
-    'propagator', propagator, ...
-    'optimizer_cfg', optimizer_cfg, ...
-    'Nx', Nx, ...
-    'Ny', Ny, ...
-    'rng_seed', phase_rng_seed);
-phase_result = run_mainline_phase_modes(phase_refine_mode, phase_mode_context);
-
-phase_projected_init = phase_result.initial_phase;
-holo_phase = phase_result.final_phase;
-net_num_board = phase_result.layer_map;
-phase_bias_seed = phase_result.final_phase_bias;
-phase_mode_initial_label = phase_result.initial_label;
-phase_mode_final_label = phase_result.final_label;
-asm_python_amp = phase_result.initial_focus.amp;
-asm_iasa_amp = phase_result.final_focus.amp;
-asm_python_norm = asm_python_amp / (max(asm_python_amp(:)) + eps);
-asm_iasa_norm = asm_iasa_amp / (max(asm_iasa_amp(:)) + eps);
-target_norm_asm = imag_target / (max(imag_target(:)) + eps);
-asm_python_pcc = corr2(asm_python_norm, target_norm_asm);
-asm_iasa_pcc = corr2(asm_iasa_norm, target_norm_asm);
-asm_python_nmse = sum((target_norm_asm(:) - asm_python_norm(:)).^2) / sum(target_norm_asm(:).^2);
-asm_iasa_nmse = sum((target_norm_asm(:) - asm_iasa_norm(:)).^2) / sum(target_norm_asm(:).^2);
-asm_python_ssim = ssim(double(asm_python_norm), double(target_norm_asm));
-asm_iasa_ssim = ssim(double(asm_iasa_norm), double(target_norm_asm));
-if false
-import_path = fullfile(transport_dir, 'dl_phase_init.mat');
-if ~exist(import_path, 'file')
-    error('没有找到 dl_phase_init.mat. 请确保已经算出初相');
-end
-load(import_path, 'optimal_initial_phase', 'optimal_phase_bias', 'optimal_layer_map', ...
-    'target_dose_design', 'line_target_mask', 'halo_target_mask');
 %padding
 pad_factor = 2;
 Nx_pad = Nx * pad_factor;
@@ -278,8 +94,8 @@ Lx_pad = Lx * pad_factor;
 dk_pad = 2 * pi / Lx_pad;
 kx_pad = (-Nx_pad/2 : Nx_pad/2-1) * dk_pad;
 [Kx_pad, Ky_pad] = meshgrid(kx_pad, kx_pad);
-k_water_wave = 2 * pi / lambda_water;
-Kz_sq = k_water_wave^2 - Kx_pad.^2 - Ky_pad.^2;
+k_water = 2 * pi / lambda_water;
+Kz_sq = k_water^2 - Kx_pad.^2 - Ky_pad.^2;
 %倏逝波处理
 propagating = (Kz_sq > 0);
 Kz = zeros(size(Kz_sq));
@@ -288,17 +104,8 @@ H_forward = zeros(size(Kz_sq));
 H_forward(propagating) = exp(1i * Kz(propagating) * z_target_dist);
 H_backward = conj(H_forward);
 
-board_phase_pad = zeros(Nx_pad, Ny_pad);
-target_pad = zeros(Nx_pad, Ny_pad);
-target_amp_design = sqrt(max(target_dose_design, 0));
+target_amp_design = sqrt(max(imag_target_design, 0));
 center_idx = Nx/2+1:Nx/2+Nx;
-target_pad(center_idx, center_idx) = target_amp_design;
-weight_pad = 0.05 + target_pad * 1.95;
-mask_line = false(Nx_pad, Ny_pad);
-mask_halo = false(Nx_pad, Ny_pad);
-mask_line(center_idx, center_idx) = line_target_mask > 0.5;
-mask_halo(center_idx, center_idx) = halo_target_mask > 0.5;
-mask_dark = ~(mask_line | mask_halo);
 
 [Y_grid_source, X_grid_source] = meshgrid(x, x);
 circle_mask_board = (X_grid_source.^2 + Y_grid_source.^2) <= (32e-3)^2;
@@ -306,78 +113,16 @@ k_board_val = 2 * pi * f0 / c_board;
 k_water_val = 2 * pi * f0 / c_water;
 k_diff = abs(k_water_val - k_board_val);
 phase_step = k_diff * dz;
-phase_bias_seed = 0;
-if exist('optimal_phase_bias', 'var')
-    phase_bias_seed = optimal_phase_bias;
-end
-%引入离散化处理相位
-[phase_projected_init, net_num_board, phase_bias_seed] = project_phase_to_board( ...
-    optimal_initial_phase, phase_step, min_base_layers, circle_mask_board, phase_bias_seed, true);
-board_phase_pad(center_idx, center_idx) = exp(1i * phase_projected_init);
-phase_anchor = phase_projected_init;
-
-if strcmpi(phase_refine_mode, 'python_only')
-    epoch = 0;
-else
-    epoch = iasa_epoch;
-end
-
-for i = 1:epoch
-    U_source = zeros(Nx_pad, Ny_pad);
-    center_phase = angle(board_phase_pad(center_idx, center_idx));
-    center_source = exp(1i * center_phase);
-    center_source(~circle_mask_board) = 0;
-    U_source(center_idx, center_idx) = center_source;
-
-    A_source = fftshift(fft2(ifftshift(U_source)));
-    A_target = A_source .* H_forward;
-    U_target = fftshift(ifft2(ifftshift(A_target)));
-
-    rec_amp = abs(U_target);
-    peak_val = max(rec_amp(mask_line));
-    if peak_val == 0
-        peak_val = max(rec_amp(:));
-    end
-    rec_amp_norm = rec_amp / peak_val;
-%乘性权重更新
-    if i > 5
-        beta = 0.6;
-        correction = (target_pad(mask_line) ./ (rec_amp_norm(mask_line) + 1e-6)) .^ beta;
-        weight_pad(mask_line) = weight_pad(mask_line) .* correction;
-        weight_pad(weight_pad > 10) = 10;
-        weight_pad(mask_halo) = 0.05;
-        weight_pad(mask_dark) = 0;
-    end
-
-    U_target_constrained = weight_pad .* exp(1i * angle(U_target));
-    A_target_cons = fftshift(fft2(ifftshift(U_target_constrained)));
-    A_source_cons = A_target_cons .* H_backward;
-    U_source_new = fftshift(ifft2(ifftshift(A_source_cons)));
-%离散网格预处理
-    source_phase_candidate = angle(U_source_new(center_idx, center_idx));
-    [phase_projected_iter_raw, ~, phase_bias_seed] = project_phase_to_board( ...
-        source_phase_candidate, phase_step, min_base_layers, circle_mask_board, phase_bias_seed, true);
-
-    if iasa_anchor_eta < 1
-        blended_complex = (1 - iasa_anchor_eta) .* exp(1i * phase_anchor) + ...
-            iasa_anchor_eta .* exp(1i * phase_projected_iter_raw);
-        blended_phase = angle(blended_complex);
-    else
-        blended_phase = phase_projected_iter_raw;
-    end
-
-    [phase_projected_iter, net_num_board, phase_bias_seed] = project_phase_to_board( ...
-        blended_phase, phase_step, min_base_layers, circle_mask_board, phase_bias_seed, true);
-
-    board_phase_pad = zeros(Nx_pad, Ny_pad);
-    board_phase_pad(center_idx, center_idx) = exp(1i * phase_projected_iter);
-end
-
-holo_phase = mod(net_num_board * phase_step, 2 * pi);
-holo_phase(~circle_mask_board) = 0;
-%分别计算初相、迭代相经过asm的指标
-asm_python_amp = compute_asm_focus_field(phase_projected_init, circle_mask_board, Nx, Ny, H_forward);
-asm_iasa_amp = compute_asm_focus_field(holo_phase, circle_mask_board, Nx, Ny, H_forward);
+phase_result = run_arrhenius_iasa_variant( ...
+    phase_method, target_amp_design, circle_mask_board, H_forward, H_backward, ...
+    phase_step, min_base_layers, iasa_epoch, iasa_anchor_eta);
+phase_projected_init = phase_result.initial_phase;
+net_num_board = phase_result.net_num_board;
+holo_phase = phase_result.final_phase;
+phase_initial_label = phase_result.initial_label;
+phase_final_label = phase_result.final_label;
+asm_python_amp = phase_result.initial_amp;
+asm_iasa_amp = phase_result.final_amp;
 asm_python_norm = asm_python_amp / (max(asm_python_amp(:)) + eps);
 asm_iasa_norm = asm_iasa_amp / (max(asm_iasa_amp(:)) + eps);
 target_norm_asm = imag_target / (max(imag_target(:)) + eps);
@@ -389,7 +134,6 @@ asm_python_ssim = ssim(double(asm_python_norm), double(target_norm_asm));
 asm_iasa_ssim = ssim(double(asm_iasa_norm), double(target_norm_asm));
 
 %% 4. 相位转厚度
-end
 phase_wrapped = mod(holo_phase, 2 * pi);
 thickness_map = net_num_board * dz;
 actual_thickness = thickness_map;
@@ -407,8 +151,8 @@ fprintf('构建空间并执行仿真\n');
 kgrid = kWaveGrid(Nx, dx, Ny, dy, Nz, dz);
 medium.sound_speed = c_water * ones(Nx, Ny, Nz);
 medium.density = density_water * ones(Nx, Ny, Nz);
-medium.alpha_coeff = alpha_coeff_water * ones(Nx, Ny, Nz);
-medium.alpha_power = alpha_power_water;
+medium.alpha_coeff = 0.002 * ones(Nx, Ny, Nz);
+medium.alpha_power = 1.5;
 alpha_coeff_board = 1.5;
 pml_size = 10;
 source_z_idx = pml_size + 5;
@@ -427,7 +171,6 @@ for i = 1:Nx
     end
 end
 thickest = max(net_num_board(:)) * dz;
-pdms_half_idx = round((pdms_thickness / 2) / dz);
 %时间定义
 cfl = 0.3;
 t_end = (Lz * 1.5) / c_water;
@@ -445,17 +188,9 @@ source.p_mode = 'dirichlet';
 sensor.mask = zeros(Nx, Ny, Nz);
 z_board_exit_idx = z_board_start_idx + round(thickest / dz);
 target_plane_idx = z_board_exit_idx + round(z_target_dist / dz);
-pdms_z_start_idx = max(z_board_exit_idx + 1, target_plane_idx - pdms_half_idx);
-pdms_z_end_idx = min(Nz - pml_size, pdms_z_start_idx + round(pdms_thickness / dz) - 1);
-medium.sound_speed(:, :, pdms_z_start_idx:pdms_z_end_idx) = c_pdms;
-medium.density(:, :, pdms_z_start_idx:pdms_z_end_idx) = density_pdms;
-medium.alpha_coeff(:, :, pdms_z_start_idx:pdms_z_end_idx) = alpha_coeff_pdms;
-scan_range_idx = round(focus_scan_radius / dz);
+scan_range_idx = round(3e-3 / dz);
 z_scan_start = target_plane_idx - scan_range_idx;
 z_scan_end = target_plane_idx + scan_range_idx;
-if z_scan_start < 1 + pml_size
-    z_scan_start = 1 + pml_size;
-end
 if z_scan_end > Nz - pml_size
     z_scan_end = Nz - pml_size;
 end
@@ -503,15 +238,9 @@ end
 best_idx_global = z_scan_start + best_slice_idx - 1;
 actual_z_dist_idx = best_idx_global - z_board_exit_idx;
 actual_z_dist_mm = actual_z_dist_idx * dz * 1e3;
-design_z_dist_mm = z_target_dist * 1e3;
-focus_shift_mm = actual_z_dist_mm - design_z_dist_mm;
-focus_search_edge_margin_idx = min(best_slice_idx - 1, num_slices - best_slice_idx);
-focus_search_edge_margin_mm = focus_search_edge_margin_idx * dz * 1e3;
-focus_search_near_edge = focus_search_edge_margin_mm < focus_edge_warn_mm;
 
 %% 6.相位板出口分析
 fprintf('执行出口平面声场分析\n');
-if exit_plane_analysis.enabled
 %记录出口平面声场
 exit_sensor.mask = zeros(Nx, Ny, Nz);
 exit_sensor.mask(:, :, z_board_exit_idx) = 1;
@@ -641,51 +370,7 @@ board_exit_kwave_corr = corr2(board_exit_asm_norm, ...
     (scan_vol(:, :, best_slice_idx) - min(scan_vol(:, :, best_slice_idx), [], 'all')) / ...
     (max(scan_vol(:, :, best_slice_idx), [], 'all') - min(scan_vol(:, :, best_slice_idx), [], 'all') + eps));
 
-else
-    disp('Skipping exit-plane second simulation and using safe defaults.');
-    exit_defaults = build_exit_plane_analysis_defaults(Nx, Ny, thickness_map, circle_mask_board, dx, dz, net_num_board);
-    p_exit_complex = exit_defaults.p_exit_complex;
-    p_exit_amp = exit_defaults.p_exit_amp;
-    p_exit_amp_norm = exit_defaults.p_exit_amp_norm;
-    p_exit_phase = exit_defaults.p_exit_phase;
-    exit_amp_cv = exit_defaults.exit_amp_cv;
-    exit_amp_min_ratio = exit_defaults.exit_amp_min_ratio;
-    thickness_mm = exit_defaults.thickness_mm;
-    thickness_grad_norm = exit_defaults.thickness_grad_norm;
-    local_thickness_mean = exit_defaults.local_thickness_mean;
-    local_thickness_std = exit_defaults.local_thickness_std;
-    aperture_edge_distance_mm = exit_defaults.aperture_edge_distance_mm;
-    valid_exit_mask = exit_defaults.valid_exit_mask;
-    thickness_vals_mm = exit_defaults.thickness_vals_mm;
-    grad_vals = exit_defaults.grad_vals;
-    exit_amp_vals = exit_defaults.exit_amp_vals;
-    local_mean_vals_mm = exit_defaults.local_mean_vals_mm;
-    local_std_vals_mm = exit_defaults.local_std_vals_mm;
-    edge_dist_vals_mm = exit_defaults.edge_dist_vals_mm;
-    edge_amp_mean = exit_defaults.edge_amp_mean;
-    flat_amp_mean = exit_defaults.flat_amp_mean;
-    thickness_amp_corr = exit_defaults.thickness_amp_corr;
-    grad_amp_corr = exit_defaults.grad_amp_corr;
-    local_mean_amp_corr = exit_defaults.local_mean_amp_corr;
-    local_std_amp_corr = exit_defaults.local_std_amp_corr;
-    edge_dist_amp_corr = exit_defaults.edge_dist_amp_corr;
-    exit_amp_model_r2 = exit_defaults.exit_amp_model_r2;
-    unique_layers = exit_defaults.unique_layers;
-    layer_mean_amp = exit_defaults.layer_mean_amp;
-    layer_std_amp = exit_defaults.layer_std_amp;
-    layer_mean_thickness_mm = exit_defaults.layer_mean_thickness_mm;
-    thickness_scatter_mm = exit_defaults.thickness_scatter_mm;
-    grad_scatter = exit_defaults.grad_scatter;
-    exit_amp_scatter = exit_defaults.exit_amp_scatter;
-    local_std_scatter_mm = exit_defaults.local_std_scatter_mm;
-    edge_dist_scatter_mm = exit_defaults.edge_dist_scatter_mm;
-    model_pred_scatter = exit_defaults.model_pred_scatter;
-    board_exit_asm_amp = exit_defaults.board_exit_asm_amp;
-    board_exit_asm_norm = exit_defaults.board_exit_asm_norm;
-    board_exit_asm_pcc = exit_defaults.board_exit_asm_pcc;
-    board_exit_kwave_corr = exit_defaults.board_exit_kwave_corr;
-end
-if research_mode.enabled && research_mode.enable_run_export && exit_plane_analysis.enabled
+if research_mode.enabled && research_mode.enable_run_export
     if ~exist(research_mode.export_dir, 'dir')
         mkdir(research_mode.export_dir);
     end
@@ -707,10 +392,9 @@ if research_mode.enabled && research_mode.enable_run_export && exit_plane_analys
         'max_samples_per_run', research_mode.max_samples_per_run, ...
         'Nx', Nx, 'Ny', Ny, 'dx', dx, 'dz', dz, ...
         'f0', f0, 'Lx', Lx, 'z_target_dist', z_target_dist, ...
-        'c_water', c_water, 'c_board', c_board, 'c_pdms', c_pdms, ...
-        'density_water', density_water, 'density_board', density_board, 'density_pdms', density_pdms, ...
-        'alpha_coeff_water', alpha_coeff_water, 'alpha_coeff_board', alpha_coeff_board, 'alpha_coeff_pdms', alpha_coeff_pdms, ...
-        'pdms_thickness_mm', pdms_thickness * 1e3, ...
+        'c_water', c_water, 'c_board', c_board, ...
+        'density_water', density_water, 'density_board', density_board, ...
+        'alpha_coeff_board', alpha_coeff_board, ...
         'actual_z_dist_mm', actual_z_dist_mm);
     export_exit_amp_surrogate_run( ...
         research_mode.export_dir, run_meta, run_metrics, ...
@@ -726,15 +410,16 @@ focal_slice_abs = p_3d_abs(:, :, best_idx_global);
 roi_mask = (imag_target > 0.5);
 median_roi_p = median(focal_slice_abs(roi_mask));
 
-rho_pdms = density_pdms;  c_pdms_heat = c_pdms; Cp_pdms_heat = Cp_pdms; k_pdms_heat = k_pdms;
-rho_water_heat = density_water;  c_water_heat = c_water; Cp_water_heat = Cp_water; k_water_heat = k_water;
-alpha_np_pdms = (alpha_coeff_pdms / 8.686) * 100 * (f0 / 1e6)^alpha_power_pdms;
-alpha_np_water = (alpha_coeff_water / 8.686) * 100 * (f0 / 1e6)^alpha_power_water;
-pressure_cap = cavitation_model.pressure_damage * 1.05;
+rho_resin = 1100; c_resin = 2500; Cp_resin_liq = 1800; k_resin_liq = 0.15;
+rho_water = 997;  c_water_heat = 1480; Cp_water = 4180; k_water_heat = 0.6;
+alpha_np_resin_liq = (1.5 / 8.686) * 100 * (f0 / 1e6)^1.5;
+alpha_np_water = 0.02;
+resin_z_start = z_board_exit_idx + 1;
+cavitation_limit = 2.0e6;
 
 E_a = 9.5e4; A_freq = 8.0e15; R_gas = 8.314;
 inv_dx2 = 1 / (dx^2);
-max_diff = max(k_water_heat / (rho_water_heat * Cp_water_heat), k_pdms_heat / (rho_pdms * Cp_pdms_heat));
+max_diff = max(k_water_heat / (rho_water * Cp_water), k_resin_liq / (rho_resin * Cp_resin_liq));
 dt_th = (dx^2 / (6 * max_diff)) * 0.8;
 
 z_crop_radius = round(1.5e-3 / dz);
@@ -746,30 +431,27 @@ z_crop_len = z_crop_end - z_crop_start + 1;
 best_IoU_global = 0;
 best_record = struct();
 best_coarse = struct('P', 1.5e6, 'E', 0.3, 'C', 0.2);
-near_best_iou_tol = 0.01;
-scan_records = zeros(10000, 11);
-scan_record_count = 0;
 
 for phase = 1:2
     if phase == 1
         %曝光时间，声压与冷却时间粗查
         fprintf('\n[第一阶段:粗扫]...\n');
-        P_list = (1.40 : 0.04 : 1.64) * 1e6;
-        E_list = 0.34 : 0.03 : 0.55;
-        C_list = 0.34 : 0.06 : 0.64;
+        P_list = (1.2 : 0.2 : 1.8) * 1e6;
+        E_list = 0.15 : 0.10 : 0.45;
+        C_list = 0.10 : 0.10 : 0.30;
     else
         %细查
          fprintf('\n[第二阶段: 微调](P=%.2f, E=%.2f, C=%.2f)...\n', ...
             best_coarse.P/1e6, best_coarse.E, best_coarse.C);
-        P_list = max(1.36e6, best_coarse.P - 0.06e6) : 0.02e6 : (best_coarse.P + 0.06e6);
-        E_list = max(0.30, best_coarse.E - 0.04) : 0.01 : min(0.60, best_coarse.E + 0.04);
-        C_list = max(0.28, best_coarse.C - 0.06) : 0.02 : min(0.70, best_coarse.C + 0.06);
+        P_list = (best_coarse.P - 0.1e6) : 0.05e6 : (best_coarse.P + 0.1e6);
+        E_list = max(0.10, best_coarse.E - 0.05) : 0.02 : (best_coarse.E + 0.05);
+        C_list = max(0.05, best_coarse.C - 0.05) : 0.05 : (best_coarse.C + 0.05);
     end
 
     [Pg, Eg, Cg] = ndgrid(P_list, E_list, C_list);
     params_all = [Pg(:), Eg(:), Cg(:)];
     energy_index = (params_all(:, 1) / 1e6).^2 .* params_all(:, 2);
-    valid_mask = (energy_index >= 0.25) & (energy_index <= 2.4);
+    valid_mask = (energy_index >= 0.3) & (energy_index <= 1.2);
     params_valid = sortrows(params_all(valid_mask, :), 1);
     num_tests = size(params_valid, 1);
     current_P = -1;
@@ -782,61 +464,21 @@ for phase = 1:2
         if p_target ~= current_P
             scale_factor = p_target / median_roi_p;
             p_3d_scaled = p_3d_abs * scale_factor;
-            p_3d_scaled(p_3d_scaled > pressure_cap) = pressure_cap;
+            p_3d_scaled(p_3d_scaled > cavitation_limit) = cavitation_limit;
 
             k_3d = k_water_heat * ones(Nx, Ny, Nz, 'single');
-            k_3d(:, :, pdms_z_start_idx:pdms_z_end_idx) = k_pdms_heat;
-            rho_Cp_3d = (rho_water_heat * Cp_water_heat) * ones(Nx, Ny, Nz, 'single');
-            rho_Cp_3d(:, :, pdms_z_start_idx:pdms_z_end_idx) = rho_pdms * Cp_pdms_heat;
+            k_3d(:, :, resin_z_start:end) = k_resin_liq;
+            rho_Cp_3d = (rho_water * Cp_water) * ones(Nx, Ny, Nz, 'single');
+            rho_Cp_3d(:, :, resin_z_start:end) = rho_resin * Cp_resin_liq;
 
             Q_heat_3d = zeros(Nx, Ny, Nz, 'single');
-            I_3d_pdms = single((p_3d_scaled(:, :, pdms_z_start_idx:pdms_z_end_idx).^2) ./ (2 * rho_pdms * c_pdms_heat));
-            Q_heat_3d(:, :, pdms_z_start_idx:pdms_z_end_idx) = 2 * alpha_np_pdms * I_3d_pdms;
-            if pdms_z_start_idx > 1
-                I_3d_water_lower = single((p_3d_scaled(:, :, 1:pdms_z_start_idx-1).^2) ./ (2 * rho_water_heat * c_water_heat));
-                Q_heat_3d(:, :, 1:pdms_z_start_idx-1) = 2 * alpha_np_water * I_3d_water_lower;
-            end
-            if pdms_z_end_idx < Nz
-                I_3d_water_upper = single((p_3d_scaled(:, :, pdms_z_end_idx+1:end).^2) ./ (2 * rho_water_heat * c_water_heat));
-                Q_heat_3d(:, :, pdms_z_end_idx+1:end) = 2 * alpha_np_water * I_3d_water_upper;
-            end
-            Q_heat_3d = single(thermal_feedback.source_scale) .* Q_heat_3d;
-
-            cavitation_trigger_crop = zeros(Nx, Ny, z_crop_len, 'single');
-            cavitation_growth_crop = zeros(Nx, Ny, z_crop_len, 'single');
-            cavitation_penalty_crop = zeros(Nx, Ny, z_crop_len, 'single');
-            cavitation_reaction_slice = zeros(Nx, Ny, 'single');
-            cavitation_heat_gain_crop = ones(Nx, Ny, z_crop_len, 'single');
-            if cavitation_model.enabled
-                pdms_mask_full = false(Nx, Ny, Nz);
-                pdms_mask_full(:, :, pdms_z_start_idx:pdms_z_end_idx) = true;
-                pdms_mask_crop = pdms_mask_full(:, :, z_crop_start:z_crop_end);
-                cavitation_params = cavitation_model;
-                cavitation_params.mask = pdms_mask_crop;
-                cavitation_base = compute_cavitation_activity_map( ...
-                    p_3d_scaled(:, :, z_crop_start:z_crop_end), cavitation_params);
-                z_dist_mm = abs(((z_crop_start:z_crop_end) - best_idx_global) * dz * 1e3);
-                z_focus_weight = exp(-0.5 * (z_dist_mm / cavitation_model.z_sigma_mm).^2);
-                z_focus_weight = reshape(single(z_focus_weight), 1, 1, []);
-                cavitation_trigger_crop = single(cavitation_base.trigger) .* z_focus_weight;
-                cavitation_growth_crop = single(cavitation_base.growth) .* z_focus_weight;
-                cavitation_penalty_crop = single(cavitation_base.penalty) .* z_focus_weight;
-                cavitation_trigger_crop(~pdms_mask_crop) = 0;
-                cavitation_growth_crop(~pdms_mask_crop) = 0;
-                cavitation_penalty_crop(~pdms_mask_crop) = 0;
-                cavitation_heat_gain_crop = 1 + cavitation_model.heat_gain .* cavitation_growth_crop;
-                cavitation_reaction_slice = cavitation_trigger_crop(:, :, best_idx_crop);
-            end
-
+            I_3d_resin = single((p_3d_scaled(:, :, resin_z_start:end).^2) ./ (2 * rho_resin * c_resin));
+            Q_heat_3d(:, :, resin_z_start:end) = 2 * alpha_np_resin_liq * I_3d_resin;
+            I_3d_water = single((p_3d_scaled(:, :, 1:resin_z_start-1).^2) ./ (2 * rho_water * c_water_heat));
+            Q_heat_3d(:, :, 1:resin_z_start-1) = 2 * alpha_np_water * I_3d_water;
 
             k_3d_base_gpu = gpuArray(k_3d(:, :, z_crop_start:z_crop_end));
             rho_Cp_3d_gpu = gpuArray(rho_Cp_3d(:, :, z_crop_start:z_crop_end));
-            cavitation_heat_gain_gpu = gpuArray(cavitation_heat_gain_crop);
-            cavitation_trigger_gpu = gpuArray(cavitation_reaction_slice);
-            cavitation_growth_gpu = gpuArray(cavitation_growth_crop(:, :, best_idx_crop));
-            cavitation_penalty_gpu = gpuArray(cavitation_penalty_crop(:, :, best_idx_crop));
-            cavitation_dose_rate_gpu = single(compute_cavitation_dose_rate( ...
-                cavitation_trigger_gpu, cavitation_growth_gpu, cure_model));
             Q_heat_3d_gpu = gpuArray(Q_heat_3d(:, :, z_crop_start:z_crop_end));
             current_P = p_target;
         end
@@ -848,16 +490,11 @@ for phase = 1:2
         T_3d_gpu = 25 * ones(Nx, Ny, z_crop_len, 'single', 'gpuArray');
         k_3d_gpu = k_3d_base_gpu;
         Arrhenius_Omega_gpu = zeros(Nx, Ny, 'single', 'gpuArray');
-        cavitation_dose_gpu = zeros(Nx, Ny, 'single', 'gpuArray');
-        thermal_dose_gpu = zeros(Nx, Ny, 'single', 'gpuArray');
         T_max_history_tmp = zeros(Nt_th, 1);
 
         for step = 1:Nt_th
-            chi_focal = min(cavitation_dose_gpu, 1.0);
-            [conductivity_multiplier, absorption_multiplier, reaction_multiplier] = ...
-                compute_cure_feedback_terms(thermal_feedback, chi_focal, ...
-                cavitation_trigger_gpu, cavitation_growth_gpu);
-            k_3d_gpu(:, :, best_idx_crop) = k_pdms_heat .* conductivity_multiplier;
+            chi_focal = 1.0 - exp(-Arrhenius_Omega_gpu);
+            k_3d_gpu(:, :, best_idx_crop) = k_resin_liq * (1.0 + 0.6 * chi_focal);
 
             T_diff_x = diff(T_3d_gpu, 1, 1);
             k_mid_x = (k_3d_gpu(1:end-1, :, :) + k_3d_gpu(2:end, :, :)) / 2;
@@ -877,89 +514,42 @@ for phase = 1:2
             thermal_diffusion_term = (div_flux_x + div_flux_y + div_flux_z) ./ rho_Cp_3d_gpu * inv_dx2;
 
             if step <= step_exposure_end
+                abs_multiplier = 1.0 + 3.0 * chi_focal;
                 Q_dynamic = Q_heat_3d_gpu;
-                Q_dynamic(:, :, best_idx_crop) = Q_heat_3d_gpu(:, :, best_idx_crop) .* absorption_multiplier;
-                Q_dynamic = Q_dynamic .* cavitation_heat_gain_gpu;
+                Q_dynamic(:, :, best_idx_crop) = Q_heat_3d_gpu(:, :, best_idx_crop) .* abs_multiplier;
                 T_3d_gpu = T_3d_gpu + dt_th * (thermal_diffusion_term + Q_dynamic ./ rho_Cp_3d_gpu);
-                cavitation_dose_gpu = cavitation_dose_gpu ...
-                    + cavitation_dose_rate_gpu .* single(dt_th / cure_model.cavitation_dose_time);
             else
                 T_3d_gpu = T_3d_gpu + dt_th * thermal_diffusion_term;
             end
 
             T_focal_slice = T_3d_gpu(:, :, best_idx_crop);
             T_max_history_tmp(step) = gather(max(T_focal_slice(:)));
-            bulk_temp_rise = max(T_focal_slice - single(cure_model.bulk_ref_temp), 0);
-            thermal_cavitation_gate = max(cavitation_trigger_gpu, min(cavitation_dose_gpu, 1.0));
-            thermal_dose_gpu = thermal_dose_gpu ...
-                + single(compute_thermal_aux_increment(bulk_temp_rise, ...
-                dt_th, step <= step_exposure_end, cure_model, thermal_cavitation_gate));
             T_current_K = T_focal_slice + 273.15;
             reaction_rate = A_freq .* exp(-E_a ./ (R_gas .* T_current_K));
-            reaction_rate = reaction_rate .* reaction_multiplier;
             Arrhenius_Omega_gpu = Arrhenius_Omega_gpu + reaction_rate .* dt_th;
         end
 
-        cavitation_dose_tmp = gather(double(cavitation_dose_gpu));
-        thermal_dose_tmp = gather(double(thermal_dose_gpu));
-        penalty_tmp = gather(double(cavitation_penalty_gpu));
-        arrhenius_omega_tmp = gather(double(Arrhenius_Omega_gpu));
-        [cure_score_tmp, ~, cure_components_tmp] = ...
-            compute_cavitation_cure_score(cavitation_dose_tmp, thermal_dose_tmp, ...
-            penalty_tmp, cure_model);
-        Omega_tmp = cure_score_tmp;
-        target_mask_2d = imag_target > 0.5;
-        threshold_select_cfg = struct( ...
-            'selection_mode', cure_model.threshold_selection_mode, ...
-            'over_cure_target', cure_model.over_cure_target, ...
-            'under_cure_target', cure_model.under_cure_target, ...
-            'over_cure_weight', cure_model.over_cure_weight, ...
-            'under_cure_weight', cure_model.under_cure_weight, ...
-            'dice_weight', cure_model.dice_weight, ...
-            'iou_weight', cure_model.iou_weight, ...
-            'iou_drop_tolerance', cure_model.iou_drop_tolerance, ...
-            'global_penalty_weight', cure_model.global_penalty_weight);
-        threshold_result_tmp = select_cure_threshold( ...
-            Omega_tmp, target_mask_2d, cure_model.threshold_candidates, ...
-            threshold_select_cfg);
-        cured_mask_tmp = threshold_result_tmp.cured_mask;
-        current_IoU = threshold_result_tmp.IoU;
-        current_Dice = threshold_result_tmp.Dice;
-        current_over_cure = threshold_result_tmp.over_cure_ratio;
-        current_under_cure = threshold_result_tmp.under_cure_ratio;
-        current_coverage = threshold_result_tmp.cured_coverage;
-        current_Tmax = max(T_max_history_tmp);
-        scan_record_count = scan_record_count + 1;
-        scan_records(scan_record_count, :) = [phase, p_target / 1e6, t_exp, ...
-            t_cool, threshold_result_tmp.threshold, current_IoU, current_Dice, ...
-            current_over_cure, current_under_cure, current_coverage, current_Tmax];
+        Omega_tmp = gather(double(Arrhenius_Omega_gpu));
+        cured_mask_tmp = (Omega_tmp >= 1.0);
+        target_mask_2d = double(imag_target > 0.5);
+        intersection = sum(cured_mask_tmp(:) & target_mask_2d(:));
+        union_area = sum(cured_mask_tmp(:) | target_mask_2d(:));
+        current_IoU = intersection / (union_area + 1e-10);
 
-        fprintf('  [%02d/%02d] P=%.2f MPa, Exp=%.2f s, Cool=%.2f s, Thr=%.2f | Tmax: %4.1f C | IoU: %.4f\n', ...
-            i, num_tests, p_target / 1e6, t_exp, t_cool, threshold_result_tmp.threshold, ...
-            current_Tmax, current_IoU);
+        fprintf('  [%02d/%02d] P=%.2f MPa, Exp=%.2f s, Cool=%.2f s | Tmax: %4.1f C | IoU: %.4f\n', ...
+            i, num_tests, p_target / 1e6, t_exp, t_cool, max(T_max_history_tmp), current_IoU);
 
         if current_IoU > best_IoU_global
             best_IoU_global = current_IoU;
             best_record.p_target = p_target;
             best_record.t_exp = t_exp;
             best_record.t_cool = t_cool;
-            best_record.cure_threshold = threshold_result_tmp.threshold;
             best_record.T_focal_2d = gather(double(T_3d_gpu(:, :, best_idx_crop)));
             best_record.Q_focal_2d = gather(double(Q_heat_3d_gpu(:, :, best_idx_crop)));
             best_record.Omega_final_2d = Omega_tmp;
-            best_record.Arrhenius_Omega_thermal_2d = arrhenius_omega_tmp;
-            best_record.cavitation_dose_2d = cure_components_tmp.cavitation_dose;
-            best_record.thermal_aux_dose_2d = cure_components_tmp.thermal_dose;
-            best_record.thermal_aux_contribution_2d = cure_components_tmp.thermal_contribution;
-            best_record.overdrive_penalty_2d = cure_components_tmp.penalty;
-            best_record.overdrive_penalty_contribution_2d = cure_components_tmp.penalty_contribution;
             best_record.T_max_history = T_max_history_tmp;
             best_record.Nt_th = Nt_th;
             best_record.p_3d_scaled = p_3d_scaled;
-            best_record.cavitation_activity_2d = double(cavitation_reaction_slice);
-            best_record.cavitation_heat_gain_2d = double(cavitation_heat_gain_crop(:, :, best_idx_crop));
-            best_record.cavitation_peak = max(double(cavitation_reaction_slice(:)));
-            best_record.cavitation_roi_mean = mean(double(cavitation_reaction_slice(roi_mask)));
             if phase == 1
                 best_coarse.P = p_target;
                 best_coarse.E = t_exp;
@@ -972,28 +562,6 @@ fprintf('定标声压: %.2f MPa\n', best_record.p_target / 1e6);
 fprintf('曝光时长: %.2f 秒\n', best_record.t_exp);
 fprintf('冷却时长: %.2f 秒\n', best_record.t_cool);
 fprintf('IoU: %.4f\n', best_IoU_global);
-scan_records = scan_records(1:scan_record_count, :);
-near_best_mask = scan_records(:, 6) >= best_IoU_global - near_best_iou_tol;
-near_best_records = scan_records(near_best_mask, :);
-fprintf('Near-best 参数组数(IoU within %.3f): %d / %d\n', ...
-    near_best_iou_tol, size(near_best_records, 1), size(scan_records, 1));
-if ~isempty(near_best_records)
-    fprintf('Near-best P/E/C/Thr范围: %.2f-%.2f MPa | %.2f-%.2f s | %.2f-%.2f s | %.2f-%.2f\n', ...
-        min(near_best_records(:, 2)), max(near_best_records(:, 2)), ...
-        min(near_best_records(:, 3)), max(near_best_records(:, 3)), ...
-        min(near_best_records(:, 4)), max(near_best_records(:, 4)), ...
-        min(near_best_records(:, 5)), max(near_best_records(:, 5)));
-end
-
-top_n = min(10, size(scan_records, 1));
-top_records = sortrows(scan_records, -6);
-fprintf('Top-%d scan records: P MPa | Exp s | Cool s | Thr | IoU | Dice | Over | Under | Coverage | Tmax C\n', top_n);
-for top_i = 1:top_n
-    row = top_records(top_i, :);
-    fprintf('  #%02d %.2f | %.2f | %.2f | %.2f | %.4f | %.4f | %.1f%% | %.1f%% | %.1f%% | %.1f\n', ...
-        top_i, row(2), row(3), row(4), row(5), row(6), row(7), ...
-        row(8) * 100, row(9) * 100, row(10) * 100, row(11));
-end
 
 target_median_pressure = best_record.p_target;
 exposure_time = best_record.t_exp;
@@ -1001,33 +569,17 @@ cooling_time = best_record.t_cool;
 T_focal_2d = best_record.T_focal_2d;
 Q_focal_2d = best_record.Q_focal_2d;
 Omega_final_2d = best_record.Omega_final_2d;
-Arrhenius_Omega_thermal_2d = best_record.Arrhenius_Omega_thermal_2d;
-cavitation_dose_2d = best_record.cavitation_dose_2d;
-thermal_aux_dose_2d = best_record.thermal_aux_dose_2d;
-thermal_aux_contribution_2d = best_record.thermal_aux_contribution_2d;
-overdrive_penalty_2d = best_record.overdrive_penalty_2d;
-overdrive_penalty_contribution_2d = best_record.overdrive_penalty_contribution_2d;
 T_max_history = best_record.T_max_history;
 Nt_th = best_record.Nt_th;
 p_3d_scaled = best_record.p_3d_scaled;
-cavitation_activity_2d = best_record.cavitation_activity_2d;
-cavitation_heat_gain_2d = best_record.cavitation_heat_gain_2d;
-cavitation_peak = best_record.cavitation_peak;
-cavitation_roi_mean = best_record.cavitation_roi_mean;
 t_axis = (1:Nt_th) * dt_th;
 T_max_real = max(T_max_history);
 
-% 8.结果处理
-Cure_Score_Threshold = best_record.cure_threshold;
-cured_mask_2d = Omega_final_2d >= Cure_Score_Threshold;
+%% 8.结果处理
+Thermal_Dose_Threshold = 1.0;
+cured_mask_2d = Omega_final_2d >= Thermal_Dose_Threshold;
 R_binary = imag_target > 0.5;
 ROI_pixels = sum(R_binary(:));
-cavitation_dose_peak = max(cavitation_dose_2d(:));
-cavitation_dose_roi_mean = mean(cavitation_dose_2d(R_binary));
-thermal_aux_roi_mean = mean(thermal_aux_contribution_2d(R_binary));
-overdrive_penalty_roi_mean = mean(overdrive_penalty_contribution_2d(R_binary));
-arrhenius_thermal_roi_mean = mean(Arrhenius_Omega_thermal_2d(R_binary));
-bulk_deltaT_max = T_max_real - cure_model.bulk_ref_temp;
 
 cured_coverage = (sum(cured_mask_2d(:) & R_binary(:)) / ROI_pixels) * 100;
 if cured_coverage > 100, cured_coverage = 100; end
@@ -1048,7 +600,7 @@ asm_kwave_nmse = sum((asm_iasa_norm(:) - p_focal_norm(:)).^2) / sum(asm_iasa_nor
 asm_python_kwave_corr = corr2(asm_python_norm, p_focal_norm);
 asm_python_kwave_nmse = sum((asm_python_norm(:) - p_focal_norm(:)).^2) / sum(asm_python_norm(:).^2);
 
-% 9.可视化
+%% 9.可视化
 figure(1); clf; set(gcf, 'Position', [120, 120, 1400, 420], 'Color', 'w');
 subplot(1, 4, 1);
 imagesc(x * 1e3, y * 1e3, target_norm_asm); axis image; colormap(gca, gray);
@@ -1056,11 +608,11 @@ title('Target'); xlabel('mm'); ylabel('mm');
 
 subplot(1, 4, 2);
 imagesc(x * 1e3, y * 1e3, asm_python_norm); axis image; colormap(gca, turbo); colorbar;
-title(sprintf('%s ASM\nPCC %.4f | SSIM %.4f', phase_mode_initial_label, asm_python_pcc, asm_python_ssim)); xlabel('mm'); ylabel('mm');
+title(sprintf('%s ASM\nPCC %.4f | SSIM %.4f', phase_initial_label, asm_python_pcc, asm_python_ssim)); xlabel('mm'); ylabel('mm');
 
 subplot(1, 4, 3);
 imagesc(x * 1e3, y * 1e3, asm_iasa_norm); axis image; colormap(gca, turbo); colorbar;
-title(sprintf('%s ASM\nPCC %.4f | SSIM %.4f', phase_mode_final_label, asm_iasa_pcc, asm_iasa_ssim)); xlabel('mm'); ylabel('mm');
+title(sprintf('%s ASM\nPCC %.4f | SSIM %.4f', phase_final_label, asm_iasa_pcc, asm_iasa_ssim)); xlabel('mm'); ylabel('mm');
 
 subplot(1, 4, 4);
 imagesc(x * 1e3, y * 1e3, p_focal_norm); axis image; colormap(gca, turbo); colorbar;
@@ -1154,14 +706,14 @@ title('厚度 (mm)'); xlabel('mm'); ylabel('mm');
 subplot(3, 5, 5);
 imagesc(x * 1e3, y * 1e3, Omega_final_2d); axis image; colormap(gca, turbo); colorbar;
 clim([0, max(2.0, max(Omega_final_2d(:)))]);
-title('固化评分'); xlabel('mm'); ylabel('mm');
+title('热剂量'); xlabel('mm'); ylabel('mm');
 
 subplot(3, 5, 6);
 imagesc(x * 1e3, y * 1e3, Q_focal_2d / 1e6); axis image; colormap(gca, hot); colorbar;
 title('热源 (MW/m^3)'); xlabel('mm'); ylabel('mm');
 
 subplot(3, 5, 7);
-imagesc(x * 1e3, y * 1e3, p_focal_scaled / 1e6); axis image; colormap(gca, jet); colorbar;
+imagesc(x * 1e3, y * 1e3, focal_slice_abs / 1e6); axis image; colormap(gca, jet); colorbar;
 title('声压 (MPa)'); xlabel('mm'); ylabel('mm');
 
 subplot(3, 5, 8);
@@ -1191,27 +743,22 @@ subplot(3, 5, [14 15]);
 surf(X_surf, Y_surf, p_focal_scaled / 1e6); shading interp; colormap(gca, jet); colorbar;
 title('3D焦面声压场(MPa)'); xlabel('mm'); ylabel('mm'); zlabel('MPa');
 
-% 10. Report
+%% 10. Report
 fprintf('\n========================================\n');
 fprintf('系统参数\n');
 fprintf('频率: %.2f MHz | Lens OD: %.1f mm\n', f0 / 1e6, Lx * 1e3);
 fprintf('网格分辨率: %.2f um |节点总数: %.1f M\n', dx * 1e6, (Nx * Ny * Nz) / 1e6);
 fprintf('----------------------------------------\n');
 fprintf('声场质量评估\n');
-fprintf('设计/最佳声场距离: %.2f / %.2f mm (shift %.2f mm)\n', ...
-    design_z_dist_mm, actual_z_dist_mm, focus_shift_mm);
-fprintf('焦面搜索边界余量: %.2f mm\n', focus_search_edge_margin_mm);
-if focus_search_near_edge
-    fprintf('警告: 最佳声场平面接近z扫描边界，建议扩大focus_scan_radius后重跑k-Wave。\n');
-end
+fprintf('最佳声场距离: %.2f mm\n', actual_z_dist_mm);
 fprintf('PCC: %.4f\n', best_corr);
 fprintf('SSIM: %.4f\n', SSIM_val);
 fprintf('NMSE: %.4f\n', NMSE);
 fprintf('EE: %.2f%%\n', Energy_Efficiency * 100);
-fprintf('%s ASM PCC/SSIM/NMSE: %.4f / %.4f / %.4f\n', phase_mode_initial_label, asm_python_pcc, asm_python_ssim, asm_python_nmse);
-fprintf('%s ASM PCC/SSIM/NMSE: %.4f / %.4f / %.4f\n', phase_mode_final_label, asm_iasa_pcc, asm_iasa_ssim, asm_iasa_nmse);
+fprintf('%s ASM PCC/SSIM/NMSE: %.4f / %.4f / %.4f\n', phase_initial_label, asm_python_pcc, asm_python_ssim, asm_python_nmse);
+fprintf('%s ASM PCC/SSIM/NMSE: %.4f / %.4f / %.4f\n', phase_final_label, asm_iasa_pcc, asm_iasa_ssim, asm_iasa_nmse);
 fprintf('ASM(IASA)-kWave PCC/NMSE: %.4f / %.4f\n', asm_kwave_corr, asm_kwave_nmse);
-fprintf('ASM(%s)-kWave PCC/NMSE: %.4f / %.4f\n', phase_mode_initial_label, asm_python_kwave_corr, asm_python_kwave_nmse);
+fprintf('ASM(%s)-kWave PCC/NMSE: %.4f / %.4f\n', phase_initial_label, asm_python_kwave_corr, asm_python_kwave_nmse);
 fprintf('出口平面最大幅值: %.4f | min/max ratio: %.4f\n', exit_amp_cv, exit_amp_min_ratio);
 fprintf('Exit-field ASM target PCC: %.4f | Exit-field ASM vs k-Wave PCC: %.4f\n', ...
     board_exit_asm_pcc, board_exit_kwave_corr);
@@ -1222,16 +769,10 @@ fprintf('LocalMean-ExitAmp Corr: %.4f | LocalStd-ExitAmp Corr: %.4f\n', ...
 fprintf('EdgeDist-ExitAmp Corr: %.4f | Multi-factor R^2: %.4f\n', ...
     edge_dist_amp_corr, exit_amp_model_r2);
 fprintf('Edge Mean ExitAmp: %.4f | Flat Mean ExitAmp: %.4f\n', edge_amp_mean, flat_amp_mean);
-fprintf('Cavitation peak/ROI mean: %.4f / %.4f\n', cavitation_peak, cavitation_roi_mean);
 fprintf('----------------------------------------\n');
 fprintf('固化分析\n');
 fprintf('最佳固化指标出自: %.2f MPa + %.2f s曝光 ( %.2f s冷却)\n', target_median_pressure / 1e6, exposure_time, cooling_time);
-fprintf('Bulk Tmax / DeltaT: %.1f C / %.1f C\n', T_max_real, bulk_deltaT_max);
-fprintf('Cure score threshold: %.2f\n', Cure_Score_Threshold);
-fprintf('Cavitation dose peak/ROI mean: %.4f / %.4f\n', cavitation_dose_peak, cavitation_dose_roi_mean);
-fprintf('Thermal aux ROI mean: %.4f\n', thermal_aux_roi_mean);
-fprintf('Overdrive penalty ROI mean: %.4f\n', overdrive_penalty_roi_mean);
-fprintf('Arrhenius thermal diagnostic ROI mean: %.4f\n', arrhenius_thermal_roi_mean);
+fprintf('峰值温度: %.1f C\n', T_max_real);
 fprintf('有效固化: %.1f%%\n', cured_coverage);
 fprintf('IoU: %.4f\n', IoU);
 fprintf('Dice: %.4f\n', Dice);
